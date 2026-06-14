@@ -57,7 +57,17 @@
     if (eng?.id === 'lmstudio' && !keepToken && !token.trim()) token = 'lmstudio';
   }
   const isCustomUrl = $derived(!!baseUrl && !engines.some((e) => e.baseUrl === baseUrl));
-  const canSubmit = $derived(baseUrl.trim().length > 0);
+  // Soft URL check (same pattern as ProfilesTab's host parsing): block obviously malformed
+  // baseUrls from reaching the backend, not just empty ones.
+  function isValidUrl(s: string): boolean {
+    try {
+      new URL(s);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const canSubmit = $derived(isValidUrl(baseUrl.trim()));
 
   let models = $state<string[]>([]);
   let loadingModels = $state(false);

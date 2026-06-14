@@ -91,6 +91,8 @@
   let statuses = $state<Record<string, any>>({});
   let running = $state<string | null>(null);
   let log = $state<string[]>([]);
+  /** Cap the console buffer so a chatty/stuck script can't grow it without bound. */
+  const MAX_LOG = 5000;
   let active = $state('updates');
   let theme = $state<Theme>('dark');
   let backupData = $state<BackupList | null>(null);
@@ -161,9 +163,9 @@
     lastRunMode = mode;
     const verb = mode === 'apply' ? t('page.verb_apply') : t('page.verb_check');
     const line = t('page.log_component', { name: comp?.name ?? id, verb });
-    log = append ? [...log, line] : [line];
+    log = (append ? [...log, line] : [line]).slice(-MAX_LOG);
     runComponent(id, mode).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
+      log = [...log, t('page.log_error', { e })].slice(-MAX_LOG);
       running = null;
     });
   }
@@ -302,8 +304,12 @@
     mcp: string[],
     claudeMd: boolean
   ) {
-    await setLaunchConfig(name, mode, mcp, claudeMd);
-    await reloadProfiles();
+    try {
+      await setLaunchConfig(name, mode, mcp, claudeMd);
+      await reloadProfiles();
+    } catch (e) {
+      log = [...log, t('page.log_error', { e: String(e) })].slice(-MAX_LOG);
+    }
   }
 
   function onMeasure(name: string, lean: boolean) {
@@ -724,12 +730,12 @@
     unlisten.push(
       await listen<{ component: string; stream: string; line: string }>('run-log', (e) => {
         const p = e.payload;
-        log = [...log, (p.stream === 'err' ? '⚠ ' : '') + p.line];
+        log = [...log, (p.stream === 'err' ? '⚠ ' : '') + p.line].slice(-MAX_LOG);
       })
     );
     unlisten.push(
       await listen<{ component: string; code: number }>('run-done', async (e) => {
-        log = [...log, t('page.log_done', { code: e.payload.code })];
+        log = [...log, t('page.log_done', { code: e.payload.code })].slice(-MAX_LOG);
         running = null;
         const id = e.payload.component;
         const code = e.payload.code;
@@ -814,6 +820,7 @@
 
     // Refresh statuses when the window regains focus.
     const onFocus = () => {
+      if (running) return; // don't reload statuses mid-run (avoids extra pwsh spawns + flicker)
       components.forEach(loadStatus);
       reloadBackup();
       reloadProfiles();

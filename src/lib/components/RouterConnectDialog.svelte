@@ -34,11 +34,16 @@
       loading = true;
       readEngineModels(engine.baseUrl)
         .then((m) => {
+          if (seeded !== key) return; // a newer open/engine superseded this request
           models = m;
           if (m.length && !model) model = m[0];
         })
-        .catch(() => (models = []))
-        .finally(() => (loading = false));
+        .catch(() => {
+          if (seeded === key) models = [];
+        })
+        .finally(() => {
+          if (seeded === key) loading = false;
+        });
     }
   });
 

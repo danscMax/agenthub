@@ -56,10 +56,12 @@
     paths = await appPaths();
     flash(t('settings.savedPath'));
   }
+  // Enforce the inputs' min=5 on save too (the browser only enforces it on validated submit).
+  const clampTimeout = (v: number | '') => (v === '' ? null : Math.max(5, Number(v)));
   async function saveTimeouts() {
     await persist({
-      fetchTimeoutSec: fetchTimeout === '' ? null : Number(fetchTimeout),
-      ghTimeoutSec: ghTimeout === '' ? null : Number(ghTimeout)
+      fetchTimeoutSec: clampTimeout(fetchTimeout),
+      ghTimeoutSec: clampTimeout(ghTimeout)
     });
     flash(t('settings.savedTimeouts'));
   }
