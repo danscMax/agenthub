@@ -257,6 +257,9 @@ function Write-StatusJson {
         [System.IO.File]::WriteAllText($path, ($payload | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))
         return $path
     } catch {
+        # Don't fail the caller, but don't fail silently either — a swallowed write means the
+        # dashboard would keep showing a stale status.
+        try { Write-Log ("Write-StatusJson failed: {0}" -f $_.Exception.Message) -Level 'WARN' -Color 'Yellow' } catch { }
         return $null
     }
 }

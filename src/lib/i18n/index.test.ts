@@ -3,31 +3,35 @@ import ru from './locales/ru';
 import en from './locales/en';
 import zh from './locales/zh';
 import { t, locale, resolveInitialLocale, plural, pConflict, pUpdate, forkMode, outcomeLabel } from './index.svelte';
-
-function leafKeys(obj: unknown, prefix = ''): string[] {
-  if (typeof obj !== 'object' || obj === null) return [prefix];
-  return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) =>
-    leafKeys(v, prefix ? `${prefix}.${k}` : k)
-  );
-}
+import { comparePair } from './parity';
 
 // Restore the resolved locale after mutating it in tests.
 const original = locale.current;
 afterAll(() => locale.set(original));
 
 describe('locale parity', () => {
-  const ruKeys = new Set(leafKeys(ru));
-  const enKeys = new Set(leafKeys(en));
-  const zhKeys = new Set(leafKeys(zh));
-
-  it('en has exactly the same keys as ru', () => {
-    expect([...enKeys].filter((k) => !ruKeys.has(k))).toEqual([]);
-    expect([...ruKeys].filter((k) => !enKeys.has(k))).toEqual([]);
+  it('en matches ru (keys + placeholders)', () => {
+    expect(comparePair('ru', ru, 'en', en)).toEqual([]);
   });
 
-  it('zh has exactly the same keys as ru', () => {
-    expect([...zhKeys].filter((k) => !ruKeys.has(k))).toEqual([]);
-    expect([...ruKeys].filter((k) => !zhKeys.has(k))).toEqual([]);
+  it('zh matches ru (keys + placeholders)', () => {
+    expect(comparePair('ru', ru, 'zh', zh)).toEqual([]);
+  });
+});
+
+describe('comparePair helper', () => {
+  it('flags a missing key', () => {
+    expect(comparePair('a', { x: '1', y: '2' }, 'b', { x: '1' })).toContain('[b] missing key: y');
+  });
+  it('flags an extra key', () => {
+    expect(comparePair('a', { x: '1' }, 'b', { x: '1', z: '2' })).toContain('[b] extra key: z');
+  });
+  it('flags placeholder drift', () => {
+    const probs = comparePair('a', { g: 'Hi {name}' }, 'b', { g: 'Hi' });
+    expect(probs.some((p) => p.includes('placeholder drift'))).toBe(true);
+  });
+  it('flags an empty namespace as divergence', () => {
+    expect(comparePair('a', { ns: { k: '1' } }, 'b', { ns: {} }).length).toBeGreaterThan(0);
   });
 });
 

@@ -32,6 +32,13 @@ $kit = Join-Path $root 'tools\ScriptKit.ps1'
 if (Test-Path -LiteralPath $kit) { . $kit }   # Write-Banner / Show-Notification (optional)
 $totalStart = Get-Date
 
+# $ErrorActionPreference='Stop' does NOT catch a non-zero exit from native tools (npm/cargo),
+# so check $LASTEXITCODE explicitly. This helper keeps that check uniform and hard to forget.
+function Assert-LastExit {
+    param([Parameter(Mandatory)][string]$Message)
+    if ($LASTEXITCODE -ne 0) { Write-Host "  $Message" -ForegroundColor Red; exit 1 }
+}
+
 if (Get-Command Write-Banner -ErrorAction SilentlyContinue) {
     Write-Banner 'AgentHub — сборка' 'release exe + ярлык на рабочий стол'
 } else {
@@ -53,7 +60,7 @@ Set-Location -LiteralPath $root
 if (-not (Test-Path -LiteralPath (Join-Path $root 'node_modules'))) {
     Write-Host '  npm install...' -ForegroundColor Cyan
     npm install
-    if ($LASTEXITCODE -ne 0) { Write-Host '  npm install не удался.' -ForegroundColor Red; exit 1 }
+    Assert-LastExit 'npm install не удался.'
 }
 
 # 3. Типовой гейт
@@ -105,8 +112,13 @@ if (-not $NoShortcut) {
 $dur = (Get-Date) - $totalStart
 $time = '{0}:{1:D2}' -f [math]::Floor($dur.TotalMinutes), $dur.Seconds
 $size = '{0:0.0} MB' -f ((Get-Item -LiteralPath $exe).Length / 1MB)
-$cargo = Get-Content -LiteralPath (Join-Path $root 'src-tauri\Cargo.toml') -Raw -ErrorAction SilentlyContinue
-$version = if ($cargo -match '(?m)^version\s*=\s*"([^"]+)"') { $matches[1] } else { '?' }
+# Prefer ScriptKit's Get-AppVersion (when dot-sourced); fall back to a direct Cargo.toml read.
+if (Get-Command Get-AppVersion -ErrorAction SilentlyContinue) {
+    $version = Get-AppVersion -Root $root
+} else {
+    $cargo = Get-Content -LiteralPath (Join-Path $root 'src-tauri\Cargo.toml') -Raw -ErrorAction SilentlyContinue
+    $version = if ($cargo -match '(?m)^version\s*=\s*"([^"]+)"') { $matches[1] } else { '?' }
+}
 
 Write-Host ''
 Write-Host "  ГОТОВО — v$version — $time — exe $size" -ForegroundColor Green

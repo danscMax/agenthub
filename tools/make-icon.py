@@ -12,8 +12,13 @@ Requires: Pillow (pip install pillow). No SVG toolchain needed.
 """
 import math
 import os
+import sys
 import tempfile
-from PIL import Image, ImageDraw, ImageFilter
+
+try:
+    from PIL import Image, ImageDraw, ImageFilter
+except ImportError:
+    sys.exit("Pillow is required: pip install pillow")
 
 SS = 3                      # supersample factor for crisp anti-aliasing
 S = 1024 * SS

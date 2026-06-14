@@ -55,6 +55,8 @@ if (-not $copies) {
     exit 0
 }
 
+# -Check forces report-only even if -Apply is also given (explicit drift check).
+$doApply = $Apply -and -not $Check
 $inSync = 0; $drift = 0; $applied = 0; $failed = 0
 foreach ($c in $copies) {
     $hash = Get-FileHashSHA256 -Path $c.FullName
@@ -66,8 +68,10 @@ foreach ($c in $copies) {
     $drift++
     $ver = Get-SkVersion -Path $c.FullName
     Write-Status ("v{0} -> v{1}  {2}" -f $ver, $canonVersion, $c.FullName) 'WARN'
-    if ($Apply) {
+    if ($doApply) {
         try {
+            # Back up the existing copy first so an unexpected rollout is reversible.
+            Copy-Item -LiteralPath $c.FullName -Destination ("{0}.bak" -f $c.FullName) -Force
             Copy-Item -LiteralPath $canonResolved -Destination $c.FullName -Force
             $applied++
             Write-Ok ("rolled out -> {0}" -f $c.FullName)
@@ -79,7 +83,7 @@ foreach ($c in $copies) {
 }
 
 Write-Host ""
-if ($Apply) {
+if ($doApply) {
     Write-Host ("  Done. {0} in sync, {1} drifted, {2} rolled out, {3} failed." -f $inSync, $drift, $applied, $failed) -ForegroundColor White
     if ($failed -gt 0) { exit 1 }
 } else {
