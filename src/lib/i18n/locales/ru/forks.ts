@@ -33,8 +33,23 @@ export default {
   kpiConflicts: 'конфликтов',
   kpiConflictsTip: 'Веток с конфликтами слияния',
   kpiNeedHands: 'требуют действий',
-  kpiNeedHandsTip: 'Сколько репозиториев/веток требуют ручного вмешательства',
+  kpiNeedHandsTip:
+    'Репозиториев/веток, где нужно ваше вмешательство: разрешить конфликты, разобрать незакоммиченные изменения, подтянуть обновления. Конкретное действие — на карточке репозитория ниже.',
   updatedAt: 'обновлено: {time}',
+  modeLine: 'последний прогон: {mode}',
+  refreshing: 'обновляется…',
+  filterAll: 'Все',
+  filterForks: 'Форки',
+  filterOwn: 'Свои',
+  filterTip: 'Фильтр: все репозитории / только форки / только свои',
+  githubOnlyHeading: 'Ещё на GitHub — не клонированы ({n})',
+  githubOnlyTip:
+    'Твои репозитории на GitHub (включая закрытые), которых нет локально. Действия недоступны, пока не клонируешь.',
+  githubOnlyEmptyFilter: 'Нет репозиториев под текущий фильтр.',
+  ghPrivate: 'приватный',
+  ghPrivateTip: 'Закрытый репозиторий на GitHub',
+  ghOpen: 'Открыть на GitHub',
+  ghOpenTip: 'Открыть страницу репозитория на GitHub',
 
   // ── ForksTab: empty state ──
   emptyTitle: 'Нет данных',
@@ -46,9 +61,13 @@ export default {
   promptConflictFiles: '; конфликтные файлы: {files}',
   promptRepo: 'Репозиторий: {name}  ({path})',
   promptRemotes: 'upstream: {upstream} | форк: {fork} | ветка по умолчанию: {branch}',
-  promptTask: 'Задача: разрешить конфликты слияния с upstream для веток:',
+  promptTask: 'Задача: проверить и при необходимости разрешить конфликты слияния с upstream для веток:',
   promptInstructions:
-    'Для каждой ветки: переключись на неё, влей/перебазируй на свежий upstream/{branch}, аккуратно разреши конфликты (сохранив осмысленные изменения с обеих сторон), прогони сборку/тесты, сделай коммит. Не делай force-push без подтверждения.',
+    'Сначала установи факты, не доверяя статусу слепо: выполни `git fetch upstream` и убедись, что ссылка upstream/{branch} существует (если нет — посмотри `git remote -v` и используй реальную ветку отслеживания). Для каждой ветки проверь, есть ли НАСТОЯЩИЙ конфликт со свежим upstream/{branch} через `git merge-tree` (или тестовый merge/rebase). Если конфликта нет — НЕ выдумывай работу: не делай пустых коммитов, слияний «для галочки» и force-push, просто сообщи, что разрешать нечего. Если конфликт реальный — переключись на ветку, влей/перебазируй на свежий upstream/{branch}, аккуратно разреши конфликты (сохранив осмысленные изменения с обеих сторон), прогони сборку/тесты, сделай коммит. Никогда не делай force-push без подтверждения.',
+  promptTaskDirty:
+    'Задача: в рабочем дереве есть незакоммиченные изменения (и/или новые файлы вне git). Нужно разобраться с ними и аккуратно завершить.',
+  promptInstructionsDirty:
+    'Просмотри изменения (git status, git diff). Пойми, что это: сгруппируй связанные правки и сделай понятные коммиты; временное/мусор — добавь в .gitignore или удали. Особый случай — вендоренные/авто-синхронизируемые файлы (в шапке файла есть пометка VENDORED/CANON или для него существует инструмент синхронизации): НЕ коммить локальную копию вслепую — сначала сверь её с каноническим источником и при расхождении обнови из канона (или прогони инструмент синхронизации), и только потом коммить, иначе зафиксируешь устаревшую версию. Прогони сборку/тесты, если они есть. Не делай force-push и не пушь без подтверждения. Если назначение каких-то изменений непонятно — не трогай их и сообщи.',
 
   // ── ForkRepoCard: recommended action ──
   recManualPlain: 'разобраться вручную (идёт незавершённая git-операция)',
@@ -58,6 +77,10 @@ export default {
   recConflictCopied: '✓ Промпт скопирован',
   recConflictLabel: 'Скопировать AI-промпт',
   recConflictTip: 'Скопируй готовый промпт и попроси Claude Code разрешить конфликты',
+  recDirtyPlain: 'разобрать незакоммиченные изменения',
+  recDirtyCopied: '✓ Промпт скопирован',
+  recDirtyLabel: 'Скопировать AI-промпт',
+  recDirtyTip: 'Скопируй промпт и попроси Claude Code разобрать и закоммитить изменения',
   recFfPlain: 'подтянуть обновления из оригинала (отстаёт на {n})',
   recFfLabel: 'Подтянуть из upstream',
   recDeletePlain: 'удалить ветки, уже влитые в оригинал',
@@ -69,8 +92,8 @@ export default {
   healthSkippedTip: 'Репозиторий пропущен',
   healthOpName: 'операция',
   healthOpTip: 'В репозитории идёт незавершённая git-операция — действия заблокированы',
-  healthDetached: 'detached HEAD',
-  healthDetachedTip: 'HEAD не на ветке (detached) — действия заблокированы',
+  healthDetached: 'HEAD вне ветки',
+  healthDetachedTip: 'HEAD не на ветке (detached HEAD) — действия заблокированы, разреши вручную в терминале',
   healthConflictTip: 'Есть ветки, которые не вольются без ручного разрешения конфликтов',
   healthBehind: 'отстаёт на {n}',
   healthBehindTip:
@@ -106,10 +129,11 @@ export default {
   onBranch: ' · на {branch}',
   badgeDirty: 'изменённые файлы',
   badgeDirtyTip: 'Есть незакоммиченные изменения в отслеживаемых файлах',
-  badgeUntracked: 'неотслеживаемые',
-  badgeUntrackedTip: 'Есть новые файлы вне контроля версий',
-  badgeRolesGuessed: 'роли по эвристике',
-  badgeRolesGuessedTip: 'gh недоступен — роли remote определены по эвристике',
+  badgeUntracked: 'новые файлы',
+  badgeUntrackedTip: 'Есть новые файлы вне контроля версий (untracked) — ещё не добавлены в git',
+  badgeRolesGuessed: 'remote — приблизительно',
+  badgeRolesGuessedTip:
+    'gh недоступен — какой remote оригинал (upstream), а какой ваш форк (origin), определено по догадке',
   upstream: 'upstream',
   upstreamTip: 'Оригинальный репозиторий',
   fork: 'форк',
@@ -120,6 +144,16 @@ export default {
   ciLabel: 'CI: {checks}',
   conflictInFiles: 'конфликт в файлах: {files}',
   noTopicBranches: 'Топик-веток нет.',
+  branchAhead: '+{n} от upstream',
+  branchAheadTip: 'Коммитов в этой ветке сверх upstream: {n}',
+
+  // ── ForkRepoCard: wip-local (личная рабочая ветка) ──
+  wipBehind: 'wip-local отстал на {n}',
+  wipBehindTip:
+    'Личная рабочая ветка wip-local отстаёт от upstream на {n} коммитов — стоит синхронизировать',
+  wipLabel: 'wip-local',
+  wipBehindRow: 'отстаёт на {n}',
+  wipMergedPatches: 'влито патчей: {n}',
 
   // ── ForkRepoCard: action row ──
   recommended: 'Рекомендуется:',
@@ -136,5 +170,17 @@ export default {
   labelFf: '{name}: fast-forward «{branch}» к upstream',
   labelDelete: '{name}: удалить влитые ветки (локально + форк)',
   labelRebase: '{name}: перебазировать открытые ветки на upstream',
-  labelNormalize: '{name}: нормализовать remotes'
+  labelNormalize: '{name}: нормализовать remotes',
+  labelSyncWip: '{name}: синхронизировать wip-local с upstream',
+
+  // ── ForkRepoCard: sync wip-local action ──
+  recSyncWipPlain: 'синхронизировать wip-local с оригиналом (отстаёт на {n})',
+  recSyncWipLabel: 'Синхронизировать wip-local',
+  recSyncWipTip:
+    'Перебазировать личную ветку wip-local на свежий upstream (локально, без push; при конфликте — отмена)',
+  actionSyncWip: 'Синхронизировать wip-local',
+  syncWipTip: 'Перебазировать wip-local на свежий upstream (локально, без push)',
+  syncWipTipSynced: 'Недоступно: wip-local уже синхронизирован',
+  syncWipTipDirty: 'Недоступно: есть незакоммиченные изменения',
+  syncWipTipUnavailable: 'Недоступно: нет ветки wip-local'
 };

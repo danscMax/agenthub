@@ -44,23 +44,47 @@
     ].join('\n');
   }
 
-  async function copyPrompt() {
+  // Prompt for a repo with uncommitted/untracked changes — ask Claude Code to sort them out.
+  function dirtyPrompt(): string {
+    return [
+      t('forks.promptRepo', { name: repo.Name, path: repo.Path }),
+      t('forks.promptRemotes', {
+        upstream: repo.upstream ?? t('common.dash'),
+        fork: repo.fork ?? t('common.dash'),
+        branch: repo.defaultBranch ?? t('common.dash')
+      }),
+      '',
+      t('forks.promptTaskDirty'),
+      '',
+      t('forks.promptInstructionsDirty')
+    ].join('\n');
+  }
+
+  async function copyText(text: string) {
     try {
-      await navigator.clipboard.writeText(aiPrompt());
+      await navigator.clipboard.writeText(text);
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {
       copied = false;
     }
   }
+  const copyPrompt = () => copyText(aiPrompt());
+  const copyDirtyPrompt = () => copyText(dirtyPrompt());
+  const isDirty = $derived(repo.dirty || repo.untracked);
   const hasMerged = $derived(branches.some((b) => b.outcome === 'merged'));
   const hasClean = $derived(branches.some((b) => b.outcome === 'clean'));
   const safeTree = $derived(!repo.midOp && !repo.detached);
+  // How far the personal wip-local integration branch trails upstream (separate from the
+  // default branch's behindBy — a repo sitting on wip-local can be behind while main is synced).
+  const wipBehind = $derived(repo.wipLocal?.behindBy ?? 0);
 
   const canFf = $derived((repo.behindBy ?? 0) > 0 && repo.ffSafe && !repo.dirty && safeTree);
   const canDelete = $derived(hasMerged && safeTree);
   const canRebase = $derived(!repo.dirty && hasClean && safeTree);
   const canNormalize = $derived(safeTree);
+  // wip-local can be synced (rebased onto fresh upstream) when it trails and the tree is safe.
+  const canSyncWip = $derived(wipBehind > 0 && !repo.dirty && safeTree);
 
   // Single recommended next action for this repo (the "what do I do now" answer).
   const rec = $derived.by(() => {
@@ -72,6 +96,11 @@
       return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0 }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning };
     if (!repo.isOwn && canDelete)
       return { key: 'delete', plain: t('forks.recDeletePlain'), label: t('forks.recDeleteLabel'), tip: delTip, run: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })), disabled: anyRunning };
+    if (canSyncWip)
+      return { key: 'syncwip', plain: t('forks.recSyncWipPlain', { n: wipBehind }), label: t('forks.recSyncWipLabel'), tip: t('forks.recSyncWipTip'), run: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })), disabled: anyRunning };
+    // Fallback for repos with local work but no sync action: uncommitted/untracked changes.
+    if (isDirty)
+      return { key: 'dirty', plain: t('forks.recDirtyPlain'), label: copied ? t('forks.recDirtyCopied') : t('forks.recDirtyLabel'), tip: t('forks.recDirtyTip'), run: copyDirtyPrompt, disabled: false };
     return null;
   });
 
@@ -106,6 +135,15 @@
   }
   const delTip = $derived(canDelete ? t('forks.delTip') : t('forks.delTipUnavailable'));
   const rebaseTip = $derived(canRebase ? t('forks.rebaseTip') : repo.dirty ? t('forks.rebaseTipDirty') : t('forks.rebaseTipUnavailable'));
+  const syncWipTip = $derived(
+    canSyncWip
+      ? t('forks.syncWipTip')
+      : wipBehind === 0
+        ? t('forks.syncWipTipSynced')
+        : repo.dirty
+          ? t('forks.syncWipTipDirty')
+          : t('forks.syncWipTipUnavailable')
+  );
   const normTip = $derived(t('forks.normTip'));
 </script>
 
@@ -127,8 +165,9 @@
     <span class="badge {health.cls} shrink-0" title={health.tip}>{health.label}</span>
   </div>
 
-  {#if repo.dirty || repo.untracked || repo.rolesGuessed}
+  {#if repo.dirty || repo.untracked || repo.rolesGuessed || wipBehind > 0}
     <div class="flex flex-wrap gap-sw-2 text-sw-xs">
+      {#if wipBehind > 0}<span class="badge badge-info" title={t('forks.wipBehindTip', { n: wipBehind })}>{t('forks.wipBehind', { n: wipBehind })}</span>{/if}
       {#if repo.dirty}<span class="badge badge-warn" title={t('forks.badgeDirtyTip')}>{t('forks.badgeDirty')}</span>{/if}
       {#if repo.untracked}<span class="badge badge-muted" title={t('forks.badgeUntrackedTip')}>{t('forks.badgeUntracked')}</span>{/if}
       {#if repo.rolesGuessed}<span class="badge badge-muted" title={t('forks.badgeRolesGuessedTip')}>{t('forks.badgeRolesGuessed')}</span>{/if}
@@ -142,6 +181,14 @@
       {/if}
       {#if repo.fork}
         <div class="flex justify-between gap-sw-2"><dt>{t('forks.fork')}</dt><dd class="truncate text-sw-text" title={t('forks.forkTip')}>{repo.fork}</dd></div>
+      {/if}
+      {#if repo.wipLocal && (wipBehind > 0 || (repo.wipLocal.mergedPatches ?? 0) > 0)}
+        <div class="flex justify-between gap-sw-2">
+          <dt>{t('forks.wipLabel')}</dt>
+          <dd class="text-sw-text" title={t('forks.wipBehindTip', { n: wipBehind })}>
+            {#if wipBehind > 0}{t('forks.wipBehindRow', { n: wipBehind })}{/if}{#if wipBehind > 0 && (repo.wipLocal.mergedPatches ?? 0) > 0} · {/if}{#if (repo.wipLocal.mergedPatches ?? 0) > 0}{t('forks.wipMergedPatches', { n: repo.wipLocal.mergedPatches ?? 0 })}{/if}
+          </dd>
+        </div>
       {/if}
     </dl>
 
@@ -161,6 +208,7 @@
                   <span class="badge {pb.cls}">{pb.label}{b.prNumber ? ` #${b.prNumber}` : ''}</span>
                 {/if}
               {/if}
+              {#if b.aheadOfUpstream && b.aheadOfUpstream > 0}<span class="text-sw-xs text-sw-text-muted" title={t('forks.branchAheadTip', { n: b.aheadOfUpstream })}>{t('forks.branchAhead', { n: b.aheadOfUpstream })}</span>{/if}
               {#if b.checks && b.checks !== 'none'}<span class="text-sw-xs text-sw-text-muted" title={t('forks.ciTip')}>{t('forks.ciLabel', { checks: b.checks })}</span>{/if}
             </div>
             {#if b.action}<p class="text-sw-xs text-sw-text-muted">{b.action}</p>{/if}
@@ -201,6 +249,7 @@
               { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
               { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || !canDelete, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
               { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
+              { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
               { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }
             ]}
           />

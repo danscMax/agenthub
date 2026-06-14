@@ -44,10 +44,9 @@
     collapsed = c != null ? c === '1' : log.length === 0 && !running;
   });
 
-  // Auto-expand when a run starts.
-  $effect(() => {
-    if (running) collapsed = false;
-  });
+  // A run does NOT force the console open — the collapsed/expanded choice is the user's
+  // (persisted in CKEY). While collapsed, the header still shows a "live" pulse + line count,
+  // and an error toast's "Open log" action can reveal it via revealSignal below.
 
   // Force-expand on external reveal signal (toast action).
   $effect(() => {

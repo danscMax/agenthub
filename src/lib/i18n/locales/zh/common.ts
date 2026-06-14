@@ -33,6 +33,7 @@ export default {
   error: '错误',
   done: '完成',
   loading: '加载中…',
+  refreshing: '刷新中…',
   saved: '已保存',
   busy: '处理中…',
   none: '无',

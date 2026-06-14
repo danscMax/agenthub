@@ -17,7 +17,7 @@ export const runComponent = (id: string, mode: RunMode) =>
 export const cancelRun = () => invoke('cancel_run');
 
 // --- Forks tab ---
-export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'normalize';
+export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'sync-wip' | 'normalize';
 
 export const runForks = (action: ForkAction, path?: string) =>
   invoke<number>('run_forks', { action, path: path ?? null });
@@ -68,6 +68,20 @@ export type ForkStatus = {
   summary?: { repos: number; merged: number; open: number; conflict: number; needHands: number };
   repos?: ForkRepo[];
 };
+
+// A repo on the user's GitHub account (from `gh repo list`), used to surface repos
+// that aren't locally cloned. Reconciled with ForkRepo by name in the Forks tab.
+export type GithubRepo = {
+  owner: string;
+  name: string;
+  nameWithOwner: string;
+  isPrivate: boolean;
+  isFork: boolean;
+  url: string;
+  updatedAt: string;
+};
+
+export const listGithubRepos = () => invoke<GithubRepo[]>('list_github_repos');
 
 // --- Backup tab ---
 export type BackupAction = 'backup' | 'restore-preview' | 'restore';
@@ -193,6 +207,56 @@ export type ProviderArgs = {
 export const readEngines = () => invoke<EngineStatus[]>('read_engines');
 export const updateEngine = (id: string, baseUrl: string, port: number) =>
   invoke('update_engine', { id, baseUrl, port });
+
+// --- LLM stack (llm-stack\stack.json — single source of truth for the gateway + fork backends) ---
+export type StackService = {
+  id: string;
+  name: string;
+  group: string; // 'core' | 'router'
+  port: number;
+  protocol: string; // 'openai' | 'anthropic' | 'openai+anthropic'
+  dashboard: string; // '' if none
+  dir: string;
+  enabled: boolean;
+  running: boolean; // live port probe
+};
+export const readStack = () => invoke<StackService[]>('read_stack');
+export const runStack = (action: 'start' | 'stop') => invoke<number>('run_stack', { action });
+
+// --- opencode agent (single global config: ~/.config/opencode/opencode.json) ---
+export type OpencodeProvider = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  hasKey: boolean; // apiKey value is never exposed, only whether one is set
+};
+export type OpencodeStatus = {
+  installed: boolean; // config file exists
+  model: string; // active model "<id>/<model>"
+  providers: OpencodeProvider[];
+};
+export type OpencodeProviderArgs = {
+  action: 'set' | 'clear';
+  providerId: string;
+  name?: string;
+  baseUrl?: string;
+  model?: string;
+  key?: string; // literal apiKey
+  envKey?: string; // → "{env:envKey}" placeholder
+  keepKey?: boolean; // keep existing apiKey
+};
+export const readOpencode = () => invoke<OpencodeStatus>('read_opencode');
+export const runOpencodeProvider = (args: OpencodeProviderArgs) =>
+  invoke<number>('run_opencode_provider', {
+    action: args.action,
+    providerId: args.providerId,
+    name: args.name ?? null,
+    baseUrl: args.baseUrl ?? null,
+    model: args.model ?? null,
+    key: args.key ?? null,
+    envKey: args.envKey ?? null,
+    keepKey: args.keepKey ?? null
+  });
 export const runEngine = (action: 'start' | 'stop', id: string) =>
   invoke<number>('run_engine', { action, id });
 export const runRouter = (

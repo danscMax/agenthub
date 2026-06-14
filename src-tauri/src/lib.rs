@@ -132,16 +132,44 @@ fn abs(rel: &str) -> String {
     format!("{}\\{}", scripts_root(), rel)
 }
 
+// fork-updater is now vendored under AgentHub\tools\; these are the pre-rename external
+// locations, used as a fallback if the vendored copy is absent (e.g. a relocated exe).
+const FORKS_SCRIPT_FALLBACK: &str = "fork-updater\\update-forks.ps1";
+const FORKS_LASTJSON_FALLBACK: &str = "fork-updater\\fork-sync.last.json";
+
+/// Resolve `rel` under scripts_root, preferring it but falling back to `fallback_rel`
+/// when the primary file doesn't exist (vendored-first, external-second).
+fn abs_with_fallback(rel: &str, fallback_rel: &str) -> String {
+    let primary = abs(rel);
+    if std::path::Path::new(&primary).exists() {
+        return primary;
+    }
+    let fb = abs(fallback_rel);
+    if std::path::Path::new(&fb).exists() {
+        return fb;
+    }
+    primary
+}
+
 #[tauri::command]
 fn list_components() -> Vec<Component> {
     raw_components()
         .into_iter()
-        .map(|c| Component {
-            id: c.id,
-            name: c.name,
-            group: c.group,
-            last_json: c.last_json_rel.as_deref().map(abs),
-            supports_apply: c.supports_apply,
+        .map(|c| {
+            let is_forks = c.id == "forks";
+            Component {
+                last_json: c.last_json_rel.as_deref().map(|rel| {
+                    if is_forks {
+                        abs_with_fallback(rel, FORKS_LASTJSON_FALLBACK)
+                    } else {
+                        abs(rel)
+                    }
+                }),
+                id: c.id,
+                name: c.name,
+                group: c.group,
+                supports_apply: c.supports_apply,
+            }
         })
         .collect()
 }
@@ -295,6 +323,7 @@ fn forks_action_args(action: &str) -> Option<Vec<String>> {
         "ff" => vec!["-FfMain", "-Yes", "-Unattended"],
         "delete" => vec!["-DeleteMerged", "-Yes", "-Unattended"],
         "rebase" => vec!["-Rebase", "-Yes", "-Unattended"],
+        "sync-wip" => vec!["-SyncWipLocal", "-Yes", "-Unattended"],
         "normalize" => vec!["-NormalizeRemotes", "-Yes", "-Unattended"],
         _ => return None,
     };
@@ -331,7 +360,7 @@ async fn run_forks(
         args.push("-GhTimeoutSec".into());
         args.push(t.to_string());
     }
-    let script = abs(&comp.script_rel);
+    let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
     spawn_streamed(app, state, "forks".to_string(), script, args).await
 }
 
@@ -696,6 +725,90 @@ fn read_engines() -> Vec<EngineStatus> {
     engines
 }
 
+const STACK_CONFIG_REL: &str = "llm-stack\\stack.json";
+const STACK_START_REL: &str = "llm-stack\\start-stack.ps1";
+const STACK_STOP_REL: &str = "llm-stack\\stop-stack.ps1";
+
+#[derive(Serialize)]
+struct StackService {
+    id: String,
+    name: String,
+    group: String,
+    port: u16,
+    protocol: String,
+    dashboard: String,
+    dir: String,
+    enabled: bool,
+    running: bool,
+}
+
+/// LLM-stack services from `llm-stack\stack.json` (the single source of truth for the
+/// gateway + backend forks) + live running status (port probe). Read-only. Empty if the
+/// manifest is missing. `protocol`/`port`/`dashboard` come straight from the manifest —
+/// nothing is hardcoded here.
+#[tauri::command]
+fn read_stack() -> Vec<StackService> {
+    let content = match std::fs::read_to_string(abs(STACK_CONFIG_REL)) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let v = match parse_json_bom(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let Some(arr) = v.get("services").and_then(|s| s.as_array()) else {
+        return Vec::new();
+    };
+    let s = |e: &serde_json::Value, k: &str| {
+        e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
+    let mut svcs: Vec<StackService> = arr
+        .iter()
+        .map(|e| StackService {
+            id: s(e, "id"),
+            name: s(e, "name"),
+            group: s(e, "group"),
+            port: e.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
+            protocol: s(e, "protocol"),
+            dashboard: e.get("dashboard").and_then(|d| d.as_str()).unwrap_or("").to_string(),
+            dir: s(e, "dir"),
+            enabled: e.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
+            running: false,
+        })
+        .collect();
+    // Probe ports concurrently (each probe blocks up to 250ms) — same pattern as read_engines.
+    let running: Vec<bool> = std::thread::scope(|scope| {
+        let handles: Vec<_> = svcs
+            .iter()
+            .map(|svc| {
+                let p = svc.port;
+                scope.spawn(move || p != 0 && port_listening(p))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect()
+    });
+    for (svc, r) in svcs.iter_mut().zip(running) {
+        svc.running = r;
+    }
+    svcs
+}
+
+/// Start (`-Router`, includes the paid GLM router on :4000) or stop (`-All`) the whole
+/// LLM stack via `llm-stack\start-stack.ps1` / `stop-stack.ps1` (streamed via pwsh).
+#[tauri::command]
+async fn run_stack(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    action: String,
+) -> Result<i32, String> {
+    let (script, args) = match action.as_str() {
+        "start" => (abs(STACK_START_REL), vec!["-Router".to_string()]),
+        "stop" => (abs(STACK_STOP_REL), vec!["-All".to_string()]),
+        _ => return Err(format!("неизвестное действие стека: {action}")),
+    };
+    spawn_streamed(app, state, "engine".to_string(), script, args).await
+}
+
 /// Patch an engine's baseUrl + port in config\engines.json (user can change ports when
 /// something else occupies the default). Read-modify-write, preserves everything else.
 #[tauri::command]
@@ -834,6 +947,64 @@ async fn read_engine_models(base_url: String) -> Vec<String> {
 }
 
 #[derive(Serialize)]
+struct GithubRepo {
+    owner: String,
+    name: String,
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+    #[serde(rename = "isPrivate")]
+    is_private: bool,
+    #[serde(rename = "isFork")]
+    is_fork: bool,
+    url: String,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+}
+
+/// All of the authenticated user's GitHub repos (incl. private), via `gh repo list`.
+/// Lets the UI surface repos that aren't locally cloned. Empty if gh is missing or
+/// unauthenticated; read-only (no network writes).
+#[tauri::command]
+async fn list_github_repos() -> Vec<GithubRepo> {
+    let out = tokio::process::Command::new("gh")
+        .args([
+            "repo", "list", "--limit", "1000", "--json",
+            "name,owner,nameWithOwner,isPrivate,isFork,url,updatedAt",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .await;
+    let Ok(out) = out else { return Vec::new() };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(stdout.trim()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .map(|r| {
+            let s = |k: &str| r.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let b = |k: &str| r.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
+            GithubRepo {
+                owner: r
+                    .get("owner")
+                    .and_then(|o| o.get("login"))
+                    .and_then(|l| l.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                name: s("name"),
+                name_with_owner: s("nameWithOwner"),
+                is_private: b("isPrivate"),
+                is_fork: b("isFork"),
+                url: s("url"),
+                updated_at: s("updatedAt"),
+            }
+        })
+        .collect()
+}
+
+#[derive(Serialize)]
 struct ProfileProvider {
     name: String,
     #[serde(rename = "baseUrl")]
@@ -938,6 +1109,138 @@ async fn run_provider(
         }
     }
     let script = abs(PROVIDER_SCRIPT_REL);
+    spawn_streamed(app, state, "provider".to_string(), script, args).await
+}
+
+const OPENCODE_PROVIDER_SCRIPT_REL: &str =
+    "!Настройки и MCP\\ClaudeProfiles\\Manage-OpenCode-Provider.ps1";
+
+/// opencode's global config path: $OPENCODE_CONFIG → $XDG_CONFIG_HOME\opencode → ~/.config/opencode.
+fn opencode_config_path() -> String {
+    if let Ok(p) = std::env::var("OPENCODE_CONFIG") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
+        if !x.is_empty() {
+            return format!("{x}\\opencode\\opencode.json");
+        }
+    }
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    format!("{home}\\.config\\opencode\\opencode.json")
+}
+
+#[derive(Serialize)]
+struct OpencodeProvider {
+    id: String,
+    name: String,
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    #[serde(rename = "hasKey")]
+    has_key: bool,
+}
+
+#[derive(Serialize)]
+struct OpencodeStatus {
+    installed: bool, // does the config file exist?
+    model: String,   // active model "<id>/<model>", or ""
+    providers: Vec<OpencodeProvider>,
+}
+
+/// opencode's global config (custom providers + active model). Read-only; the apiKey VALUE is
+/// never returned (only `has_key`). `installed=false` when no config file exists yet.
+#[tauri::command]
+fn read_opencode() -> OpencodeStatus {
+    let content = match std::fs::read_to_string(opencode_config_path()) {
+        Ok(c) => c,
+        Err(_) => {
+            return OpencodeStatus { installed: false, model: String::new(), providers: Vec::new() }
+        }
+    };
+    let v = match parse_json_bom(&content) {
+        Ok(v) => v,
+        Err(_) => {
+            return OpencodeStatus { installed: true, model: String::new(), providers: Vec::new() }
+        }
+    };
+    let model = v.get("model").and_then(|m| m.as_str()).unwrap_or("").to_string();
+    let mut providers = Vec::new();
+    if let Some(obj) = v.get("provider").and_then(|p| p.as_object()) {
+        for (id, p) in obj {
+            let opts = p.get("options");
+            providers.push(OpencodeProvider {
+                id: id.clone(),
+                name: p.get("name").and_then(|x| x.as_str()).unwrap_or(id).to_string(),
+                base_url: opts
+                    .and_then(|o| o.get("baseURL"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                has_key: opts
+                    .and_then(|o| o.get("apiKey"))
+                    .and_then(|x| x.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false),
+            });
+        }
+    }
+    OpencodeStatus { installed: true, model, providers }
+}
+
+/// Bind (`set`) or unbind (`clear`) a custom OpenAI-compatible provider for opencode via
+/// Manage-OpenCode-Provider.ps1 (merge-patch of opencode.json). apiKey: literal `key`, else
+/// `{env:env_key}`, else keep existing.
+#[tauri::command]
+async fn run_opencode_provider(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    action: String,
+    provider_id: String,
+    name: Option<String>,
+    base_url: Option<String>,
+    model: Option<String>,
+    key: Option<String>,
+    env_key: Option<String>,
+    keep_key: Option<bool>,
+) -> Result<i32, String> {
+    if !matches!(action.as_str(), "set" | "clear") {
+        return Err(format!("неизвестное действие opencode: {action}"));
+    }
+    if !valid_profile_name(&provider_id) {
+        return Err(format!("недопустимый provider id: {provider_id}"));
+    }
+    let mut args: Vec<String> =
+        vec!["-Action".into(), action.clone(), "-ProviderId".into(), provider_id];
+    if action == "set" {
+        let b = base_url.unwrap_or_default();
+        if b.is_empty() {
+            return Err("для set нужен base_url".into());
+        }
+        args.push("-BaseUrl".into());
+        args.push(b);
+        if let Some(n) = name.filter(|s| !s.is_empty()) {
+            args.push("-Name".into());
+            args.push(n);
+        }
+        if let Some(m) = model.filter(|s| !s.is_empty()) {
+            args.push("-Model".into());
+            args.push(m);
+        }
+        // apiKey precedence: literal key → {env:VAR} → keep existing.
+        if keep_key.unwrap_or(false) {
+            args.push("-KeepKey".into());
+        } else if let Some(k) = key.filter(|s| !s.is_empty()) {
+            args.push("-Key".into());
+            args.push(k);
+        } else if let Some(e) = env_key.filter(|s| !s.is_empty()) {
+            args.push("-EnvKey".into());
+            args.push(e);
+        } else {
+            args.push("-KeepKey".into());
+        }
+    }
+    let script = abs(OPENCODE_PROVIDER_SCRIPT_REL);
     spawn_streamed(app, state, "provider".to_string(), script, args).await
 }
 
@@ -1744,8 +2047,12 @@ fn open_terminal(path: String) -> Result<(), String> {
     // Open the new console directly in `path` via current_dir, rather than inlining the path
     // into a `cmd /k cd /d {path}` string (which an attacker-named dir with cmd metacharacters
     // like `&` could break out of). `start` inherits this process's working directory.
+    // `start`'s first token, if unquoted, is taken as the program to run — a bare
+    // `start Repo` makes cmd look for a program named "Repo" and fail. Pass an empty
+    // quoted title ("") so `start` treats the following `cmd /k` as the command.
+    // (Rust quotes an empty arg as `""`; a bare word like "Repo" stays unquoted.)
     std::process::Command::new("cmd")
-        .args(["/c", "start", "Repo", "cmd", "/k"])
+        .args(["/c", "start", "", "cmd", "/k"])
         .current_dir(&path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
@@ -1879,6 +2186,8 @@ fn reveal(app: &AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Remember window position/size across launches (auto-restores on start, saves on exit).
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(RunState::default())
         .invoke_handler(tauri::generate_handler![
             list_components,
@@ -1904,8 +2213,13 @@ pub fn run() {
             run_router,
             run_connect_router,
             read_engine_models,
+            list_github_repos,
+            read_stack,
+            run_stack,
             read_providers,
             run_provider,
+            read_opencode,
+            run_opencode_provider,
             read_mcp,
             run_mcp,
             list_plugins,
@@ -1937,6 +2251,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Close button minimizes to tray instead of quitting.
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // Persist geometry before hiding, so it survives even a later kill (the plugin
+                // also saves on a clean exit via the tray "Выход").
+                use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+                let _ = window.app_handle().save_window_state(StateFlags::all());
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -1964,6 +2282,9 @@ mod tests {
         let ff = forks_action_args("ff").unwrap();
         assert!(ff.contains(&"-FfMain".to_string()));
         assert!(ff.contains(&"-Yes".to_string())); // mutations must be unattended
+        let wip = forks_action_args("sync-wip").unwrap();
+        assert!(wip.contains(&"-SyncWipLocal".to_string()));
+        assert!(wip.contains(&"-Yes".to_string()));
         assert!(forks_action_args("bogus").is_none());
         // "plan" must be a dry-run — never mutating.
         let plan = forks_action_args("plan").unwrap();
@@ -1982,7 +2303,7 @@ mod tests {
     #[test]
     fn forks_actions_all_unattended() {
         // Every fork action runs unattended (no interactive Read-Host hang).
-        for a in ["check", "plan", "ff", "delete", "rebase", "normalize"] {
+        for a in ["check", "plan", "ff", "delete", "rebase", "sync-wip", "normalize"] {
             let args = forks_action_args(a).unwrap();
             assert!(args.contains(&"-Unattended".to_string()), "{a} must be unattended");
         }

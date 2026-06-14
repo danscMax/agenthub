@@ -28,6 +28,11 @@
     readEngineModels,
     readProviders,
     runProvider,
+    listGithubRepos,
+    readStack,
+    runStack,
+    readOpencode,
+    runOpencodeProvider,
     openPath,
     listPlugins,
     listSkills,
@@ -39,6 +44,9 @@
     cancelRun,
     type Component,
     type ForkAction,
+    type GithubRepo,
+    type StackService,
+    type OpencodeStatus,
     type BackupAction,
     type BackupList,
     type RestoreOpts,
@@ -70,6 +78,7 @@
   } from '$lib/attention';
   import { getTheme, applyTheme, type Theme } from '$lib/theme';
   import Sidebar from '$lib/components/Sidebar.svelte';
+  import Spinner from '$lib/components/Spinner.svelte';
   import Console from '$lib/components/Console.svelte';
   import UpdatesTab from '$lib/components/UpdatesTab.svelte';
   import ForksTab from '$lib/components/ForksTab.svelte';
@@ -104,6 +113,8 @@
   let syncLoaded = $state(false);
   let enginesData = $state<EngineStatus[] | null>(null);
   let providersData = $state<ProfileProvider[] | null>(null);
+  let stackData = $state<StackService[] | null>(null);
+  let opencodeData = $state<OpencodeStatus | null>(null);
   let providersLoaded = $state(false);
   let schedulesData = $state<SchedulesStatus | null>(null);
   let schedulesLoaded = $state(false);
@@ -113,6 +124,16 @@
   let pluginContents = $state<PluginContents[]>([]);
   let extensionsLoaded = $state(false);
   let loadError = $state<string | null>(null);
+  // Per-tab "fetching fresh data" flags → drive the refresh overlay + sidebar spinner.
+  let loading = $state<Record<string, boolean>>({});
+  const setLoading = (id: string, v: boolean) => {
+    loading[id] = v;
+  };
+  // Forks status is cached on disk; refresh it the first time its tab opens this session.
+  let forksChecked = $state(false);
+  // All of the user's GitHub repos (gh repo list) — to surface repos not cloned locally.
+  let githubRepos = $state<GithubRepo[]>([]);
+  let githubLoaded = $state(false);
   let confirm = $state<{
     open: boolean;
     title: string;
@@ -207,7 +228,9 @@
         ? t('page.forks_verb_check')
         : action === 'plan'
           ? t('page.forks_verb_plan')
-          : t('page.forks_verb_action', { action });
+          : action === 'sync-wip'
+            ? t('page.forks_verb_syncwip')
+            : t('page.forks_verb_action', { action });
     log = [t('page.forks_log', { verb, path: path ? ` — ${path}` : '' })];
     runForks(action, path).catch((e) => {
       log = [...log, t('page.log_error', { e })];
@@ -448,7 +471,10 @@
   $effect(() => {
     if (active === 'sync' && !syncLoaded) {
       syncLoaded = true;
-      reloadSync().then(() => startSync('query'));
+      setLoading('sync', true);
+      reloadSync()
+        .then(() => startSync('query'))
+        .finally(() => setLoading('sync', false));
     }
   });
 
@@ -481,13 +507,60 @@
     }
   }
 
+  async function reloadStack() {
+    try {
+      stackData = await readStack();
+    } catch {
+      stackData = null;
+    }
+  }
+
+  async function reloadOpencode() {
+    try {
+      opencodeData = await readOpencode();
+    } catch {
+      opencodeData = null;
+    }
+  }
+
   $effect(() => {
     // Providers/engines are shown both on their own tab and inside profile cards.
     if ((active === 'providers' || active === 'profiles') && !providersLoaded) {
       providersLoaded = true;
-      reloadProviders();
+      const tab = active;
+      setLoading(tab, true);
+      reloadProviders().finally(() => setLoading(tab, false));
     }
+    if (active === 'providers' && !stackData) reloadStack();
+    if (active === 'providers' && !opencodeData) reloadOpencode();
   });
+
+  // Start (-Router, incl. paid GLM) or stop (-All) the whole LLM stack via stack scripts.
+  function onStack(action: 'start' | 'stop') {
+    if (running) return;
+    const go = () => {
+      running = 'engine';
+      log = [
+        t('page.stack_log', {
+          verb: action === 'start' ? t('page.stack_verb_start') : t('page.stack_verb_stop')
+        })
+      ];
+      runStack(action).catch((e) => {
+        log = [...log, t('page.log_error', { e })];
+        running = null;
+      });
+    };
+    if (action === 'stop') {
+      askConfirm(
+        t('page.confirm_stack_stop_title'),
+        t('page.confirm_stack_stop_msg'),
+        t('page.confirm_stack_stop_btn'),
+        go
+      );
+    } else {
+      go();
+    }
+  }
 
   function onEngineAction(action: 'start' | 'stop', id: string) {
     if (running) return;
@@ -576,6 +649,38 @@
     );
   }
 
+  // Point opencode at an OpenAI-compatible engine (writes opencode.json). The gateway engine
+  // reuses the existing "freellmapi" provider id (reconciles its config). apiKey: literal if
+  // typed; else keep the existing one; else an {env:FREELLMAPI_KEY} placeholder.
+  function onConnectOpencode(engine: EngineStatus, model: string, key: string) {
+    if (running) return;
+    const providerId = engine.id === 'llmstack' ? 'freellmapi' : engine.id;
+    const existing = opencodeData?.providers?.find((p) => p.id === providerId);
+    const args: import('$lib/ipc').OpencodeProviderArgs = {
+      action: 'set',
+      providerId,
+      name: engine.name,
+      baseUrl: engine.baseUrl,
+      model
+    };
+    if (key.trim()) args.key = key.trim();
+    else if (existing?.hasKey) args.keepKey = true;
+    else args.envKey = 'FREELLMAPI_KEY';
+    askConfirm(
+      t('page.confirm_opencode_title'),
+      t('page.confirm_opencode_msg', { engine: engine.name, model }),
+      t('page.confirm_opencode_btn'),
+      () => {
+        running = 'provider';
+        log = [t('page.opencode_log', { engine: engine.name, model })];
+        runOpencodeProvider(args).catch((e) => {
+          log = [...log, t('page.log_error', { e })];
+          running = null;
+        });
+      }
+    );
+  }
+
   // --- Schedule tab ---
   async function reloadSchedules() {
     try {
@@ -588,7 +693,10 @@
 
   // Lazy-load schedules the first time the tab is opened (query spawns pwsh).
   $effect(() => {
-    if (active === 'schedule' && !schedulesLoaded) reloadSchedules();
+    if (active === 'schedule' && !schedulesLoaded) {
+      setLoading('schedule', true);
+      reloadSchedules().finally(() => setLoading('schedule', false));
+    }
   });
 
   function startSchedule(action: ScheduleAction, id: string) {
@@ -662,7 +770,38 @@
 
   // Lazy-load on first open (list_plugins spawns the claude CLI).
   $effect(() => {
-    if (active === 'extensions' && !extensionsLoaded) reloadExtensions();
+    if (active === 'extensions' && !extensionsLoaded) {
+      setLoading('extensions', true);
+      reloadExtensions().finally(() => setLoading('extensions', false));
+    }
+  });
+
+  // A tab shows the "refreshing" overlay + sidebar spinner while it fetches fresh data.
+  // Forks piggybacks on the global run lock (its check is a script run, not a native read).
+  const tabLoading = $derived.by(() => {
+    const m: Record<string, boolean> = { ...loading };
+    if (running === 'forks') m.forks = true;
+    return m;
+  });
+  const tabRefreshing = $derived(!!tabLoading[active]);
+
+  // Lazy: refresh forks on first open this session (cached on disk → can be stale).
+  // Re-runs once the run lock frees if something else was running when the tab opened.
+  $effect(() => {
+    if (active === 'forks' && !forksChecked && !running) {
+      forksChecked = true;
+      startForks('check');
+    }
+  });
+
+  // Native gh call (not run-locked) — load the full GitHub repo list once on first open.
+  $effect(() => {
+    if (active === 'forks' && !githubLoaded) {
+      githubLoaded = true;
+      listGithubRepos()
+        .then((r) => (githubRepos = r))
+        .catch(() => (githubRepos = []));
+    }
   });
 
   function startPlugin(action: PluginAction, id: string) {
@@ -751,6 +890,8 @@
         if (id === 'mcp') await reloadMcp();
         if (id === 'sync') await reloadSync();
         if (id === 'engine' || id === 'provider') await reloadProviders();
+        if (id === 'engine') await reloadStack();
+        if (id === 'provider') await reloadOpencode();
         if (id === 'schedule') await reloadSchedules();
         if (id === 'plugin-mgr') await reloadExtensions();
 
@@ -836,19 +977,33 @@
 </script>
 
 <div class="flex h-full overflow-hidden">
-  <Sidebar {active} onSelect={(id) => (active = id)} {attention} />
+  <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading} />
 
   <div class="flex min-w-0 flex-1 flex-col">
     <main class="min-h-0 flex-1 overflow-auto">
-      <div class="mx-auto w-full max-w-[1600px]">
+      <div class="relative mx-auto w-full max-w-[1600px]">
       {#if loadError}
         <div class="m-sw-6 sw-card text-red-400">{t('page.load_error', { e: loadError })}</div>
       {/if}
 
+      {#if tabRefreshing}
+        <div
+          class="pointer-events-none absolute left-1/2 top-sw-4 z-10 flex -translate-x-1/2 items-center gap-sw-2 rounded-full border border-sw-border bg-sw-bg-secondary px-sw-3 py-sw-1 text-sw-sm text-sw-text-secondary shadow"
+        >
+          <Spinner size={16} />
+          {t('common.refreshing')}
+        </div>
+      {/if}
+
+      <div
+        class="transition-opacity duration-200"
+        class:opacity-40={tabRefreshing}
+        class:pointer-events-none={tabRefreshing}
+      >
       {#if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {running} onAction={onForkAction} {onBatchFf} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} onAction={onForkAction} {onBatchFf} {onOpenUrl} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} onAction={onBackupAction} />
       {:else if active === 'profiles'}
@@ -876,13 +1031,20 @@
         <ProvidersTab
           engines={enginesData}
           providers={providersData}
+          stack={stackData}
           {running}
           onEngine={onEngineAction}
+          onStack={onStack}
           onProviderSet={onProviderSet}
           onProviderClear={onProviderClear}
           onRouterInstall={onRouterInstall}
           onConnectRouter={onConnectRouter}
-          onRefresh={reloadProviders}
+          onConnectOpencode={onConnectOpencode}
+          onRefresh={() => {
+            reloadProviders();
+            reloadStack();
+            reloadOpencode();
+          }}
           {onOpenUrl}
         />
       {:else if active === 'extensions'}
@@ -909,6 +1071,7 @@
           </div>
         </div>
       {/if}
+      </div>
       </div>
     </main>
 

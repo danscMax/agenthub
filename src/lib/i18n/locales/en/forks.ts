@@ -33,8 +33,23 @@ export default {
   kpiConflicts: 'conflicts',
   kpiConflictsTip: 'Branches with merge conflicts',
   kpiNeedHands: 'need action',
-  kpiNeedHandsTip: 'How many repositories/branches need manual intervention',
+  kpiNeedHandsTip:
+    'Repositories/branches that need your attention: resolve conflicts, sort out uncommitted changes, pull updates. The exact action is on the repository card below.',
   updatedAt: 'updated: {time}',
+  modeLine: 'last run: {mode}',
+  refreshing: 'refreshing…',
+  filterAll: 'All',
+  filterForks: 'Forks',
+  filterOwn: 'Own',
+  filterTip: 'Filter: all repos / forks only / own only',
+  githubOnlyHeading: 'More on GitHub — not cloned ({n})',
+  githubOnlyTip:
+    "Your GitHub repos (including private) that aren't cloned locally. Actions are unavailable until you clone.",
+  githubOnlyEmptyFilter: 'No repositories match the current filter.',
+  ghPrivate: 'private',
+  ghPrivateTip: 'Private repository on GitHub',
+  ghOpen: 'Open on GitHub',
+  ghOpenTip: 'Open the repository page on GitHub',
 
   // ── ForksTab: empty state ──
   emptyTitle: 'No data',
@@ -46,9 +61,13 @@ export default {
   promptConflictFiles: '; conflicting files: {files}',
   promptRepo: 'Repository: {name}  ({path})',
   promptRemotes: 'upstream: {upstream} | fork: {fork} | default branch: {branch}',
-  promptTask: 'Task: resolve merge conflicts with upstream for branches:',
+  promptTask: 'Task: verify and, if needed, resolve merge conflicts with upstream for branches:',
   promptInstructions:
-    'For each branch: switch to it, merge/rebase onto fresh upstream/{branch}, carefully resolve conflicts (keeping meaningful changes from both sides), run the build/tests, and commit. Do not force-push without confirmation.',
+    'First establish the facts — do not trust the status blindly: run `git fetch upstream` and confirm the ref upstream/{branch} exists (if not, check `git remote -v` and use the real tracking branch). For each branch, verify whether a REAL conflict exists against fresh upstream/{branch} via `git merge-tree` (or a trial merge/rebase). If there is no conflict, do NOT invent work: no empty commits, no token merges, no force-push — just report that there is nothing to resolve. If the conflict is real, switch to the branch, merge/rebase onto fresh upstream/{branch}, carefully resolve the conflicts (keeping meaningful changes from both sides), run the build/tests, and commit. Never force-push without confirmation.',
+  promptTaskDirty:
+    'Task: the working tree has uncommitted changes (and/or new files outside git). Sort them out and finish cleanly.',
+  promptInstructionsDirty:
+    'Review the changes (git status, git diff). Understand what they are: group related edits into clear commits; throwaway/junk goes into .gitignore or gets deleted. Special case — vendored/auto-synced files (the file header marks it VENDORED/CANON, or a sync tool exists for it): do NOT commit the local copy blindly — first compare it against the canonical source and, if it diverges, update it from the canon (or run the sync tool), and only then commit, otherwise you would freeze a stale version. Run the build/tests if present. Do not force-push and do not push without confirmation. If the purpose of some change is unclear, leave it untouched and report back.',
 
   // ── ForkRepoCard: recommended action ──
   recManualPlain: 'resolve manually (an unfinished git operation is in progress)',
@@ -58,6 +77,10 @@ export default {
   recConflictCopied: '✓ Prompt copied',
   recConflictLabel: 'Copy AI prompt',
   recConflictTip: 'Copy the ready-made prompt and ask Claude Code to resolve the conflicts',
+  recDirtyPlain: 'sort out uncommitted changes',
+  recDirtyCopied: '✓ Prompt copied',
+  recDirtyLabel: 'Copy AI prompt',
+  recDirtyTip: 'Copy the prompt and ask Claude Code to sort out and commit the changes',
   recFfPlain: 'pull updates from upstream (behind by {n})',
   recFfLabel: 'Pull from upstream',
   recDeletePlain: 'delete branches already merged into upstream',
@@ -69,8 +92,9 @@ export default {
   healthSkippedTip: 'Repository skipped',
   healthOpName: 'operation',
   healthOpTip: 'An unfinished git operation is in progress — actions are blocked',
-  healthDetached: 'detached HEAD',
-  healthDetachedTip: 'HEAD is not on a branch (detached) — actions are blocked',
+  healthDetached: 'no branch',
+  healthDetachedTip:
+    'HEAD is not on a branch (detached HEAD) — actions are blocked, resolve manually in the terminal',
   healthConflictTip: 'Some branches will not merge without manual conflict resolution',
   healthBehind: 'behind by {n}',
   healthBehindTip: 'The default branch is behind upstream by {n} — can fast-forward (FF)',
@@ -105,10 +129,11 @@ export default {
   onBranch: ' · on {branch}',
   badgeDirty: 'modified files',
   badgeDirtyTip: 'There are uncommitted changes in tracked files',
-  badgeUntracked: 'untracked',
-  badgeUntrackedTip: 'There are new files outside version control',
-  badgeRolesGuessed: 'roles by heuristic',
-  badgeRolesGuessedTip: 'gh unavailable — remote roles determined by heuristic',
+  badgeUntracked: 'new files',
+  badgeUntrackedTip: 'There are new files outside version control (untracked) — not yet added to git',
+  badgeRolesGuessed: 'remotes — guessed',
+  badgeRolesGuessedTip:
+    'gh unavailable — which remote is the original (upstream) and which is your fork (origin) was guessed by heuristic',
   upstream: 'upstream',
   upstreamTip: 'Original repository',
   fork: 'fork',
@@ -119,6 +144,16 @@ export default {
   ciLabel: 'CI: {checks}',
   conflictInFiles: 'conflict in files: {files}',
   noTopicBranches: 'No topic branches.',
+  branchAhead: '+{n} ahead of upstream',
+  branchAheadTip: 'Commits in this branch beyond upstream: {n}',
+
+  // ── ForkRepoCard: wip-local (personal integration branch) ──
+  wipBehind: 'wip-local behind by {n}',
+  wipBehindTip:
+    'Your personal wip-local branch is {n} commits behind upstream — consider syncing it',
+  wipLabel: 'wip-local',
+  wipBehindRow: 'behind by {n}',
+  wipMergedPatches: 'patches merged: {n}',
 
   // ── ForkRepoCard: action row ──
   recommended: 'Recommended:',
@@ -134,5 +169,17 @@ export default {
   labelFf: '{name}: fast-forward “{branch}” to upstream',
   labelDelete: '{name}: delete merged branches (local + fork)',
   labelRebase: '{name}: rebase open branches onto upstream',
-  labelNormalize: '{name}: normalize remotes'
+  labelNormalize: '{name}: normalize remotes',
+  labelSyncWip: '{name}: sync wip-local with upstream',
+
+  // ── ForkRepoCard: sync wip-local action ──
+  recSyncWipPlain: 'sync wip-local with the original (behind by {n})',
+  recSyncWipLabel: 'Sync wip-local',
+  recSyncWipTip:
+    'Rebase your personal wip-local branch onto fresh upstream (local, no push; conflict → aborted)',
+  actionSyncWip: 'Sync wip-local',
+  syncWipTip: 'Rebase wip-local onto fresh upstream (local, no push)',
+  syncWipTipSynced: 'Unavailable: wip-local is already in sync',
+  syncWipTipDirty: 'Unavailable: there are uncommitted changes',
+  syncWipTipUnavailable: 'Unavailable: no wip-local branch'
 };

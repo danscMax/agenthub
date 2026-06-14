@@ -13,36 +13,41 @@
     open: boolean;
     engine: EngineStatus | null;
     profiles?: string[];
-    onSubmit: (v: { model: string; profile: string }) => void;
+    onSubmit: (v: { model: string; profile: string; key?: string }) => void;
     onCancel: () => void;
   } = $props();
 
+  // Special target value: bind to the opencode agent instead of a Claude Code profile.
+  const OPENCODE = '__opencode__';
+
   let model = $state('');
   let profile = $state('');
+  let apiKey = $state('');
   let models = $state<string[]>([]);
   let loading = $state(false);
   let seeded = '';
 
   $effect(() => {
-    const key = `${open}:${engine?.id ?? ''}`;
-    if (open && engine && key !== seeded) {
-      seeded = key;
+    const seed = `${open}:${engine?.id ?? ''}`;
+    if (open && engine && seed !== seeded) {
+      seeded = seed;
       model = '';
       profile = profiles[0] ?? '';
+      apiKey = '';
       models = [];
       // Auto-load models from the engine.
       loading = true;
       readEngineModels(engine.baseUrl)
         .then((m) => {
-          if (seeded !== key) return; // a newer open/engine superseded this request
+          if (seeded !== seed) return; // a newer open/engine superseded this request
           models = m;
           if (m.length && !model) model = m[0];
         })
         .catch(() => {
-          if (seeded === key) models = [];
+          if (seeded === seed) models = [];
         })
         .finally(() => {
-          if (seeded === key) loading = false;
+          if (seeded === seed) loading = false;
         });
     }
   });
@@ -50,6 +55,9 @@
   const canSubmit = $derived(!!model.trim() && !!profile);
   // Anthropic-native engines (LM Studio, GLM router) bind straight to the profile — no ccr.
   const direct = $derived(!!engine && engine.protocol === 'anthropic' && !engine.router);
+  // opencode is OpenAI-native → offered as a target only for openai-compatible engines.
+  const allowOpencode = $derived(!!engine && engine.protocol === 'openai');
+  const isOpencode = $derived(profile === OPENCODE);
 </script>
 
 <svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
@@ -58,9 +66,15 @@
   <div class="overlay">
     <button type="button" class="backdrop" aria-label={t('providers.dialogClose')} onclick={onCancel}></button>
     <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
-      <h3>{direct ? t('providers.rcBindTitle', { name: engine.name }) : t('providers.rcConnectTitle', { name: engine.name })}</h3>
+      <h3>
+        {#if isOpencode}{t('providers.rcOpencodeTitle', { name: engine.name })}
+        {:else if direct}{t('providers.rcBindTitle', { name: engine.name })}
+        {:else}{t('providers.rcConnectTitle', { name: engine.name })}{/if}
+      </h3>
       <p class="sub">
-        {#if direct}
+        {#if isOpencode}
+          {t('providers.rcOpencodeSub', { url: engine.baseUrl })}
+        {:else if direct}
           {t('providers.rcDirectSub', { url: engine.baseUrl })}
         {:else}
           {t('providers.rcRouterSub', { url: engine.baseUrl })}
@@ -78,15 +92,23 @@
       <label class="fld">
         <span>{t('providers.rcProfileLabel')}</span>
         <select class="sw-input" bind:value={profile} title={t('providers.rcProfileSelectTip')}>
+          {#if allowOpencode}<option value={OPENCODE}>{t('providers.rcOpencodeTarget')}</option>{/if}
           {#each profiles as p (p)}<option value={p}>{p}</option>{/each}
         </select>
       </label>
 
+      {#if isOpencode}
+        <label class="fld">
+          <span>{t('providers.rcOpencodeKeyLabel')}</span>
+          <input class="sw-input" type="password" bind:value={apiKey} placeholder={t('providers.rcOpencodeKeyPlaceholder')} spellcheck="false" title={t('providers.rcOpencodeKeyTip')} />
+        </label>
+      {/if}
+
       <div class="row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
-        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => onSubmit({ model: model.trim(), profile })}
-          title={direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
-          {direct ? t('providers.rcBind') : t('providers.rcConnect')}
+        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => onSubmit({ model: model.trim(), profile, key: apiKey.trim() })}
+          title={isOpencode ? t('providers.rcOpencodeTip') : direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
+          {isOpencode ? t('providers.rcOpencodeBtn') : direct ? t('providers.rcBind') : t('providers.rcConnect')}
         </button>
       </div>
     </div>

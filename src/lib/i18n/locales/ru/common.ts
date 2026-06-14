@@ -33,6 +33,7 @@ export default {
   error: 'Ошибка',
   done: 'Готово',
   loading: 'Загрузка…',
+  refreshing: 'Обновляется…',
   saved: 'Сохранено',
   busy: 'Идёт…',
   none: 'нет',

@@ -33,6 +33,7 @@ export default {
   error: 'Error',
   done: 'Done',
   loading: 'Loading…',
+  refreshing: 'Refreshing…',
   saved: 'Saved',
   busy: 'Working…',
   none: 'none',

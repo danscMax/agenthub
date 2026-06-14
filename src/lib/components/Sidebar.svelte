@@ -1,15 +1,18 @@
 <script lang="ts">
   import type { Attention } from '$lib/attention';
   import { t } from '$lib/i18n';
+  import Spinner from './Spinner.svelte';
 
   let {
     active,
     onSelect,
-    attention = {}
+    attention = {},
+    loading = {}
   }: {
     active: string;
     onSelect: (id: string) => void;
     attention?: Record<string, Attention | null>;
+    loading?: Record<string, boolean>;
   } = $props();
 
   // Labels are resolved reactively in markup via t(it.labelKey) so they follow the UI language.
@@ -43,7 +46,9 @@
       <span class="nav-icon">{it.icon}</span>
       <span class="nav-label">{t(it.labelKey)}</span>
       {#if !it.enabled}<span class="soon">{t('nav.soon')}</span>{/if}
-      {#if attention[it.id]}
+      {#if loading[it.id]}
+        <span class="spin-wrap" title={t('common.refreshing')}><Spinner size={13} /></span>
+      {:else if attention[it.id]}
         {@const att = attention[it.id]}
         {#if att?.count}
           <span class="att att-{att.level}" title={t('nav.attentionCount', { count: att.count })}>{att.count}</span>
@@ -132,6 +137,10 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
+  }
+  .spin-wrap {
+    display: inline-flex;
+    align-items: center;
   }
   .att-info {
     background: var(--sw-accent);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EngineStatus, ProfileProvider, ProviderArgs } from '$lib/ipc';
+  import type { EngineStatus, ProfileProvider, ProviderArgs, StackService } from '$lib/ipc';
   import { updateEngine } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
@@ -8,23 +8,29 @@
   let {
     engines,
     providers,
+    stack = null,
     running,
     onEngine,
+    onStack,
     onProviderSet,
     onProviderClear,
     onRouterInstall,
     onConnectRouter,
+    onConnectOpencode,
     onRefresh,
     onOpenUrl
   }: {
     engines: EngineStatus[] | null;
     providers: ProfileProvider[] | null;
+    stack?: StackService[] | null;
     running: string | null;
     onEngine: (action: 'start' | 'stop', id: string) => void;
+    onStack?: (action: 'start' | 'stop') => void;
     onProviderSet: (args: ProviderArgs) => void;
     onProviderClear: (name: string) => void;
     onRouterInstall: () => void;
     onConnectRouter: (engine: EngineStatus, model: string, profile: string) => void;
+    onConnectOpencode?: (engine: EngineStatus, model: string, key: string) => void;
     onRefresh: () => void;
     onOpenUrl: (url: string) => void;
   } = $props();
@@ -33,6 +39,10 @@
   const engineList = $derived(engines ?? []);
   const providerList = $derived(providers ?? []);
   const profileNames = $derived(providerList.map((p) => p.name));
+  // Engines that are running AND expose a dashboard → "open all" target.
+  const runningDashboards = $derived(engineList.filter((e) => e.running && e.dashboardUrl));
+  // LLM-stack services (from stack.json, the single source of truth).
+  const stackList = $derived(stack ?? []);
 
   // Router-connect dialog (pick model + profile).
   let rcOpen = $state(false);
@@ -74,9 +84,14 @@
     dlgCurrent = p;
     dlgOpen = true;
   }
-  function onRcSubmit(v: { model: string; profile: string }) {
+  function onRcSubmit(v: { model: string; profile: string; key?: string }) {
     rcOpen = false;
     if (!rcEngine) return;
+    // opencode target → write opencode.json directly (OpenAI-native, no ccr).
+    if (v.profile === '__opencode__') {
+      onConnectOpencode?.(rcEngine, v.model, v.key ?? '');
+      return;
+    }
     // Anthropic-native engine → bind the profile straight to it (no ccr). LM Studio needs a
     // non-empty bearer ('lmstudio'); other Anthropic proxies keep any token already set.
     if (rcEngine.protocol === 'anthropic' && !rcEngine.router) {
@@ -144,8 +159,66 @@
     onCancel={() => (rcOpen = false)}
   />
 
+  <!-- LLM stack (single source of truth: stack.json) -->
+  {#if stackList.length}
+    <section class="mb-sw-6">
+      <div class="mb-sw-2 flex items-start justify-between gap-sw-2">
+        <div class="min-w-0">
+          <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.stackHeading')}</h2>
+          <p class="text-sw-xs text-sw-text-muted">{t('providers.stackSub')}</p>
+        </div>
+        <div class="flex shrink-0 gap-sw-2">
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('start')}
+            title={t('providers.stackStartTip')}>{t('providers.stackStartAll')}</button>
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('stop')}
+            title={t('providers.stackStopTip')}>{t('providers.stackStopAll')}</button>
+        </div>
+      </div>
+      <div class="card-grid">
+        {#each stackList as s (s.id)}
+          <div class="sw-card flex flex-col gap-sw-2">
+            <div class="flex items-start justify-between gap-sw-2">
+              <div class="min-w-0">
+                <h3 class="truncate font-medium">{s.name}</h3>
+                <p class="truncate font-mono text-[11px] text-sw-text-muted">:{s.port} · {s.protocol}</p>
+              </div>
+              <div class="flex shrink-0 flex-col items-end gap-1">
+                <span class="badge {s.running ? 'badge-ok' : 'badge-muted'}"
+                  title={s.running ? t('providers.portListening') : t('providers.portNotResponding')}>
+                  {s.running ? t('providers.running') : t('providers.stopped')}
+                </span>
+                {#if s.group === 'router'}
+                  <span class="badge badge-warn" title={t('providers.stackPaidTip')}>{t('providers.stackPaid')}</span>
+                {/if}
+              </div>
+            </div>
+            {#if s.dashboard}
+              <div class="mt-auto flex gap-sw-2 border-t border-sw-border pt-sw-2">
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!s.running} onclick={() => onOpenUrl(s.dashboard)}
+                  title={s.running ? t('providers.openDashboardTitle', { url: s.dashboard }) : t('providers.dashboardWhenRunningTitle')}>
+                  {t('providers.dashboard')}
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   <!-- Engines -->
-  <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.enginesHeading')}</h2>
+  <div class="mb-sw-2 flex items-center justify-between gap-sw-2">
+    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.enginesHeading')}</h2>
+    {#if engineList.length}
+      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !runningDashboards.length}
+        onclick={() => runningDashboards.forEach((e) => onOpenUrl(e.dashboardUrl))}
+        title={runningDashboards.length
+          ? t('providers.openAllDashboardsTitle', { n: runningDashboards.length })
+          : t('providers.openAllDashboardsNoneTitle')}>
+        {t('providers.openAllDashboards')}{runningDashboards.length ? ` (${runningDashboards.length})` : ''}
+      </button>
+    {/if}
+  </div>
   {#if engineList.length}
     <div class="card-grid">
       {#each engineList as e (e.id)}

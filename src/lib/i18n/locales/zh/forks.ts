@@ -32,8 +32,21 @@ export default {
   kpiConflicts: '冲突',
   kpiConflictsTip: '存在合并冲突的分支',
   kpiNeedHands: '需要操作',
-  kpiNeedHandsTip: '有多少仓库/分支需要人工干预',
+  kpiNeedHandsTip: '需要你处理的仓库/分支：解决冲突、整理未提交的更改、拉取更新。具体操作见下方仓库卡片。',
   updatedAt: '更新于：{time}',
+  modeLine: '上次运行：{mode}',
+  refreshing: '刷新中…',
+  filterAll: '全部',
+  filterForks: '复刻',
+  filterOwn: '自有',
+  filterTip: '筛选：全部仓库 / 仅复刻 / 仅自有',
+  githubOnlyHeading: '更多在 GitHub — 未克隆（{n}）',
+  githubOnlyTip: '你在 GitHub 上的仓库（含私有），本地未克隆。克隆前无法执行操作。',
+  githubOnlyEmptyFilter: '没有符合当前筛选的仓库。',
+  ghPrivate: '私有',
+  ghPrivateTip: 'GitHub 上的私有仓库',
+  ghOpen: '在 GitHub 上打开',
+  ghOpenTip: '在 GitHub 上打开仓库页面',
 
   // ── ForksTab: empty state ──
   emptyTitle: '暂无数据',
@@ -45,9 +58,12 @@ export default {
   promptConflictFiles: '；冲突文件：{files}',
   promptRepo: '仓库：{name}  （{path}）',
   promptRemotes: 'upstream：{upstream} | 复刻：{fork} | 默认分支：{branch}',
-  promptTask: '任务：为以下分支解决与上游的合并冲突：',
+  promptTask: '任务：核实并在需要时解决以下分支与上游的合并冲突：',
   promptInstructions:
-    '对每个分支：切换到该分支，合并/变基到最新的 upstream/{branch}，谨慎解决冲突（保留两侧有意义的更改），运行构建/测试，然后提交。未经确认不要强制推送。',
+    '先核实事实，不要盲目相信状态：执行 `git fetch upstream`，确认引用 upstream/{branch} 存在（若不存在，查看 `git remote -v` 并使用真实的跟踪分支）。对每个分支，用 `git merge-tree`（或试探性 merge/rebase）核实与最新 upstream/{branch} 是否真有冲突。若没有冲突，不要编造工作：不要空提交、不要走过场的合并、不要 force-push，只需报告无需解决。若确有冲突，切换到该分支，合并/变基到最新 upstream/{branch}，谨慎解决冲突（保留两侧有意义的更改），运行构建/测试并提交。未经确认绝不 force-push。',
+  promptTaskDirty: '任务：工作区有未提交的更改（和/或 git 之外的新文件）。请整理并妥善收尾。',
+  promptInstructionsDirty:
+    '查看更改（git status、git diff）。弄清它们是什么：把相关改动分组并写清晰的提交；临时/垃圾文件加入 .gitignore 或删除。特殊情况——vendored/自动同步的文件（文件头标注 VENDORED/CANON，或存在同步工具）：不要盲目提交本地副本——先与规范来源比对，若有差异则用规范副本更新（或运行同步工具），然后再提交，否则会固化一个过时的版本。如有构建/测试请运行。未经确认不要强制推送，也不要推送。若某些更改用途不明，请保持原样并反馈。',
 
   // ── ForkRepoCard: recommended action ──
   recManualPlain: '手动处理（有未完成的 git 操作在进行）',
@@ -57,6 +73,10 @@ export default {
   recConflictCopied: '✓ 提示词已复制',
   recConflictLabel: '复制 AI 提示词',
   recConflictTip: '复制现成的提示词，让 Claude Code 解决冲突',
+  recDirtyPlain: '整理未提交的更改',
+  recDirtyCopied: '✓ 提示词已复制',
+  recDirtyLabel: '复制 AI 提示词',
+  recDirtyTip: '复制提示词，让 Claude Code 整理并提交这些更改',
   recFfPlain: '从上游拉取更新（落后 {n}）',
   recFfLabel: '从上游拉取',
   recDeletePlain: '删除已合入上游的分支',
@@ -68,8 +88,8 @@ export default {
   healthSkippedTip: '仓库已跳过',
   healthOpName: '操作',
   healthOpTip: '仓库中有未完成的 git 操作 — 操作已禁用',
-  healthDetached: 'detached HEAD',
-  healthDetachedTip: 'HEAD 不在分支上（detached）— 操作已禁用',
+  healthDetached: '不在分支上',
+  healthDetachedTip: 'HEAD 不在分支上（detached HEAD）— 操作已禁用，请在终端中手动解决',
   healthConflictTip: '有些分支不手动解决冲突就无法合入',
   healthBehind: '落后 {n}',
   healthBehindTip: '默认分支落后上游 {n} — 可以快进（FF）',
@@ -104,10 +124,10 @@ export default {
   onBranch: ' · 在 {branch}',
   badgeDirty: '已修改文件',
   badgeDirtyTip: '受跟踪文件中存在未提交的更改',
-  badgeUntracked: '未跟踪',
-  badgeUntrackedTip: '存在不在版本控制内的新文件',
-  badgeRolesGuessed: '角色按启发式',
-  badgeRolesGuessedTip: 'gh 不可用 — remote 角色按启发式判定',
+  badgeUntracked: '新文件',
+  badgeUntrackedTip: '存在不在版本控制内的新文件（untracked）— 尚未加入 git',
+  badgeRolesGuessed: 'remote — 推测',
+  badgeRolesGuessedTip: 'gh 不可用 — 哪个 remote 是原仓库（upstream）、哪个是你的复刻（origin）为推测判定',
   upstream: 'upstream',
   upstreamTip: '原始仓库',
   fork: '复刻',
@@ -118,6 +138,15 @@ export default {
   ciLabel: 'CI：{checks}',
   conflictInFiles: '文件冲突：{files}',
   noTopicBranches: '没有主题分支。',
+  branchAhead: '领先 upstream +{n}',
+  branchAheadTip: '该分支超出 upstream 的提交数：{n}',
+
+  // ── ForkRepoCard: wip-local（个人集成分支）──
+  wipBehind: 'wip-local 落后 {n}',
+  wipBehindTip: '你的个人分支 wip-local 落后 upstream {n} 个提交 — 建议同步',
+  wipLabel: 'wip-local',
+  wipBehindRow: '落后 {n}',
+  wipMergedPatches: '已合入补丁：{n}',
 
   // ── ForkRepoCard: action row ──
   recommended: '建议：',
@@ -133,5 +162,16 @@ export default {
   labelFf: '{name}：将“{branch}”快进到上游',
   labelDelete: '{name}：删除已合入的分支（本地 + 复刻）',
   labelRebase: '{name}：将开放分支变基到上游',
-  labelNormalize: '{name}：规范化 remotes'
+  labelNormalize: '{name}：规范化 remotes',
+  labelSyncWip: '{name}：将 wip-local 与上游同步',
+
+  // ── ForkRepoCard: sync wip-local action ──
+  recSyncWipPlain: '将 wip-local 与原仓库同步（落后 {n}）',
+  recSyncWipLabel: '同步 wip-local',
+  recSyncWipTip: '将你的个人分支 wip-local 变基到最新上游（本地，不 push；冲突则取消）',
+  actionSyncWip: '同步 wip-local',
+  syncWipTip: '将 wip-local 变基到最新上游（本地，不 push）',
+  syncWipTipSynced: '不可用：wip-local 已同步',
+  syncWipTipDirty: '不可用：存在未提交的更改',
+  syncWipTipUnavailable: '不可用：没有 wip-local 分支'
 };

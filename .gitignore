@@ -9,3 +9,7 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 plans/audit/
+
+# Runtime output of the vendored fork-updater (written next to its script)
+tools/fork-updater/fork-sync.last.json
+tools/fork-updater/logs/

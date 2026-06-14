@@ -24,9 +24,35 @@
 
   let open = $state(false);
   let root = $state<HTMLElement | undefined>();
+  // Side the menu actually opens to — recomputed by chooseSide() in toggle() before the menu
+  // is shown, so it never spills off-screen (e.g. under the sidebar) regardless of the column.
+  // The literal init is never rendered (resolved is only read inside {#if open}).
+  let resolved = $state<'left' | 'right'>('right');
+
+  // Pick the side with enough room. 'right' anchors right:0 (opens leftward) and needs space
+  // to the left down to the content edge (sidebar width); 'left' anchors left:0 (opens
+  // rightward) and needs space to the viewport's right edge. Prefer the configured `align`,
+  // flip only when it wouldn't fit.
+  function chooseSide(): 'left' | 'right' {
+    if (!root || typeof window === 'undefined') return align;
+    const r = root.getBoundingClientRect();
+    const MENU_W = 200; // min-width 180 + padding/buffer
+    const MARGIN = 8;
+    const sidebar = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue('--sw-sidebar-width')
+    );
+    const leftBound = (Number.isNaN(sidebar) ? 0 : sidebar) + MARGIN;
+    const rightBound = window.innerWidth - MARGIN;
+    const fitsOpeningRight = r.left + MENU_W <= rightBound; // align='left'
+    const fitsOpeningLeft = r.right - MENU_W >= leftBound; // align='right'
+    if (align === 'right') return fitsOpeningLeft ? 'right' : fitsOpeningRight ? 'left' : 'right';
+    return fitsOpeningRight ? 'left' : fitsOpeningLeft ? 'right' : 'left';
+  }
 
   function toggle() {
-    if (!disabled) open = !open;
+    if (disabled) return;
+    open = !open;
+    if (open) resolved = chooseSide();
   }
   function pick(it: Item) {
     if (it.disabled) return;
@@ -52,7 +78,7 @@
     {#if label}{label} <span class="caret">▾</span>{:else}<span class="dots">⋯</span>{/if}
   </button>
   {#if open}
-    <div class="menu {align}" role="menu">
+    <div class="menu {resolved}" role="menu">
       {#each items as it (it.label)}
         <button
           class="item"
