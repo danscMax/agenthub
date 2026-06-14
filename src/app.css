@@ -18,6 +18,8 @@
   --sw-text-dimmed: #8b95a5;
   --sw-accent: #3b82f6;
   --sw-accent-hover: #2563eb;
+  /* Accent used as TEXT (needs more contrast than accent-as-fill). Dark: same blue is fine. */
+  --sw-accent-text: #3b82f6;
   --sw-accent-glow: rgba(59, 130, 246, 0.2);
   --sw-input-bg: rgba(30, 41, 59, 0.5);
   --sw-input-border: rgba(71, 85, 105, 0.5);
@@ -55,6 +57,8 @@
   --sw-text-dimmed: #9ca3af;
   --sw-accent: #3b82f6;
   --sw-accent-hover: #2563eb;
+  /* Darker blue for accent-as-text on the near-white light surface (3.67:1 -> ~5.2:1). */
+  --sw-accent-text: #2563eb;
   --sw-accent-glow: rgba(59, 130, 246, 0.15);
   --sw-sidebar-bg: rgba(248, 250, 252, 0.98);
   --sw-sidebar-item-hover: rgba(226, 232, 240, 0.8);
@@ -133,6 +137,23 @@
   .badge-info {
     @apply bg-sky-500/15 text-sky-400;
   }
+  /* Light theme: the *-400 badge text fails WCAG on the near-white card (1.7-2.8:1).
+     Darken the text to *-600/700 while keeping the /15 fill. */
+  .light .badge-ok {
+    @apply text-emerald-700;
+  }
+  .light .badge-warn {
+    @apply text-amber-700;
+  }
+  .light .badge-err {
+    @apply text-red-700;
+  }
+  .light .badge-muted {
+    @apply text-slate-600;
+  }
+  .light .badge-info {
+    @apply text-sky-700;
+  }
   .sw-input {
     @apply rounded-md px-3 py-2 text-sw-sm;
     background: var(--sw-bg-secondary);
@@ -142,6 +163,18 @@
   .sw-input:focus {
     outline: none;
     border-color: var(--sw-border-focus);
+  }
+  /* Visible keyboard focus ring for all interactive controls (X2). Placed after the
+     .sw-input:focus rule so it wins on keyboard focus; mouse focus keeps the borderless look. */
+  .sw-btn:focus-visible,
+  .sw-input:focus-visible,
+  a:focus-visible,
+  button:focus-visible,
+  [role='switch']:focus-visible,
+  [role='menuitem']:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--sw-accent);
+    outline-offset: 2px;
   }
   /* Unified responsive card grid — same card width across all tabs/groups. */
   .card-grid {

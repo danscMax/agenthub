@@ -103,7 +103,7 @@
   }
   .nav-item.active {
     background: var(--sw-sidebar-item-active);
-    color: var(--sw-accent);
+    color: var(--sw-accent-text);
   }
   .nav-item:disabled {
     opacity: 0.45;

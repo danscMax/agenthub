@@ -178,7 +178,7 @@
     width: 12px;
   }
   .live {
-    color: var(--sw-accent);
+    color: var(--sw-accent-text);
     font-size: var(--sw-text-xs);
     animation: pulse 2s infinite;
   }
