@@ -941,6 +941,124 @@ async fn read_freellmapi_analytics(range_hours: u32) -> FreellmapiAnalytics {
     }
 }
 
+/// Minimal HTTP/1.1 GET to 127.0.0.1:port+path over a plain socket (localhost, no TLS, no extra
+/// crate). Returns true iff the status line reports a 2xx — a real "is it actually serving"
+/// signal, beyond a bare port being open.
+fn http_health_ok(port: u16, path: &str) -> bool {
+    use std::io::{Read, Write};
+    if port == 0 {
+        return false;
+    }
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream =
+        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(700)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(400)));
+    let p = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
+    let req = format!(
+        "GET {p} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: AgentHub\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 64];
+    let n = match stream.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    // Status line looks like "HTTP/1.1 200 OK" — accept any 2xx.
+    let head = String::from_utf8_lossy(&buf[..n]);
+    head.starts_with("HTTP/1.") && head.split(' ').nth(1).map(|c| c.starts_with('2')).unwrap_or(false)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StackHealth {
+    id: String,
+    name: String,
+    group: String,
+    port: u16,
+    enabled: bool,
+    /// TCP port accepts a connection.
+    port_open: bool,
+    /// HTTP health endpoint returned 2xx. None when the service has no `health` path (port-only).
+    healthy: Option<bool>,
+}
+
+/// Real health of llm-stack services: a TCP port probe plus — when `health` is set in stack.json —
+/// an HTTP GET to that path expecting 2xx. Concurrent, read-only. Powers the System Health card.
+#[tauri::command]
+fn read_stack_health() -> Vec<StackHealth> {
+    let content = match std::fs::read_to_string(abs(STACK_CONFIG_REL)) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let v = match parse_json_bom(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let Some(arr) = v.get("services").and_then(|s| s.as_array()) else {
+        return Vec::new();
+    };
+    let s = |e: &serde_json::Value, k: &str| {
+        e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
+    struct Row {
+        id: String,
+        name: String,
+        group: String,
+        port: u16,
+        enabled: bool,
+        health: String,
+    }
+    let rows: Vec<Row> = arr
+        .iter()
+        .map(|e| Row {
+            id: s(e, "id"),
+            name: s(e, "name"),
+            group: s(e, "group"),
+            port: e.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
+            enabled: e.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
+            health: s(e, "health"),
+        })
+        .collect();
+    // Probe all services concurrently — bounded by the slowest single probe, like read_stack.
+    let results: Vec<(bool, Option<bool>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = rows
+            .iter()
+            .map(|r| {
+                let port = r.port;
+                let health = r.health.clone();
+                scope.spawn(move || {
+                    let open = port_listening(port);
+                    let healthy = if health.is_empty() {
+                        None
+                    } else {
+                        Some(open && http_health_ok(port, &health))
+                    };
+                    (open, healthy)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or((false, None))).collect()
+    });
+    rows.into_iter()
+        .zip(results)
+        .map(|(r, (open, healthy))| StackHealth {
+            id: r.id,
+            name: r.name,
+            group: r.group,
+            port: r.port,
+            enabled: r.enabled,
+            port_open: open,
+            healthy,
+        })
+        .collect()
+}
+
 /// Patch an engine's baseUrl + port in config\engines.json (user can change ports when
 /// something else occupies the default). Read-modify-write, preserves everything else.
 #[tauri::command]
@@ -2364,6 +2482,7 @@ pub fn run() {
             list_github_repos,
             read_stack,
             run_stack,
+            read_stack_health,
             read_freellmapi_analytics,
             read_providers,
             run_provider,

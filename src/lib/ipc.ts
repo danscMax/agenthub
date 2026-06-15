@@ -223,6 +223,18 @@ export type StackService = {
 export const readStack = () => invoke<StackService[]>('read_stack');
 export const runStack = (action: 'start' | 'stop') => invoke<number>('run_stack', { action });
 
+// --- stack health (TCP port probe + real HTTP /health when configured in stack.json) ---
+export type StackHealth = {
+  id: string;
+  name: string;
+  group: string; // 'core' | 'router'
+  port: number;
+  enabled: boolean;
+  portOpen: boolean; // TCP accepts a connection
+  healthy: boolean | null; // HTTP 2xx; null = port-only (no health endpoint)
+};
+export const readStackHealth = () => invoke<StackHealth[]>('read_stack_health');
+
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {
   totalRequests: number;

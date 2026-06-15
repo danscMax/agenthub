@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
+  import StackHealthCard from './StackHealthCard.svelte';
 
   let {
     engines,
@@ -158,6 +159,9 @@
     onSubmit={onRcSubmit}
     onCancel={() => (rcOpen = false)}
   />
+
+  <!-- System health (real /health probes of the stack services) -->
+  <StackHealthCard />
 
   <!-- LLM stack (single source of truth: stack.json) -->
   {#if stackList.length}

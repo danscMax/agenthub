@@ -11,6 +11,7 @@ import backup from './backup';
 import profiles from './profiles';
 import providers from './providers';
 import analytics from './analytics';
+import health from './health';
 import mcp from './mcp';
 import sync from './sync';
 import plugins from './plugins';
@@ -30,6 +31,7 @@ const ru = {
   profiles,
   providers,
   analytics,
+  health,
   mcp,
   sync,
   plugins,
