@@ -38,10 +38,10 @@
     const r = root.getBoundingClientRect();
     const MENU_W = 200; // min-width 180 + padding/buffer
     const MARGIN = 8;
-    const sidebar = parseInt(
-      getComputedStyle(document.documentElement).getPropertyValue('--sw-sidebar-width')
-    );
-    const leftBound = (Number.isNaN(sidebar) ? 0 : sidebar) + MARGIN;
+    // Real content-left edge in px = right edge of the sidebar (its width is in rem, so measure
+    // the element rather than parse the CSS var). Falls back to the viewport edge if absent.
+    const sidebar = document.querySelector('.sidebar');
+    const leftBound = (sidebar ? sidebar.getBoundingClientRect().right : 0) + MARGIN;
     const rightBound = window.innerWidth - MARGIN;
     const fitsOpeningRight = r.left + MENU_W <= rightBound; // align='left'
     const fitsOpeningLeft = r.right - MENU_W >= leftBound; // align='right'
