@@ -35,6 +35,13 @@ describe('attention', () => {
       level: 'warn',
       count: 1
     });
+    // sync conflicts alone must still count (regression: count used to drop conflicts → "0").
+    expect(
+      profilesAttention({
+        profiles: [{ exists: true, linksIntact: true }],
+        syncConflicts: { count: 2 }
+      } as any)
+    ).toEqual({ level: 'warn', count: 1 });
   });
 
   it('plugins reflect update count', () => {

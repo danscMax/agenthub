@@ -77,7 +77,7 @@ export default {
   recDirtyCopied: '✓ 提示词已复制',
   recDirtyLabel: '复制 AI 提示词',
   recDirtyTip: '复制提示词，让 Claude Code 整理并提交这些更改',
-  recFfPlain: '从上游拉取更新（落后 {n}）',
+  recFfPlain: '从上游拉取更新（落后 {n} 个{commits}）',
   recFfLabel: '从上游拉取',
   recDeletePlain: '删除已合入上游的分支',
   recDeleteLabel: '删除已合入的分支',
@@ -91,7 +91,7 @@ export default {
   healthDetached: '不在分支上',
   healthDetachedTip: 'HEAD 不在分支上（detached HEAD）— 操作已禁用，请在终端中手动解决',
   healthConflictTip: '有些分支不手动解决冲突就无法合入',
-  healthBehind: '落后 {n}',
+  healthBehind: '落后 {n} 个{commits}',
   healthBehindTip: '默认分支落后上游 {n} — 可以快进（FF）',
   healthClean: '干净',
   healthCleanTip: '一切已同步，无需操作',
@@ -142,10 +142,10 @@ export default {
   branchAheadTip: '该分支超出 upstream 的提交数：{n}',
 
   // ── ForkRepoCard: wip-local（个人集成分支）──
-  wipBehind: 'wip-local 落后 {n}',
+  wipBehind: 'wip-local 落后 {n} 个{commits}',
   wipBehindTip: '你的个人分支 wip-local 落后 upstream {n} 个提交 — 建议同步',
   wipLabel: 'wip-local',
-  wipBehindRow: '落后 {n}',
+  wipBehindRow: '落后 {n} 个{commits}',
   wipMergedPatches: '已合入补丁：{n}',
 
   // ── ForkRepoCard: action row ──

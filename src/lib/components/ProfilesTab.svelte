@@ -360,7 +360,7 @@
               {/if}
               <button type="button" class="badge {linked === links.length ? 'badge-ok' : 'badge-warn'} cursor-pointer"
                 onclick={() => (expanded[p.name] = !expanded[p.name])}
-                title={t('profiles.linksTip')}>
+                title={t('profiles.linksTip', { linked, total: links.length })}>
                 {t('profiles.links', { linked, total: links.length })} {expanded[p.name] ? '▴' : '▾'}
               </button>
             {/if}

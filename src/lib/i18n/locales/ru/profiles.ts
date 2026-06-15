@@ -38,7 +38,7 @@ export default {
   lean: 'лёгкий',
   leanTip: 'Запуск в лёгком режиме ({flag}) — урезанный системный промпт',
   links: 'связи {linked}/{total}',
-  linksTip: 'Общие папки (junction/symlink). Нажми, чтобы развернуть детали.',
+  linksTip: 'Подключено {linked} из {total} общих папок (junction/symlink). Нажми, чтобы развернуть детали.',
 
   // Provider section
   providerLabel: 'Провайдер:',

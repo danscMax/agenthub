@@ -81,7 +81,7 @@ export default {
   recDirtyCopied: '✓ Промпт скопирован',
   recDirtyLabel: 'Скопировать AI-промпт',
   recDirtyTip: 'Скопируй промпт и попроси Claude Code разобрать и закоммитить изменения',
-  recFfPlain: 'подтянуть обновления из оригинала (отстаёт на {n})',
+  recFfPlain: 'подтянуть обновления из оригинала (отстаёт на {n} {commits})',
   recFfLabel: 'Подтянуть из upstream',
   recDeletePlain: 'удалить ветки, уже влитые в оригинал',
   recDeleteLabel: 'Удалить влитые ветки',
@@ -95,7 +95,7 @@ export default {
   healthDetached: 'HEAD вне ветки',
   healthDetachedTip: 'HEAD не на ветке (detached HEAD) — действия заблокированы, разреши вручную в терминале',
   healthConflictTip: 'Есть ветки, которые не вольются без ручного разрешения конфликтов',
-  healthBehind: 'отстаёт на {n}',
+  healthBehind: 'отстаёт на {n} {commits}',
   healthBehindTip:
     'Ветка по умолчанию отстаёт от upstream на {n} — можно подтянуть (FF)',
   healthClean: 'чисто',
@@ -148,11 +148,11 @@ export default {
   branchAheadTip: 'Коммитов в этой ветке сверх upstream: {n}',
 
   // ── ForkRepoCard: wip-local (личная рабочая ветка) ──
-  wipBehind: 'wip-local отстал на {n}',
+  wipBehind: 'wip-local отстал на {n} {commits}',
   wipBehindTip:
     'Личная рабочая ветка wip-local отстаёт от upstream на {n} коммитов — стоит синхронизировать',
   wipLabel: 'wip-local',
-  wipBehindRow: 'отстаёт на {n}',
+  wipBehindRow: 'отстаёт на {n} {commits}',
   wipMergedPatches: 'влито патчей: {n}',
 
   // ── ForkRepoCard: action row ──

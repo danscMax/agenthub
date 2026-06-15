@@ -53,8 +53,8 @@
   --sw-border-focus: rgba(59, 130, 246, 0.6);
   --sw-text-primary: #0f172a;
   --sw-text-secondary: #475569;
-  --sw-text-muted: #6b7280;
-  --sw-text-dimmed: #9ca3af;
+  --sw-text-muted: #5b6470;
+  --sw-text-dimmed: #64748b;
   --sw-accent: #3b82f6;
   --sw-accent-hover: #2563eb;
   /* Darker blue for accent-as-text on the near-white light surface (3.67:1 -> ~5.2:1). */

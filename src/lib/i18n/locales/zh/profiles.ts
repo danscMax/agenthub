@@ -37,7 +37,7 @@ export default {
   lean: '精简',
   leanTip: '以精简模式启动（{flag}）——裁剪系统提示',
   links: '链接 {linked}/{total}',
-  linksTip: '共享文件夹（junction/符号链接）。点击展开详情。',
+  linksTip: '已连接 {total} 个共享文件夹中的 {linked} 个（junction/符号链接）。点击展开详情。',
 
   // Provider section
   providerLabel: '提供商：',

@@ -38,7 +38,7 @@ export default {
   lean: 'lean',
   leanTip: 'Launches in lean mode ({flag}) — trimmed system prompt',
   links: 'links {linked}/{total}',
-  linksTip: 'Shared folders (junction/symlink). Click to expand details.',
+  linksTip: 'Connected {linked} of {total} shared folders (junction/symlink). Click to expand details.',
 
   // Provider section
   providerLabel: 'Provider:',

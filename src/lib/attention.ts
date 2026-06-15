@@ -40,7 +40,8 @@ export function profilesAttention(data: ProfilesStatus | null | undefined): Atte
   const missing = data.profiles.filter((p) => !p.exists).length;
   const conflicts = (data.syncConflicts?.count ?? 0) > 0 ? 1 : 0;
   const total = broken + missing + conflicts;
-  return total > 0 ? { level: 'warn', count: broken + missing } : null;
+  // count must match `total` — otherwise a repo with ONLY sync conflicts shows a "0" badge.
+  return total > 0 ? { level: 'warn', count: total } : null;
 }
 
 /** Plugins with an available update. */

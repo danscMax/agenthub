@@ -81,7 +81,7 @@ export default {
   recDirtyCopied: '✓ Prompt copied',
   recDirtyLabel: 'Copy AI prompt',
   recDirtyTip: 'Copy the prompt and ask Claude Code to sort out and commit the changes',
-  recFfPlain: 'pull updates from upstream (behind by {n})',
+  recFfPlain: 'pull updates from upstream (behind by {n} {commits})',
   recFfLabel: 'Pull from upstream',
   recDeletePlain: 'delete branches already merged into upstream',
   recDeleteLabel: 'Delete merged branches',
@@ -96,7 +96,7 @@ export default {
   healthDetachedTip:
     'HEAD is not on a branch (detached HEAD) — actions are blocked, resolve manually in the terminal',
   healthConflictTip: 'Some branches will not merge without manual conflict resolution',
-  healthBehind: 'behind by {n}',
+  healthBehind: 'behind by {n} {commits}',
   healthBehindTip: 'The default branch is behind upstream by {n} — can fast-forward (FF)',
   healthClean: 'clean',
   healthCleanTip: 'Everything is in sync, no action required',
@@ -148,11 +148,11 @@ export default {
   branchAheadTip: 'Commits in this branch beyond upstream: {n}',
 
   // ── ForkRepoCard: wip-local (personal integration branch) ──
-  wipBehind: 'wip-local behind by {n}',
+  wipBehind: 'wip-local behind by {n} {commits}',
   wipBehindTip:
     'Your personal wip-local branch is {n} commits behind upstream — consider syncing it',
   wipLabel: 'wip-local',
-  wipBehindRow: 'behind by {n}',
+  wipBehindRow: 'behind by {n} {commits}',
   wipMergedPatches: 'patches merged: {n}',
 
   // ── ForkRepoCard: action row ──

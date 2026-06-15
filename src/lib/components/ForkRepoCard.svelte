@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ForkRepo, ForkAction } from '$lib/ipc';
   import { openTerminal } from '$lib/ipc';
-  import { pConflict, pBranch, outcomeLabel, t } from '$lib/i18n';
+  import { pConflict, pBranch, pCommit, outcomeLabel, t } from '$lib/i18n';
   import DropdownMenu from './DropdownMenu.svelte';
 
   let {
@@ -83,7 +83,7 @@
   // whitespace-collapsing the separator between inline {#if} blocks).
   const wipDetail = $derived(
     [
-      wipBehind > 0 ? t('forks.wipBehindRow', { n: wipBehind }) : null,
+      wipBehind > 0 ? t('forks.wipBehindRow', { n: wipBehind, commits: pCommit(wipBehind) }) : null,
       wipMerged > 0 ? t('forks.wipMergedPatches', { n: wipMerged }) : null
     ]
       .filter(Boolean)
@@ -104,7 +104,7 @@
     if (conflictBranches.length)
       return { key: 'conflict', plain: t('forks.recConflictPlain'), label: copied ? t('forks.recConflictCopied') : t('forks.recConflictLabel'), tip: t('forks.recConflictTip'), run: copyPrompt, disabled: false };
     if (!repo.isOwn && canFf)
-      return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0 }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning };
+      return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning };
     if (!repo.isOwn && canDelete)
       return { key: 'delete', plain: t('forks.recDeletePlain'), label: t('forks.recDeleteLabel'), tip: delTip, run: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })), disabled: anyRunning };
     if (canSyncWip)
@@ -122,8 +122,8 @@
     if (repo.detached) return { label: t('forks.healthDetached'), cls: 'badge-warn', tip: t('forks.healthDetachedTip') };
     const conflicts = branches.filter((b) => b.outcome === 'conflict').length;
     if (conflicts > 0) return { label: `${conflicts} ${pConflict(conflicts)}`, cls: 'badge-warn', tip: t('forks.healthConflictTip') };
-    if ((repo.behindBy ?? 0) > 0) return { label: t('forks.healthBehind', { n: repo.behindBy ?? 0 }), cls: 'badge-info', tip: t('forks.healthBehindTip', { n: repo.behindBy ?? 0 }) };
-    if (wipBehind > 0) return { label: t('forks.wipBehind', { n: wipBehind }), cls: 'badge-info', tip: t('forks.wipBehindTip', { n: wipBehind }) };
+    if ((repo.behindBy ?? 0) > 0) return { label: t('forks.healthBehind', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), cls: 'badge-info', tip: t('forks.healthBehindTip', { n: repo.behindBy ?? 0 }) };
+    if (wipBehind > 0) return { label: t('forks.wipBehind', { n: wipBehind, commits: pCommit(wipBehind) }), cls: 'badge-info', tip: t('forks.wipBehindTip', { n: wipBehind }) };
     return { label: t('forks.healthClean'), cls: 'badge-ok', tip: t('forks.healthCleanTip') };
   });
 
