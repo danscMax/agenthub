@@ -6,6 +6,9 @@
     readStatus,
     runComponent,
     runForks,
+    runForkRepo,
+    cancelForkRepo,
+    readForkRepoStatus,
     listBackups,
     runBackup,
     readProfiles,
@@ -185,6 +188,11 @@
   // Last fork action, so run-done can auto-recheck after a mutating one.
   let lastForkAction: ForkAction | null = null;
 
+  // Per-repo concurrent fork runs (keyed by repo path) — each card shows its own progress/result
+  // without the global run lock blocking the whole tab.
+  type ForkRunState = { line: string; running: boolean; code: number | null };
+  let forkRuns = $state<Record<string, ForkRunState>>({});
+
   // Tracks the mode of the in-flight component run so run-done can auto-refresh availability
   // after an apply (apply scripts report what they CHANGED, which the UI must not keep showing
   // as "update available" — a fresh check is the authoritative signal).
@@ -277,17 +285,32 @@
 
   function onForkAction(action: ForkAction, path?: string, label?: string) {
     if (path) {
-      // mutation -> confirm with the repo-specific description
+      // Per-repo mutation -> confirm, then run CONCURRENTLY (each repo independent).
       askConfirm(
         t('page.confirm_fork_title'),
         t('page.confirm_fork_msg', { label: label ?? action }),
         t('page.confirm_fork_btn'),
-        () => startForks(action, path),
+        () => startForkRepo(action, path),
         { danger: action === 'delete' }
       );
     } else {
       startForks(action);
     }
+  }
+
+  // Concurrent per-repo run: marks this repo busy, streams via fork-log/fork-done. Does NOT touch
+  // the global `running` lock, so other repos and the rest of the tab stay interactive.
+  function startForkRepo(action: ForkAction, path: string) {
+    if (forkRuns[path]?.running) return;
+    forkRuns = { ...forkRuns, [path]: { line: t('page.forks_starting'), running: true, code: null } };
+    runForkRepo(action, path).catch((e) => {
+      log = [...log, t('page.log_error', { e })].slice(-MAX_LOG);
+      forkRuns = { ...forkRuns, [path]: { line: String(e), running: false, code: -1 } };
+    });
+  }
+
+  function onCancelFork(path: string) {
+    cancelForkRepo(path).catch(() => {});
   }
 
   // Safe batch: fast-forward all behind forks (ff is non-destructive; fork-sync backs up refs).
@@ -993,6 +1016,46 @@
         }
       })
     );
+    // Per-repo concurrent fork runs (component = repo path).
+    unlisten.push(
+      await listen<{ component: string; stream: string; line: string }>('fork-log', (e) => {
+        const p = e.payload;
+        const name = p.component.split(/[\\/]/).pop() || p.component;
+        log = [...log, `[${name}] ${p.stream === 'err' ? '⚠ ' : ''}${p.line}`].slice(-MAX_LOG);
+        const prev = forkRuns[p.component];
+        forkRuns = { ...forkRuns, [p.component]: { line: p.line, running: true, code: prev?.code ?? null } };
+      })
+    );
+    unlisten.push(
+      await listen<{ component: string; code: number }>('fork-done', async (e) => {
+        const path = e.payload.component;
+        const code = e.payload.code;
+        const name = path.split(/[\\/]/).pop() || path;
+        log = [...log, `[${name}] ${t('page.log_done', { code })}`].slice(-MAX_LOG);
+        const prev = forkRuns[path];
+        forkRuns = { ...forkRuns, [path]: { line: prev?.line ?? '', running: false, code } };
+        // Merge ONLY this repo's fresh state (from its per-repo JSON) — no full rescan, no race.
+        if (code === 0) {
+          const updated = await readForkRepoStatus(path).catch(() => null);
+          const cur = statuses.forks;
+          if (updated && cur?.repos) {
+            statuses = {
+              ...statuses,
+              forks: { ...cur, repos: cur.repos.map((r: any) => (r.Path === path ? updated : r)) }
+            };
+          }
+        }
+        pushToast(
+          code === 0
+            ? { kind: 'success', title: t('page.toast_fork_done', { name }) }
+            : {
+                kind: 'error',
+                title: t('page.toast_fork_error', { name, code }),
+                action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ }
+              }
+        );
+      })
+    );
     unlisten.push(
       await listen('tray-check-all', () => {
         active = 'updates';
@@ -1044,7 +1107,7 @@
       {#if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {githubRepos} {running} onAction={onForkAction} {onBatchFf} {onOpenUrl} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} {onBatchFf} {onOpenUrl} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} onAction={onBackupAction} />
       {:else if active === 'profiles'}

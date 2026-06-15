@@ -181,5 +181,10 @@ export default {
   syncWipTip: 'Rebase wip-local onto fresh upstream (local, no push)',
   syncWipTipSynced: 'Unavailable: wip-local is already in sync',
   syncWipTipDirty: 'Unavailable: there are uncommitted changes',
-  syncWipTipUnavailable: 'Unavailable: no wip-local branch'
+  syncWipTipUnavailable: 'Unavailable: no wip-local branch',
+  runStarting: 'starting…',
+  runDone: 'updated',
+  runFailed: 'failed (code {code})',
+  runCancel: 'Cancel',
+  runCancelTip: 'Abort this repository’s update'
 };

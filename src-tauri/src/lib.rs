@@ -206,6 +206,11 @@ fn read_status(path: String) -> Result<Option<serde_json::Value>, String> {
 #[derive(Default)]
 struct RunState(Mutex<Option<u32>>);
 
+// Per-repo fork runs (path -> pid). Lets each fork update run concurrently and independently,
+// keyed by repo path, without the single RunState slot blocking the whole Forks tab.
+#[derive(Default)]
+struct ForkRuns(Mutex<std::collections::HashMap<String, u32>>);
+
 #[derive(Serialize, Clone)]
 struct LogLine {
     component: String,
@@ -291,38 +296,48 @@ async fn spawn_streamed_io(
         }
     }
 
-    let stdout = child.stdout.take().ok_or("нет stdout")?;
-    let stderr = child.stderr.take().ok_or("нет stderr")?;
-
-    let (app_o, id_o) = (app.clone(), id.clone());
-    let h_out = tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_o.emit(
-                "run-log",
-                LogLine { component: id_o.clone(), stream: "out".into(), line },
-            );
-        }
-    });
-    let (app_e, id_e) = (app.clone(), id.clone());
-    let h_err = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_e.emit(
-                "run-log",
-                LogLine { component: id_e.clone(), stream: "err".into(), line },
-            );
-        }
-    });
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    let _ = h_out.await;
-    let _ = h_err.await;
-
+    let code = pump_and_wait(app, id, child, "run-log", "run-done").await;
     *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    let code = status.code().unwrap_or(-1);
-    let _ = app.emit("run-done", RunDone { component: id, code });
     Ok(code)
+}
+
+/// The single shared streaming path: pump a child's stdout/stderr to `log_event`
+/// (component = `id`), wait for exit, then emit `done_event`. Used by both the single-slot
+/// runner (spawn_streamed_io) and the concurrent per-repo fork runner — only slot/registry
+/// bookkeeping differs between them.
+async fn pump_and_wait(
+    app: AppHandle,
+    id: String,
+    mut child: tokio::process::Child,
+    log_event: &'static str,
+    done_event: &'static str,
+) -> i32 {
+    let mut handles = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        let (a, i) = (app.clone(), id.clone());
+        handles.push(tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = a.emit(log_event, LogLine { component: i.clone(), stream: "out".into(), line });
+            }
+        }));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let (a, i) = (app.clone(), id.clone());
+        handles.push(tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = a.emit(log_event, LogLine { component: i.clone(), stream: "err".into(), line });
+            }
+        }));
+    }
+    let status = child.wait().await;
+    for h in handles {
+        let _ = h.await;
+    }
+    let code = status.ok().and_then(|s| s.code()).unwrap_or(-1);
+    let _ = app.emit(done_event, RunDone { component: id, code });
+    code
 }
 
 /// Run a component's script in `mode` ("check" | "apply"). Only one run at a time.
@@ -369,6 +384,17 @@ fn forks_action_args(action: &str) -> Option<Vec<String>> {
     Some(v.into_iter().map(String::from).collect())
 }
 
+/// Per-repo status JSON path that a `-Single` run writes (next to the fork-sync script). Read back
+/// after a per-repo run to merge just that repo's fresh state into the UI — no shared-file race.
+fn fork_repo_out_file(path: &str) -> Option<String> {
+    let comp = raw_components().into_iter().find(|c| c.id == "forks")?;
+    let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
+    let dir = std::path::Path::new(&script).parent()?.to_string_lossy().to_string();
+    let safe: String =
+        path.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    Some(format!("{dir}\\fork-sync.{safe}.last.json"))
+}
+
 /// Run a Forks-tab action. `path` (a repo path) scopes the action to one repo via -Paths;
 /// omit it for the global read actions (check / plan).
 #[tauri::command]
@@ -401,6 +427,103 @@ async fn run_forks(
     }
     let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
     spawn_streamed(app, state, "forks".to_string(), script, args).await
+}
+
+/// Run a Forks action scoped to ONE repo, concurrently and independently of other repos and of
+/// the single-slot runner. Streams to `fork-log` / `fork-done` (component = repo path) so the UI
+/// can show per-repo progress without blocking the whole tab. Rejects a second run on the same repo.
+#[tauri::command]
+async fn run_fork_repo(
+    app: AppHandle,
+    runs: State<'_, ForkRuns>,
+    action: String,
+    path: String,
+) -> Result<i32, String> {
+    let mut args =
+        forks_action_args(&action).ok_or_else(|| format!("неизвестное действие forks: {action}"))?;
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(format!("каталог репозитория не найден: {path}"));
+    }
+    let comp = raw_components()
+        .into_iter()
+        .find(|c| c.id == "forks")
+        .ok_or("компонент forks не найден в манифесте")?;
+    let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
+    // Reserve this repo (reject a second concurrent run on the same one).
+    {
+        let mut m = runs.0.lock().unwrap_or_else(|e| e.into_inner());
+        if m.contains_key(&path) {
+            return Err("этот форк уже обновляется".into());
+        }
+        m.insert(path.clone(), 0);
+    }
+    // Strict single-repo run: only this repo is processed, and its result is written to a per-repo
+    // JSON (not the shared fork-sync.last.json) — so concurrent repo runs never race the file.
+    let out_file = fork_repo_out_file(&path).unwrap_or_default();
+    let mut full = vec![
+        "-Single".to_string(),
+        path.clone(),
+        "-OutFile".to_string(),
+        out_file,
+        "-Unattended".to_string(),
+    ];
+    full.append(&mut args);
+    let cfg = read_config_file();
+    if let Some(t) = cfg.fetch_timeout_sec {
+        full.push("-FetchTimeoutSec".into());
+        full.push(t.to_string());
+    }
+    if let Some(t) = cfg.gh_timeout_sec {
+        full.push("-GhTimeoutSec".into());
+        full.push(t.to_string());
+    }
+    let mut cmd = Command::new("pwsh");
+    cmd.arg("-NoProfile").arg("-ExecutionPolicy").arg("Bypass").arg("-File").arg(&script);
+    for a in &full {
+        cmd.arg(a);
+    }
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.env("SCRIPTS_ROOT", scripts_root());
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            runs.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+            return Err(format!("не удалось запустить pwsh: {e}"));
+        }
+    };
+    if let Some(pid) = child.id() {
+        runs.0.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), pid);
+    }
+    let code = pump_and_wait(app, path.clone(), child, "fork-log", "fork-done").await;
+    runs.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+    Ok(code)
+}
+
+/// Cancel the in-flight fork run for `path` (kills its process tree). No-op if none is running.
+#[tauri::command]
+fn cancel_fork_repo(runs: State<'_, ForkRuns>, path: String) -> Result<(), String> {
+    let pid = { runs.0.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied() };
+    if let Some(p) = pid {
+        if p != 0 {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &p.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+    }
+    Ok(())
+}
+
+/// Read the single repo's fresh state from the per-repo JSON a `-Single` run wrote. The UI merges
+/// this into its repo list after `fork-done`, so only that card updates (no full rescan, no race).
+#[tauri::command]
+fn read_fork_repo_status(path: String) -> Option<serde_json::Value> {
+    let out_file = fork_repo_out_file(&path)?;
+    let content = std::fs::read_to_string(&out_file).ok()?;
+    let v = parse_json_bom(&content).ok()?;
+    v.get("repos").and_then(|r| r.as_array()).and_then(|a| a.first()).cloned()
 }
 
 const BACKUP_DIR_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Backups";
@@ -2455,11 +2578,15 @@ pub fn run() {
         // Remember window position/size across launches (auto-restores on start, saves on exit).
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(RunState::default())
+        .manage(ForkRuns::default())
         .invoke_handler(tauri::generate_handler![
             list_components,
             read_status,
             run_component,
             run_forks,
+            run_fork_repo,
+            cancel_fork_repo,
+            read_fork_repo_status,
             list_backups,
             run_backup,
             read_profiles,

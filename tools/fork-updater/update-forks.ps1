@@ -26,7 +26,9 @@ param(
     [switch]$SyncWipLocal,     # rebase the personal wip-local branch onto fresh upstream (local; no push)
     [switch]$PushRebased,      # after rebase, force-with-lease push to update the PRs (asks)
     [switch]$DryRun,           # with an action flag: print the plan, change nothing
-    [switch]$Yes               # skip confirmations (for scripting / the skill)
+    [switch]$Yes,              # skip confirmations (for scripting / the skill)
+    [string]$Single,          # strict single-repo mode (process ONLY this path) — concurrent-safe
+    [string]$OutFile          # write the status JSON here instead of the shared fork-sync.last.json
 )
 
 chcp 65001 | Out-Null
@@ -34,8 +36,10 @@ chcp 65001 | Out-Null
 
 Import-Module (Join-Path $PSScriptRoot 'ForkSync.psm1') -Force
 
-# Single-instance lock — concurrent runs doing git in the same repos is unsafe.
-$lockPath = Join-Path $env:TEMP 'fork-sync.lock'
+# Single-instance lock. A whole-stack run takes the global lock; a -Single run takes a PER-REPO
+# lock so different repos run concurrently, while the same repo still can't double-run.
+$lockName = if ($Single) { 'fork-sync.' + ($Single -replace '[^A-Za-z0-9]', '_') + '.lock' } else { 'fork-sync.lock' }
+$lockPath = Join-Path $env:TEMP $lockName
 $lockStream = $null
 try {
     try { $lockStream = [System.IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
@@ -47,7 +51,8 @@ try {
     $code = Invoke-ForkSync -Root $PSScriptRoot -Unattended:$Unattended -NoFetch:$NoFetch `
         -Roots $Roots -Paths $Paths -FetchTimeoutSec $FetchTimeoutSec -GhTimeoutSec $GhTimeoutSec `
         -Apply:$Apply -FfMain:$FfMain -DeleteMerged:$DeleteMerged -NormalizeRemotes:$NormalizeRemotes `
-        -Rebase:$Rebase -SyncWipLocal:$SyncWipLocal -PushRebased:$PushRebased -DryRun:$DryRun -Yes:$Yes
+        -Rebase:$Rebase -SyncWipLocal:$SyncWipLocal -PushRebased:$PushRebased -DryRun:$DryRun -Yes:$Yes `
+        -Single $Single -OutFile $OutFile
 
     exit ([int]$code)
 }

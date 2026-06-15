@@ -21,6 +21,12 @@ export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'sync-w
 
 export const runForks = (action: ForkAction, path?: string) =>
   invoke<number>('run_forks', { action, path: path ?? null });
+// Per-repo concurrent run: streams to fork-log / fork-done (component = repo path).
+export const runForkRepo = (action: ForkAction, path: string) =>
+  invoke<number>('run_fork_repo', { action, path });
+export const cancelForkRepo = (path: string) => invoke('cancel_fork_repo', { path });
+// Fresh state of one repo after a -Single run (for merging into the list without a full rescan).
+export const readForkRepoStatus = (path: string) => invoke<ForkRepo | null>('read_fork_repo_status', { path });
 
 export type ForkBranch = {
   name: string;

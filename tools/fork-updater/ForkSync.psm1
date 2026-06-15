@@ -566,8 +566,8 @@ function Write-RepoHuman {
 }
 
 function Write-ForkSyncJson {
-    param([string]$Root, [pscustomobject]$Payload)
-    $path = Join-Path $Root 'fork-sync.last.json'
+    param([string]$Root, [pscustomobject]$Payload, [string]$OutFile)
+    $path = if ($OutFile) { $OutFile } else { Join-Path $Root 'fork-sync.last.json' }
     [System.IO.File]::WriteAllText($path, ($Payload | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))
     return $path
 }
@@ -787,7 +787,11 @@ function Invoke-ForkSync {
         [switch]$SyncWipLocal,
         [switch]$PushRebased,
         [switch]$DryRun,
-        [switch]$Yes
+        [switch]$Yes,
+        # Strict single-repo mode: process ONLY this path (ignore roots/own config) and write the
+        # result to -OutFile. Lets AgentHub run repos concurrently (per-repo lock + per-repo JSON).
+        [string]$Single,
+        [string]$OutFile
     )
     $start = Get-Date
     $log = Initialize-Logging -Root $Root -Prefix 'fork-sync'
@@ -809,6 +813,16 @@ function Invoke-ForkSync {
     $cfg = Get-ForkSyncConfig -Root $Root -Roots $Roots -Paths $Paths -FetchTimeoutSec $FetchTimeoutSec -GhTimeoutSec $GhTimeoutSec
     $repos = Find-ManagedRepos -Roots $cfg.Roots -Paths $cfg.Paths
     $ownRepos = @(Find-ManagedRepos -Paths $cfg.OwnPaths | Where-Object { $_ -notin $repos })
+    if ($Single) {
+        # Override discovery: only the one requested repo. Route it to fork/own based on OwnPaths so
+        # its role (and the -IsOwn report) stays correct.
+        $rp = if ((Test-Path -LiteralPath $Single) -and (Test-Path -LiteralPath (Join-Path $Single '.git'))) { (Resolve-Path -LiteralPath $Single).Path } else { $null }
+        $isOwnSingle = $false
+        foreach ($o in $cfg.OwnPaths) { if ((Test-Path -LiteralPath $o) -and ((Resolve-Path -LiteralPath $o).Path -eq $rp)) { $isOwnSingle = $true } }
+        if ($rp -and $isOwnSingle) { $repos = @(); $ownRepos = @($rp) }
+        elseif ($rp) { $repos = @($rp); $ownRepos = @() }
+        else { $repos = @(); $ownRepos = @() }
+    }
     Write-Status ("найдено: форков {0}, своих репо {1}" -f @($repos).Count, @($ownRepos).Count) 'INFO'
 
     $reports = New-Object System.Collections.Generic.List[object]
@@ -906,7 +920,7 @@ function Invoke-ForkSync {
         summary = [ordered]@{ repos = $managed.Count; merged = $cMerged; open = $cOpen; conflict = $cConf; needHands = $needHands }
         repos = $reports.ToArray()
     }
-    $jsonPath = Write-ForkSyncJson -Root $Root -Payload $payload
+    $jsonPath = Write-ForkSyncJson -Root $Root -Payload $payload -OutFile $OutFile
     Write-Status "JSON: $jsonPath" 'INFO'
     if (-not $Unattended) { Show-Notification -Title 'fork-sync' -Body ("Влито {0}, открыто {1}, конфликтов {2}" -f $cMerged, $cOpen, $cConf) -IsError:($cConf -gt 0) }
 

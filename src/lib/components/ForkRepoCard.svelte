@@ -7,15 +7,23 @@
   let {
     repo,
     anyRunning,
-    onAction
+    run,
+    onAction,
+    onCancel
   }: {
     repo: ForkRepo;
     anyRunning: boolean;
+    run?: { line: string; running: boolean; code: number | null };
     onAction: (action: ForkAction, path: string, label: string) => void;
+    onCancel?: () => void;
   } = $props();
 
   let open = $state(false);
   let copied = $state(false);
+
+  // This repo's own run state (concurrent, independent of other repos).
+  const busy = $derived(!!run?.running);
+  const lastCode = $derived(run && !run.running ? run.code : null);
 
   const branches = $derived(repo.branches ?? []);
   const conflictBranches = $derived(branches.filter((b) => b.outcome === 'conflict'));
@@ -104,11 +112,11 @@
     if (conflictBranches.length)
       return { key: 'conflict', plain: t('forks.recConflictPlain'), label: copied ? t('forks.recConflictCopied') : t('forks.recConflictLabel'), tip: t('forks.recConflictTip'), run: copyPrompt, disabled: false };
     if (!repo.isOwn && canFf)
-      return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning };
+      return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning || busy };
     if (!repo.isOwn && canDelete)
-      return { key: 'delete', plain: t('forks.recDeletePlain'), label: t('forks.recDeleteLabel'), tip: delTip, run: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })), disabled: anyRunning };
+      return { key: 'delete', plain: t('forks.recDeletePlain'), label: t('forks.recDeleteLabel'), tip: delTip, run: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })), disabled: anyRunning || busy };
     if (canSyncWip)
-      return { key: 'syncwip', plain: t('forks.recSyncWipPlain', { n: wipBehind }), label: t('forks.recSyncWipLabel'), tip: t('forks.recSyncWipTip'), run: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })), disabled: anyRunning };
+      return { key: 'syncwip', plain: t('forks.recSyncWipPlain', { n: wipBehind }), label: t('forks.recSyncWipLabel'), tip: t('forks.recSyncWipTip'), run: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })), disabled: anyRunning || busy };
     // Fallback for repos with local work but no sync action: uncommitted/untracked changes.
     if (isDirty)
       return { key: 'dirty', plain: t('forks.recDirtyPlain'), label: copied ? t('forks.recDirtyCopied') : t('forks.recDirtyLabel'), tip: t('forks.recDirtyTip'), run: copyDirtyPrompt, disabled: false };
@@ -255,15 +263,44 @@
           <DropdownMenu
             title={t('forks.moreActionsTip')}
             items={[
-              { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
-              { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || !canDelete, danger: true, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
-              { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
-              { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
-              { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }
+              { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || busy || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
+              { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || busy || !canDelete, danger: true, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
+              { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || busy || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
+              { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || busy || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
+              { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || busy || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }
             ]}
           />
         {/if}
       </div>
+      {#if run}
+        <div class="flex items-center gap-sw-2 text-sw-xs">
+          {#if busy}
+            <span class="fork-spin" aria-hidden="true"></span>
+            <span class="min-w-0 flex-1 truncate text-sw-text-secondary" title={run.line}>{run.line || t('forks.runStarting')}</span>
+            {#if onCancel}<button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" onclick={onCancel} title={t('forks.runCancelTip')}>{t('forks.runCancel')}</button>{/if}
+          {:else}
+            <span class="shrink-0 {lastCode === 0 ? 'text-emerald-500' : 'text-red-500'}">{lastCode === 0 ? '✓' : '✗'}</span>
+            <span class="min-w-0 flex-1 truncate text-sw-text-muted" title={run.line}>{lastCode === 0 ? t('forks.runDone') : t('forks.runFailed', { code: lastCode ?? -1 })}</span>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
+
+<style>
+  .fork-spin {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    border: 2px solid var(--sw-border);
+    border-top-color: var(--sw-accent);
+    animation: fork-spin 0.7s linear infinite;
+  }
+  @keyframes fork-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+</style>

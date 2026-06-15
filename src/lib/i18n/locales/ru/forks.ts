@@ -182,5 +182,10 @@ export default {
   syncWipTip: 'Перебазировать wip-local на свежий upstream (локально, без push)',
   syncWipTipSynced: 'Недоступно: wip-local уже синхронизирован',
   syncWipTipDirty: 'Недоступно: есть незакоммиченные изменения',
-  syncWipTipUnavailable: 'Недоступно: нет ветки wip-local'
+  syncWipTipUnavailable: 'Недоступно: нет ветки wip-local',
+  runStarting: 'запуск…',
+  runDone: 'обновлено',
+  runFailed: 'ошибка (код {code})',
+  runCancel: 'Отмена',
+  runCancelTip: 'Прервать обновление этого репозитория'
 };

@@ -173,5 +173,10 @@ export default {
   syncWipTip: '将 wip-local 变基到最新上游（本地，不 push）',
   syncWipTipSynced: '不可用：wip-local 已同步',
   syncWipTipDirty: '不可用：存在未提交的更改',
-  syncWipTipUnavailable: '不可用：没有 wip-local 分支'
+  syncWipTipUnavailable: '不可用：没有 wip-local 分支',
+  runStarting: '启动中…',
+  runDone: '已更新',
+  runFailed: '失败（代码 {code}）',
+  runCancel: '取消',
+  runCancelTip: '中止此仓库的更新'
 };

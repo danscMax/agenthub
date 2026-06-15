@@ -7,14 +7,18 @@
     status,
     githubRepos = [],
     running,
+    forkRuns = {},
     onAction,
+    onCancelFork,
     onBatchFf,
     onOpenUrl
   }: {
     status: ForkStatus | null | undefined;
     githubRepos?: GithubRepo[];
     running: string | null;
+    forkRuns?: Record<string, { line: string; running: boolean; code: number | null }>;
     onAction: (action: ForkAction, path?: string, label?: string) => void;
+    onCancelFork?: (path: string) => void;
     onBatchFf: (names: string[]) => void;
     onOpenUrl?: (url: string) => void;
   } = $props();
@@ -154,7 +158,13 @@
     </div>
     <div class="card-grid">
       {#each filteredRepos as repo (repo.Path)}
-        <ForkRepoCard {repo} {anyRunning} onAction={(a, p, l) => onAction(a, p, l)} />
+        <ForkRepoCard
+          {repo}
+          {anyRunning}
+          run={forkRuns[repo.Path]}
+          onAction={(a, p, l) => onAction(a, p, l)}
+          onCancel={() => onCancelFork?.(repo.Path)}
+        />
       {/each}
     </div>
   {:else}
