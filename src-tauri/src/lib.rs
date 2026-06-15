@@ -1059,9 +1059,15 @@ fn read_providers() -> Vec<ProfileProvider> {
             if let Ok(v) = parse_json_bom(&c) {
                 if let Some(env) = v.get("env").and_then(|e| e.as_object()) {
                     let g = |k: &str| env.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    // Prefer the current tier env vars; fall back to the legacy single-value keys
+                    // so profiles bound by an older AgentHub still display their model.
+                    let g_or = |new: &str, old: &str| {
+                        let v = g(new);
+                        if v.is_empty() { g(old) } else { v }
+                    };
                     p.base_url = g("ANTHROPIC_BASE_URL");
-                    p.model = g("ANTHROPIC_MODEL");
-                    p.small_model = g("ANTHROPIC_SMALL_FAST_MODEL");
+                    p.model = g_or("ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_MODEL");
+                    p.small_model = g_or("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL");
                     p.has_token = !g("ANTHROPIC_AUTH_TOKEN").is_empty();
                 }
             }
@@ -1748,10 +1754,10 @@ fn app_paths() -> serde_json::Value {
     })
 }
 
-/// A profile's settings.json `env` block as (key, value) pairs. Launching with these in the
-/// real process environment (not just settings.json) is what lets Claude Code skip the
-/// onboarding "Select login method" screen for a custom provider — its auth check reads the
-/// process env, while settings.json `env` is only applied to outgoing requests.
+/// A profile's settings.json `env` block as (key, value) pairs. Claude Code (2.1+) applies its
+/// settings.json `env` to its own process before the auth check, so a non-empty
+/// ANTHROPIC_AUTH_TOKEN there already skips the "Select login method" screen on a bare launch
+/// (verified empirically). Re-exporting these at launch is now belt-and-suspenders, not required.
 fn profile_env_pairs(name: &str) -> Vec<(String, String)> {
     let home = match std::env::var("USERPROFILE") {
         Ok(h) => h,
@@ -2027,8 +2033,9 @@ fn launch_profile(name: String, mode: String) -> Result<(), String> {
     };
     // New console that starts claude with the profile's provider env + config dir set as REAL
     // environment variables (inherited by the window `start` spawns), rather than inlined into a
-    // `set K=V&&` cmd string. This avoids any cmd-metacharacter handling on env values and is what
-    // makes a custom-provider profile skip the login screen (claude's auth check reads the env).
+    // `set K=V&&` cmd string. This avoids any cmd-metacharacter handling on env values. The login
+    // screen is already skipped by the token in settings.json `env`; this re-export is redundant
+    // safety (kept harmless) rather than the mechanism.
     let mut cmd = std::process::Command::new("cmd");
     cmd.args(["/c", "start", &format!("Claude {name}"), "cmd", "/k", &claude_cmd])
         .env("CLAUDE_CONFIG_DIR", &dir);
