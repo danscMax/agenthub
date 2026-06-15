@@ -13,3 +13,9 @@ plans/audit/
 # Runtime output of the vendored fork-updater (written next to its script)
 tools/fork-updater/fork-sync.last.json
 tools/fork-updater/logs/
+
+# UI review working artifacts (screenshots + intermediate findings)
+plans/ui-review/
+
+# Playwright MCP scratch output
+.playwright-mcp/
