@@ -91,7 +91,7 @@
           {t('backup.showPlan')}
         </button>
         <button
-          class="sw-btn sw-btn-primary"
+          class="sw-btn sw-btn-danger"
           disabled={busy || !hasPreviewed || selected.length === 0}
           onclick={restore}
           title={hasPreviewed

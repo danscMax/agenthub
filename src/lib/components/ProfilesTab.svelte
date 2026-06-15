@@ -252,7 +252,7 @@
         title={t('profiles.addProfileTip')}>
         {t('profiles.addProfile')}
       </button>
-      <button class="sw-btn sw-btn-ghost" disabled={busy} onclick={() => onAction('reinstall')}
+      <button class="sw-btn sw-btn-danger" disabled={busy} onclick={() => onAction('reinstall')}
         title={t('profiles.reinstallTip')}>
         {t('profiles.reinstall')}
       </button>
@@ -313,8 +313,8 @@
           {#if conflictCount > 0}
             <li class="flex items-center justify-between gap-sw-2">
               <span>{t('profiles.syncConflicts', { n: conflictCount })}</span>
-              <button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" disabled={busy} onclick={() => onAction('clean-conflicts')}
-                title={t('profiles.cleanConflictsTip')}>{t('common.delete')}</button>
+              <button class="sw-btn sw-btn-danger text-sw-xs shrink-0" disabled={busy} onclick={() => onAction('clean-conflicts')}
+                title={t('profiles.cleanConflictsTip')}>{t('profiles.cleanConflicts')}</button>
             </li>
           {/if}
         </ul>

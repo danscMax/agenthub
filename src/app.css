@@ -119,6 +119,16 @@
   .sw-btn-ghost:not(:disabled):hover {
     border-color: var(--sw-border-focus);
   }
+  /* Destructive / irreversible actions — visually distinct from primary (accent) so a delete
+     or restore never looks like a routine confirm. */
+  .sw-btn-danger {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    color: #fff;
+  }
+  .sw-btn-danger:not(:disabled):hover {
+    filter: brightness(1.08);
+    box-shadow: 0 0 16px rgba(220, 38, 38, 0.4);
+  }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-sw-xs font-medium;
   }

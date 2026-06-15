@@ -69,6 +69,7 @@ export default {
   confirm_reinstall_msg:
     'Install-ClaudeProfiles.ps1 -Force пересоздаст junction’ы/симлинки всех профилей и потребует прав администратора (UAC). Продолжить?',
   confirm_reinstall_btn: 'Переустановить',
+  confirm_reinstall_word: 'ПЕРЕУСТАНОВИТЬ',
   confirm_clean_title: 'Удалить sync-конфликты?',
   confirm_clean_msg:
     'Будут удалены файлы-дубли *.sync-conflict-* (оригиналы не тронутся; Syncthing хранит версии). Продолжить?',

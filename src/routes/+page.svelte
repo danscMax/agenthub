@@ -140,7 +140,19 @@
     message: string;
     confirmLabel: string;
     action: (() => void) | null;
-  }>({ open: false, title: '', message: '', confirmLabel: t('common.confirm'), action: null });
+    details: string[];
+    requireText: string | null;
+    danger: boolean;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    confirmLabel: t('common.confirm'),
+    action: null,
+    details: [],
+    requireText: null,
+    danger: false
+  });
 
   let unlisten: UnlistenFn[] = [];
 
@@ -196,11 +208,35 @@
   }
 
   function closeConfirm() {
-    confirm = { open: false, title: '', message: '', confirmLabel: t('common.confirm'), action: null };
+    confirm = {
+      open: false,
+      title: '',
+      message: '',
+      confirmLabel: t('common.confirm'),
+      action: null,
+      details: [],
+      requireText: null,
+      danger: false
+    };
   }
 
-  function askConfirm(title: string, message: string, confirmLabel: string, action: () => void) {
-    confirm = { open: true, title, message, confirmLabel, action };
+  function askConfirm(
+    title: string,
+    message: string,
+    confirmLabel: string,
+    action: () => void,
+    opts: { details?: string[]; requireText?: string | null; danger?: boolean } = {}
+  ) {
+    confirm = {
+      open: true,
+      title,
+      message,
+      confirmLabel,
+      action,
+      details: opts.details ?? [],
+      requireText: opts.requireText ?? null,
+      danger: opts.danger ?? false
+    };
   }
 
   function doConfirm() {
@@ -245,7 +281,8 @@
         t('page.confirm_fork_title'),
         t('page.confirm_fork_msg', { label: label ?? action }),
         t('page.confirm_fork_btn'),
-        () => startForks(action, path)
+        () => startForks(action, path),
+        { danger: action === 'delete' }
       );
     } else {
       startForks(action);
@@ -295,7 +332,8 @@
         t('page.confirm_restore_title'),
         t('page.confirm_restore_msg', { snap }),
         t('page.confirm_restore_btn'),
-        () => startBackup('restore', opts)
+        () => startBackup('restore', opts),
+        { danger: true, requireText: opts?.timestamp ?? null }
       );
     } else {
       startBackup(action, opts);
@@ -394,14 +432,16 @@
         t('page.confirm_reinstall_title'),
         t('page.confirm_reinstall_msg'),
         t('page.confirm_reinstall_btn'),
-        () => startProfiles('reinstall')
+        () => startProfiles('reinstall'),
+        { danger: true, requireText: t('page.confirm_reinstall_word') }
       );
     } else if (action === 'clean-conflicts') {
       askConfirm(
         t('page.confirm_clean_title'),
         t('page.confirm_clean_msg'),
         t('page.confirm_clean_btn'),
-        () => startProfiles('clean-conflicts')
+        () => startProfiles('clean-conflicts'),
+        { danger: true }
       );
     } else {
       startProfiles(action);
@@ -1086,6 +1126,9 @@
   title={confirm.title}
   message={confirm.message}
   confirmLabel={confirm.confirmLabel}
+  details={confirm.details}
+  requireText={confirm.requireText}
+  danger={confirm.danger}
   onConfirm={doConfirm}
   onCancel={closeConfirm}
 />

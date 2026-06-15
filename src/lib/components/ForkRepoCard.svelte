@@ -241,7 +241,7 @@
       {/if}
       <div class="flex flex-wrap items-center gap-sw-2">
         {#if rec}
-          <button class="sw-btn sw-btn-primary text-sw-xs" disabled={rec.disabled} title={rec.tip} onclick={rec.run}>
+          <button class="sw-btn {rec.key === 'delete' ? 'sw-btn-danger' : 'sw-btn-primary'} text-sw-xs" disabled={rec.disabled} title={rec.tip} onclick={rec.run}>
             {rec.label}
           </button>
         {/if}
@@ -256,7 +256,7 @@
             title={t('forks.moreActionsTip')}
             items={[
               { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
-              { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || !canDelete, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
+              { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || !canDelete, danger: true, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
               { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
               { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
               { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }

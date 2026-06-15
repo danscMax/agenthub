@@ -6,6 +6,7 @@ export default {
   cancel: 'Отмена',
   confirm: 'Подтвердить',
   close: 'Закрыть',
+  typeToConfirm: 'Для подтверждения введите «{text}»',
   open: 'Открыть',
   refresh: 'Обновить',
   delete: 'Удалить',

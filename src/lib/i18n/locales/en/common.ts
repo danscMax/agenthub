@@ -6,6 +6,7 @@ export default {
   cancel: 'Cancel',
   confirm: 'Confirm',
   close: 'Close',
+  typeToConfirm: 'Type “{text}” to confirm',
   open: 'Open',
   refresh: 'Refresh',
   delete: 'Delete',

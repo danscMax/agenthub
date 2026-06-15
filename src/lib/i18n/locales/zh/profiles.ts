@@ -19,6 +19,7 @@ export default {
   create: '创建',
   createTip: '重新安装配置——将创建缺少的目录',
   syncConflicts: 'Syncthing 同步冲突：{n}（重复文件 *.sync-conflict-*）。',
+  cleanConflicts: '删除重复',
   cleanConflictsTip: '删除冲突重复文件（原文件不受影响；Syncthing 保留版本）',
   allGood: '一切正常',
   allGoodHint: '所有配置都在，链接完好，无冲突。',

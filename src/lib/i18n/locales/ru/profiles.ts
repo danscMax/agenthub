@@ -19,6 +19,7 @@ export default {
   create: 'Создать',
   createTip: 'Переустановить профили — создаст недостающие',
   syncConflicts: 'Sync-конфликты Syncthing: {n} (файлы-дубли *.sync-conflict-*).',
+  cleanConflicts: 'Удалить дубли',
   cleanConflictsTip:
     'Удалить файлы-дубли конфликтов (оригиналы не тронутся; Syncthing хранит версии)',
   allGood: 'всё в порядке',

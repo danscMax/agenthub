@@ -19,6 +19,7 @@ export default {
   create: 'Create',
   createTip: 'Reinstall profiles — will create the missing ones',
   syncConflicts: 'Syncthing sync conflicts: {n} (duplicate *.sync-conflict-* files).',
+  cleanConflicts: 'Delete duplicates',
   cleanConflictsTip:
     'Delete conflict-duplicate files (originals are untouched; Syncthing keeps versions)',
   allGood: 'all good',

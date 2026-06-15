@@ -68,6 +68,7 @@ export default {
   confirm_reinstall_msg:
     'Install-ClaudeProfiles.ps1 -Force 将重建所有配置的 junction/符号链接，并需要管理员权限（UAC）。是否继续？',
   confirm_reinstall_btn: '重新安装',
+  confirm_reinstall_word: '重新安装',
   confirm_clean_title: '删除同步冲突？',
   confirm_clean_msg:
     '将删除重复的 *.sync-conflict-* 文件（原始文件不受影响；Syncthing 会保留版本）。是否继续？',
