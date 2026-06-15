@@ -155,6 +155,9 @@ export const pAction = pluralOf('action');
 export const pBranch = pluralOf('branch');
 export const pSnapshot = pluralOf('snapshot');
 export const pProfile = pluralOf('profile');
+export const pSkill = pluralOf('skill');
+export const pCommand = pluralOf('command');
+export const pAgent = pluralOf('agent');
 
 /** fork-sync mode string -> localized label. */
 export function forkMode(m?: string): string {

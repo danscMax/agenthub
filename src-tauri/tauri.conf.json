@@ -16,7 +16,7 @@
         "title": "AgentHub",
         "width": 1100,
         "height": 720,
-        "minWidth": 880,
+        "minWidth": 920,
         "minHeight": 560,
         "decorations": false
       }

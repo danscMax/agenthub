@@ -20,22 +20,29 @@
 
   let restoreSnap = $state<string | null>(null);
 
-  function fmtAbs(ts?: string | null) {
-    if (!ts) return '—';
-    try {
-      const fmtLocale =
-        locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
-      return new Date(ts).toLocaleString(fmtLocale);
-    } catch {
-      return ts;
-    }
+  // "2026-06-12_100002" -> "2026-06-12 10:00:02" (snapshot-name format). Returns null if it
+  // isn't that format, so callers can fall back.
+  function snapToReadable(name: string): string | null {
+    const m = name.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})$/);
+    return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : null;
+  }
+  function fmtSnap(name: string) {
+    return snapToReadable(name) ?? name;
   }
 
-  // "2026-06-12_100002" -> "2026-06-12 10:00:02"
-  function fmtSnap(name: string) {
-    const m = name.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})$/);
-    if (!m) return name;
-    return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+  // Absolute timestamp formatter that tolerates BOTH ISO strings and snapshot-name format
+  // (lastWeekly/lastSnapshot use the latter). `new Date('2026-06-08_030000')` yields an
+  // Invalid Date WITHOUT throwing, so the old try/catch never caught it → "Invalid Date" leaked.
+  function fmtAbs(ts?: string | null) {
+    if (!ts) return '—';
+    const d = new Date(ts);
+    if (!Number.isNaN(d.getTime())) {
+      const fmtLocale =
+        locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
+      return d.toLocaleString(fmtLocale);
+    }
+    // Not a parseable Date — try the snapshot-name format; else show a dash, never "Invalid Date".
+    return snapToReadable(ts) ?? '—';
   }
 
   const freshness = $derived.by(() => {

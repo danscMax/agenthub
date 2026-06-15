@@ -78,6 +78,17 @@
   // How far the personal wip-local integration branch trails upstream (separate from the
   // default branch's behindBy — a repo sitting on wip-local can be behind while main is synced).
   const wipBehind = $derived(repo.wipLocal?.behindBy ?? 0);
+  const wipMerged = $derived(repo.wipLocal?.mergedPatches ?? 0);
+  // " · "-joined detail line for the expanded view (built in script to avoid Svelte
+  // whitespace-collapsing the separator between inline {#if} blocks).
+  const wipDetail = $derived(
+    [
+      wipBehind > 0 ? t('forks.wipBehindRow', { n: wipBehind }) : null,
+      wipMerged > 0 ? t('forks.wipMergedPatches', { n: wipMerged }) : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  );
 
   const canFf = $derived((repo.behindBy ?? 0) > 0 && repo.ffSafe && !repo.dirty && safeTree);
   const canDelete = $derived(hasMerged && safeTree);
@@ -112,6 +123,7 @@
     const conflicts = branches.filter((b) => b.outcome === 'conflict').length;
     if (conflicts > 0) return { label: `${conflicts} ${pConflict(conflicts)}`, cls: 'badge-warn', tip: t('forks.healthConflictTip') };
     if ((repo.behindBy ?? 0) > 0) return { label: t('forks.healthBehind', { n: repo.behindBy ?? 0 }), cls: 'badge-info', tip: t('forks.healthBehindTip', { n: repo.behindBy ?? 0 }) };
+    if (wipBehind > 0) return { label: t('forks.wipBehind', { n: wipBehind }), cls: 'badge-info', tip: t('forks.wipBehindTip', { n: wipBehind }) };
     return { label: t('forks.healthClean'), cls: 'badge-ok', tip: t('forks.healthCleanTip') };
   });
 
@@ -165,9 +177,8 @@
     <span class="badge {health.cls} shrink-0" title={health.tip}>{health.label}</span>
   </div>
 
-  {#if repo.dirty || repo.untracked || repo.rolesGuessed || wipBehind > 0}
+  {#if repo.dirty || repo.untracked || repo.rolesGuessed}
     <div class="flex flex-wrap gap-sw-2 text-sw-xs">
-      {#if wipBehind > 0}<span class="badge badge-info" title={t('forks.wipBehindTip', { n: wipBehind })}>{t('forks.wipBehind', { n: wipBehind })}</span>{/if}
       {#if repo.dirty}<span class="badge badge-warn" title={t('forks.badgeDirtyTip')}>{t('forks.badgeDirty')}</span>{/if}
       {#if repo.untracked}<span class="badge badge-muted" title={t('forks.badgeUntrackedTip')}>{t('forks.badgeUntracked')}</span>{/if}
       {#if repo.rolesGuessed}<span class="badge badge-muted" title={t('forks.badgeRolesGuessedTip')}>{t('forks.badgeRolesGuessed')}</span>{/if}
@@ -182,12 +193,10 @@
       {#if repo.fork}
         <div class="flex justify-between gap-sw-2"><dt>{t('forks.fork')}</dt><dd class="truncate text-sw-text" title={t('forks.forkTip')}>{repo.fork}</dd></div>
       {/if}
-      {#if repo.wipLocal && (wipBehind > 0 || (repo.wipLocal.mergedPatches ?? 0) > 0)}
+      {#if wipDetail}
         <div class="flex justify-between gap-sw-2">
           <dt>{t('forks.wipLabel')}</dt>
-          <dd class="text-sw-text" title={t('forks.wipBehindTip', { n: wipBehind })}>
-            {#if wipBehind > 0}{t('forks.wipBehindRow', { n: wipBehind })}{/if}{#if wipBehind > 0 && (repo.wipLocal.mergedPatches ?? 0) > 0} · {/if}{#if (repo.wipLocal.mergedPatches ?? 0) > 0}{t('forks.wipMergedPatches', { n: repo.wipLocal.mergedPatches ?? 0 })}{/if}
-          </dd>
+          <dd class="text-sw-text" title={t('forks.wipBehindTip', { n: wipBehind })}>{wipDetail}</dd>
         </div>
       {/if}
     </dl>

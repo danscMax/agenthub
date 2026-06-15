@@ -93,7 +93,7 @@
 </script>
 
 <div class="p-sw-6">
-  <header class="mb-sw-4 flex items-start justify-between gap-sw-4">
+  <header class="mb-sw-4 flex flex-wrap items-start justify-between gap-sw-4">
     <div>
       <h1 class="text-lg font-semibold">{t('forks.title')}</h1>
       <p class="text-sw-sm text-sw-text-secondary">

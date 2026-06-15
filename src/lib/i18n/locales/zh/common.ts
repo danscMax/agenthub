@@ -63,5 +63,14 @@ export default {
   snapshot_many: '快照',
   profile_one: '配置',
   profile_few: '配置',
-  profile_many: '配置'
+  profile_many: '配置',
+  skill_one: '技能',
+  skill_few: '技能',
+  skill_many: '技能',
+  command_one: '命令',
+  command_few: '命令',
+  command_many: '命令',
+  agent_one: '代理',
+  agent_few: '代理',
+  agent_many: '代理'
 };

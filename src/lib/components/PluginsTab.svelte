@@ -6,7 +6,7 @@
     PluginUpdate,
     PluginContents
   } from '$lib/ipc';
-  import { t } from '$lib/i18n';
+  import { t, pSkill, pCommand, pAgent } from '$lib/i18n';
 
   let {
     plugins,
@@ -84,9 +84,9 @@
                 title={t('plugins.contentsToggleTip')}>
                 <span class="transition-transform group-open:rotate-90">▸</span>
                 <span>{t('plugins.contentsLabel')}</span>
-                {#if c.skills.length}<span class="badge badge-muted" title={t('plugins.skillsBadgeTip')}>{t('plugins.skillsBadge', { count: c.skills.length })}</span>{/if}
-                {#if c.commands.length}<span class="badge badge-muted" title={t('plugins.commandsBadgeTip')}>{t('plugins.commandsBadge', { count: c.commands.length })}</span>{/if}
-                {#if c.agents.length}<span class="badge badge-muted" title={t('plugins.agentsBadgeTip')}>{t('plugins.agentsBadge', { count: c.agents.length })}</span>{/if}
+                {#if c.skills.length}<span class="badge badge-muted" title={t('plugins.skillsBadgeTip')}>{t('plugins.skillsBadge', { count: c.skills.length, skills: pSkill(c.skills.length) })}</span>{/if}
+                {#if c.commands.length}<span class="badge badge-muted" title={t('plugins.commandsBadgeTip')}>{t('plugins.commandsBadge', { count: c.commands.length, commands: pCommand(c.commands.length) })}</span>{/if}
+                {#if c.agents.length}<span class="badge badge-muted" title={t('plugins.agentsBadgeTip')}>{t('plugins.agentsBadge', { count: c.agents.length, agents: pAgent(c.agents.length) })}</span>{/if}
               </summary>
               <div class="flex flex-col gap-sw-2 border-t border-sw-border px-sw-2 py-sw-2">
                 {#each [{ label: t('plugins.catSkills'), items: c.skills }, { label: t('plugins.catCommands'), items: c.commands }, { label: t('plugins.catAgents'), items: c.agents }] as cat (cat.label)}

@@ -12,7 +12,7 @@ export default {
 
   // Recommendations
   recommendations: 'Рекомендации',
-  brokenLinks: 'У {n} {profiles} нарушены общие связи.',
+  brokenLinks: 'Нарушены общие связи: {n} {profiles}.',
   repairName: 'Починить {name}',
   repairNameTip: 'Починить связи профиля «{name}» без полной переустановки',
   missingDirs: 'Отсутствуют каталоги профилей: {names}.',

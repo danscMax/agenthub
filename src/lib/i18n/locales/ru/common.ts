@@ -63,5 +63,14 @@ export default {
   snapshot_many: 'снапшотов',
   profile_one: 'профиль',
   profile_few: 'профиля',
-  profile_many: 'профилей'
+  profile_many: 'профилей',
+  skill_one: 'скилл',
+  skill_few: 'скилла',
+  skill_many: 'скиллов',
+  command_one: 'команда',
+  command_few: 'команды',
+  command_many: 'команд',
+  agent_one: 'агент',
+  agent_few: 'агента',
+  agent_many: 'агентов'
 };

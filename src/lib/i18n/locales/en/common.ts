@@ -63,5 +63,14 @@ export default {
   snapshot_many: 'snapshots',
   profile_one: 'profile',
   profile_few: 'profiles',
-  profile_many: 'profiles'
+  profile_many: 'profiles',
+  skill_one: 'skill',
+  skill_few: 'skills',
+  skill_many: 'skills',
+  command_one: 'command',
+  command_few: 'commands',
+  command_many: 'commands',
+  agent_one: 'agent',
+  agent_few: 'agents',
+  agent_many: 'agents'
 };

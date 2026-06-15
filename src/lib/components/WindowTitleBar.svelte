@@ -1,8 +1,20 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
 
   const appWin = getCurrentWindow();
+
+  // Track maximized state so the caption button shows the correct glyph (single square =
+  // maximize, overlapping squares = restore) — Windows convention.
+  let maximized = $state(false);
+  const syncMax = () => appWin.isMaximized().then((v) => (maximized = v)).catch(() => {});
+  onMount(() => {
+    syncMax();
+    let unlisten: (() => void) | undefined;
+    appWin.onResized(syncMax).then((u) => (unlisten = u)).catch(() => {});
+    return () => unlisten?.();
+  });
 
   async function minimize() {
     await appWin.minimize();
@@ -13,6 +25,7 @@
     } else {
       await appWin.maximize();
     }
+    syncMax();
   }
   async function close() {
     // Window CloseRequested is intercepted in Rust → hides to tray.
@@ -31,8 +44,20 @@
     <button class="tb-btn" onclick={minimize} aria-label={t('titlebar.minimize')} title={t('titlebar.minimize')}>
       <svg viewBox="0 0 12 12" width="11" height="11"><line x1="2" y1="6.5" x2="10" y2="6.5" /></svg>
     </button>
-    <button class="tb-btn" onclick={toggleMaximize} aria-label={t('titlebar.maximize')} title={t('titlebar.maximize')}>
-      <svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" /></svg>
+    <button
+      class="tb-btn"
+      onclick={toggleMaximize}
+      aria-label={maximized ? t('titlebar.restore') : t('titlebar.maximize')}
+      title={maximized ? t('titlebar.restore') : t('titlebar.maximize')}
+    >
+      {#if maximized}
+        <svg viewBox="0 0 12 12" width="11" height="11">
+          <path d="M3.5 3.5 V1.5 H10.5 V8.5 H8.5" />
+          <rect x="1.5" y="3.5" width="7" height="7" />
+        </svg>
+      {:else}
+        <svg viewBox="0 0 12 12" width="11" height="11"><rect x="2.5" y="2.5" width="7" height="7" /></svg>
+      {/if}
     </button>
     <button class="tb-btn tb-close" onclick={close} aria-label={t('titlebar.close')} title={t('titlebar.close')}>
       <svg viewBox="0 0 12 12" width="11" height="11"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>

@@ -17,6 +17,9 @@ export {
   pBranch,
   pSnapshot,
   pProfile,
+  pSkill,
+  pCommand,
+  pAgent,
   forkMode,
   outcomeLabel
 } from './index.svelte';
