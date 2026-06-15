@@ -37,6 +37,9 @@ export default {
   startHidden: '启动时最小化到托盘',
   startHiddenDesc: '启动时不显示窗口，常驻托盘',
   startHiddenTip: '在托盘中启动',
+  closeToTray: '关闭到托盘',
+  closeToTrayDesc: '✕ 按钮将窗口最小化到托盘。关闭后，✕ 将直接退出应用。',
+  closeToTrayTip: '窗口关闭按钮的行为',
 
   // Timeouts
   timeouts: '超时（复刻）',

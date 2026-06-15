@@ -219,6 +219,7 @@
       </button>
     {/if}
   </div>
+  <p class="mb-sw-2 text-sw-xs text-sw-text-muted">{t('providers.enginesDesc')}</p>
   {#if engineList.length}
     <div class="card-grid">
       {#each engineList as e (e.id)}

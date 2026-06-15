@@ -8,6 +8,7 @@ export default {
 
   // Engines section
   enginesHeading: 'Engines',
+  enginesDesc: 'Process control for the same services shown in “LLM stack” above: start/stop each one and bind it to profiles.',
   running: 'running',
   stopped: 'stopped',
   portListening: 'Port is listening',

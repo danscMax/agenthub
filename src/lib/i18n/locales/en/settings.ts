@@ -37,6 +37,9 @@ export default {
   startHidden: 'Start minimized to tray',
   startHiddenDesc: 'The window stays hidden at startup, living in the tray',
   startHiddenTip: 'Start in tray',
+  closeToTray: 'Close to tray',
+  closeToTrayDesc: 'The ✕ button hides the window to the tray. Turn off to make ✕ quit the app.',
+  closeToTrayTip: 'Behavior of the window close button',
 
   // Timeouts
   timeouts: 'Timeouts (forks)',

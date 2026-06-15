@@ -31,6 +31,9 @@ struct HubConfig {
     scripts_root: Option<String>,
     #[serde(rename = "startHidden", default)]
     start_hidden: bool,
+    // None = default (true): the ✕ button hides to tray. false = ✕ actually quits the app.
+    #[serde(rename = "closeToTray", default, skip_serializing_if = "Option::is_none")]
+    close_to_tray: Option<bool>,
     #[serde(rename = "fetchTimeoutSec", default, skip_serializing_if = "Option::is_none")]
     fetch_timeout_sec: Option<u32>,
     #[serde(rename = "ghTimeoutSec", default, skip_serializing_if = "Option::is_none")]
@@ -2255,8 +2258,12 @@ pub fn run() {
                 // also saves on a clean exit via the tray "Выход").
                 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
                 let _ = window.app_handle().save_window_state(StateFlags::all());
-                api.prevent_close();
-                let _ = window.hide();
+                // Default: ✕ minimizes to tray. If the user opted out (closeToTray=false),
+                // let the close proceed so the app actually quits.
+                if read_config_file().close_to_tray.unwrap_or(true) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

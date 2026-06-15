@@ -386,6 +386,7 @@ export const runPlugin = (action: PluginAction, id: string) =>
 export type HubConfig = {
   scriptsRoot?: string | null;
   startHidden?: boolean;
+  closeToTray?: boolean;
   fetchTimeoutSec?: number | null;
   ghTimeoutSec?: number | null;
 };

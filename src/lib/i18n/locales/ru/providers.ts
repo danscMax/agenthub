@@ -8,6 +8,7 @@ export default {
 
   // Engines section
   enginesHeading: 'Движки',
+  enginesDesc: 'Управление процессами тех же сервисов, что в «LLM-стеке» выше: запуск/остановка по одному и привязка к профилям.',
   running: 'работает',
   stopped: 'остановлен',
   portListening: 'Порт слушается',

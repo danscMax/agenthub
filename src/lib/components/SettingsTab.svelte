@@ -22,6 +22,7 @@
   let ghTimeout = $state<number | ''>('');
   let autostart = $state(false);
   let startHidden = $state(false);
+  let closeToTray = $state(true);
   let paths = $state<AppPaths | null>(null);
   let version = $state('');
   let savedMsg = $state('');
@@ -33,6 +34,7 @@
       fetchTimeout = cfg.fetchTimeoutSec ?? '';
       ghTimeout = cfg.ghTimeoutSec ?? '';
       startHidden = !!cfg.startHidden;
+      closeToTray = cfg.closeToTray ?? true;
       autostart = await getAutostart();
       paths = await appPaths();
       version = await getVersion();
@@ -73,6 +75,11 @@
   async function toggleStartHidden() {
     startHidden = !startHidden;
     await persist({ startHidden });
+    flash(t('settings.saved'));
+  }
+  async function toggleCloseToTray() {
+    closeToTray = !closeToTray;
+    await persist({ closeToTray });
     flash(t('settings.saved'));
   }
 </script>
@@ -149,6 +156,12 @@
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.startHiddenDesc')}</span>
         </span>
         <input type="checkbox" checked={startHidden} onchange={toggleStartHidden} title={t('settings.startHiddenTip')} />
+      </label>
+      <label class="flex items-center justify-between gap-sw-4">
+        <span class="text-sw-sm">{t('settings.closeToTray')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.closeToTrayDesc')}</span>
+        </span>
+        <input type="checkbox" checked={closeToTray} onchange={toggleCloseToTray} title={t('settings.closeToTrayTip')} />
       </label>
     </div>
 

@@ -37,6 +37,9 @@ export default {
   startHidden: 'Стартовать свёрнутым в трей',
   startHiddenDesc: 'Окно не показывается при запуске, висит в трее',
   startHiddenTip: 'Старт в трее',
+  closeToTray: 'Закрывать в трей',
+  closeToTrayDesc: 'Кнопка ✕ сворачивает окно в трей. Выключи — ✕ будет полностью закрывать приложение.',
+  closeToTrayTip: 'Поведение кнопки закрытия окна',
 
   // Timeouts
   timeouts: 'Таймауты (форки)',

@@ -55,7 +55,7 @@
   <!-- Plugins -->
   <h2 class="mb-sw-2 flex items-center gap-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
     {t('plugins.pluginsHeading', { count: pluginList.length })}
-    {#if updates.length}<span class="badge badge-info" title={t('plugins.withUpdateBadgeTip')}>{t('plugins.withUpdateBadge', { count: updates.length })}</span>{/if}
+    {#if updates.length}<span class="badge badge-info normal-case" title={t('plugins.withUpdateBadgeTip')}>{t('plugins.withUpdateBadge', { count: updates.length })}</span>{/if}
   </h2>
   {#if pluginList.length}
     <div class="card-grid">

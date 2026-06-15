@@ -8,6 +8,7 @@ export default {
 
   // Engines section
   enginesHeading: '引擎',
+  enginesDesc: '对上方“LLM 栈”中相同服务的进程控制：逐个启动/停止并绑定到配置。',
   running: '运行中',
   stopped: '已停止',
   portListening: '端口正在监听',
