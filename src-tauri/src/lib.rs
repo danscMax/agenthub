@@ -81,6 +81,13 @@ fn scripts_root() -> String {
     "E:\\Scripts".to_string()
 }
 
+/// Expand manifest path placeholders the same way the PowerShell executors do, so paths surfaced
+/// to the UI match what actually runs. `{{SCRIPTS_ROOT}}` → scripts_root(), `{{USERPROFILE}}` → home.
+fn expand_placeholders(s: &str) -> String {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    s.replace("{{SCRIPTS_ROOT}}", &scripts_root()).replace("{{USERPROFILE}}", &home)
+}
+
 /// Read the canonical manifest from disk; fall back to the embedded copy if the
 /// file is missing or unreadable (e.g. relocated exe without the repo).
 fn manifest_text() -> String {
@@ -258,6 +265,9 @@ async fn spawn_streamed_io(
     if stdin_payload.is_some() {
         cmd.stdin(std::process::Stdio::piped());
     }
+    // Export the resolved scripts root so a script's {{SCRIPTS_ROOT}} placeholder expansion matches
+    // the backend's (incl. a config.scriptsRoot override the script couldn't otherwise see).
+    cmd.env("SCRIPTS_ROOT", scripts_root());
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = match cmd.spawn() {
@@ -800,7 +810,7 @@ fn read_stack() -> Vec<StackService> {
             port: e.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
             protocol: s(e, "protocol"),
             dashboard: e.get("dashboard").and_then(|d| d.as_str()).unwrap_or("").to_string(),
-            dir: s(e, "dir"),
+            dir: expand_placeholders(&s(e, "dir")),
             enabled: e.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
             running: false,
         })
