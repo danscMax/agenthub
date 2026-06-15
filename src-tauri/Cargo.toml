@@ -1,6 +1,6 @@
 [package]
 name = "agenthub"
-version = "0.2.0"
+version = "0.2.1"
 description = "AgentHub — control center for AI coding agents"
 authors = ["you"]
 edition = "2021"
