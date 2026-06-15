@@ -221,6 +221,20 @@ async fn spawn_streamed(
     script: String,
     args: Vec<String>,
 ) -> Result<i32, String> {
+    spawn_streamed_io(app, state, id, script, args, None).await
+}
+
+/// Like `spawn_streamed`, but optionally feeds `stdin_payload` to the script's STDIN. Secrets
+/// (e.g. provider tokens) are passed this way so they never appear in the process command line —
+/// on Windows any process can read another's argv via WMI / Get-CimInstance Win32_Process.
+async fn spawn_streamed_io(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    id: String,
+    script: String,
+    args: Vec<String>,
+    stdin_payload: Option<String>,
+) -> Result<i32, String> {
     // Reserve the single run slot (guard dropped before any await).
     {
         let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -241,6 +255,9 @@ async fn spawn_streamed(
     }
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    if stdin_payload.is_some() {
+        cmd.stdin(std::process::Stdio::piped());
+    }
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = match cmd.spawn() {
@@ -253,6 +270,15 @@ async fn spawn_streamed(
 
     if let Some(pid) = child.id() {
         *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+    }
+
+    // Feed the secret to STDIN and close it so the script's [Console]::In.ReadToEnd() returns.
+    if let Some(payload) = stdin_payload {
+        if let Some(mut sin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            let _ = sin.write_all(payload.as_bytes()).await;
+            let _ = sin.shutdown().await;
+        }
     }
 
     let stdout = child.stdout.take().ok_or("нет stdout")?;
@@ -1109,16 +1135,22 @@ async fn run_provider(
         args.push(model.unwrap_or_default());
         args.push("-SmallModel".into());
         args.push(small_model.unwrap_or_default());
-        // Token: keep existing, or set/remove by the supplied value.
+        // Token: keep the existing one, or hand the new value to the script via STDIN (never argv,
+        // which is world-readable on Windows). An empty value over -TokenStdin → the script writes
+        // its dummy bearer.
         if keep_token.unwrap_or(false) {
             args.push("-KeepToken".into());
         } else {
-            args.push("-Token".into());
-            args.push(token.unwrap_or_default());
+            args.push("-TokenStdin".into());
         }
     }
+    let stdin = if action == "set" && !keep_token.unwrap_or(false) {
+        Some(token.unwrap_or_default())
+    } else {
+        None
+    };
     let script = abs(PROVIDER_SCRIPT_REL);
-    spawn_streamed(app, state, "provider".to_string(), script, args).await
+    spawn_streamed_io(app, state, "provider".to_string(), script, args, stdin).await
 }
 
 const OPENCODE_PROVIDER_SCRIPT_REL: &str =
@@ -1221,6 +1253,8 @@ async fn run_opencode_provider(
     }
     let mut args: Vec<String> =
         vec!["-Action".into(), action.clone(), "-ProviderId".into(), provider_id];
+    // A literal apiKey is fed via STDIN (never argv); set below when present.
+    let mut key_stdin: Option<String> = None;
     if action == "set" {
         let b = base_url.unwrap_or_default();
         if b.is_empty() {
@@ -1236,12 +1270,13 @@ async fn run_opencode_provider(
             args.push("-Model".into());
             args.push(m);
         }
-        // apiKey precedence: literal key → {env:VAR} → keep existing.
+        // apiKey precedence: literal key → {env:VAR} → keep existing. A literal key goes via STDIN
+        // (never argv); an env-var NAME isn't secret, so it stays a normal argument.
         if keep_key.unwrap_or(false) {
             args.push("-KeepKey".into());
         } else if let Some(k) = key.filter(|s| !s.is_empty()) {
-            args.push("-Key".into());
-            args.push(k);
+            args.push("-KeyStdin".into());
+            key_stdin = Some(k);
         } else if let Some(e) = env_key.filter(|s| !s.is_empty()) {
             args.push("-EnvKey".into());
             args.push(e);
@@ -1250,7 +1285,7 @@ async fn run_opencode_provider(
         }
     }
     let script = abs(OPENCODE_PROVIDER_SCRIPT_REL);
-    spawn_streamed(app, state, "provider".to_string(), script, args).await
+    spawn_streamed_io(app, state, "provider".to_string(), script, args, key_stdin).await
 }
 
 const MCP_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\.mcp.json";
