@@ -338,6 +338,38 @@ export const runProvider = (a: ProviderArgs) =>
     keepToken: a.keepToken
   });
 
+// --- Custom provider registry (own list of external LLM providers; keys in Credential Manager) ---
+export type MyProvider = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  protocol: 'anthropic' | 'openai';
+  authScheme: string;
+  model: string;
+  smallModel: string;
+  connectVia: 'freellmapi' | 'direct';
+  targetProfile: string;
+  createdAt: string;
+  hasKey: boolean;
+};
+export type MyProviderInput = {
+  id?: string; // omitted/empty → create
+  name: string;
+  baseUrl: string;
+  protocol: 'anthropic' | 'openai';
+  authScheme?: string;
+  model?: string;
+  smallModel?: string;
+  connectVia: 'freellmapi' | 'direct';
+  targetProfile?: string;
+};
+export const listMyProviders = () => invoke<MyProvider[]>('list_my_providers');
+export const saveMyProvider = (p: MyProviderInput, apiKey?: string) =>
+  invoke<MyProvider>('save_my_provider', { p, apiKey });
+export const deleteMyProvider = (id: string) => invoke('delete_my_provider', { id });
+export const connectMyProvider = (id: string) => invoke<number>('connect_my_provider', { id });
+export const setFreellmapiToken = (token: string) => invoke('set_freellmapi_token', { token });
+
 // --- Per-profile launch config (lean mode + tool set + context size) ---
 export type ProfileLaunch = {
   name: string;

@@ -24,4 +24,7 @@ tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "rt-multi-thread", "macros", "time"] }
+# Secrets (provider API keys + freellmapi dashboard token) live in the Windows Credential
+# Manager, never in plaintext JSON. windows-native backend = no extra runtime deps.
+keyring = { version = "3", features = ["windows-native"] }
 

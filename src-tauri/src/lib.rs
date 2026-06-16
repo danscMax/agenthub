@@ -1512,6 +1512,332 @@ async fn run_provider(
     spawn_streamed_io(app, state, "provider".to_string(), script, args, stdin).await
 }
 
+// --- Custom provider registry (config\myproviders.json + Windows Credential Manager) ---
+// A user-owned list of external LLM providers (DeepSeek, Minimax, any OpenAI/Anthropic-compatible
+// endpoint). Metadata lives in myproviders.json; the API key lives ONLY in the Credential Manager
+// (mirrors the user's Mediafarm api_profiles split — never plaintext in JSON).
+const MYPROVIDERS_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\myproviders.json";
+const CONNECT_CUSTOM_SCRIPT_REL: &str =
+    "!Настройки и MCP\\ClaudeProfiles\\Connect-CustomProvider.ps1";
+/// Credential Manager service names. One entry per provider key (`provider:<id>`) + a single
+/// freellmapi dashboard-session token (`dashboard`) used by the "connect via freellmapi" path.
+const KR_PROVIDERS: &str = "agenthub.providers";
+const KR_FREELLMAPI: &str = "agenthub.freellmapi";
+
+fn kr_get(service: &str, user: &str) -> Option<String> {
+    keyring::Entry::new(service, user).ok()?.get_password().ok()
+}
+fn kr_set(service: &str, user: &str, secret: &str) -> Result<(), String> {
+    keyring::Entry::new(service, user)
+        .map_err(|e| format!("credential store: {e}"))?
+        .set_password(secret)
+        .map_err(|e| format!("save credential: {e}"))
+}
+fn kr_delete(service: &str, user: &str) {
+    if let Ok(e) = keyring::Entry::new(service, user) {
+        let _ = e.delete_credential();
+    }
+}
+
+/// Provider display name: non-empty, bounded, no control chars (it's a label, not a shell arg —
+/// the shell-safe identifier is the generated `id`).
+fn valid_provider_name(s: &str) -> bool {
+    let s = s.trim();
+    !s.is_empty() && s.len() <= 64 && !s.chars().any(|c| c.is_control())
+}
+
+/// SSRF guard for a provider base URL (ports the intent of Mediafarm's validate_base_url):
+/// require http/https and reject link-local + known cloud-metadata pivots. Localhost / RFC1918
+/// are allowed on purpose (local engines like LM Studio). Run before storing a key and before connect.
+fn valid_base_url(s: &str) -> Result<(), String> {
+    let s = s.trim();
+    let rest = s
+        .strip_prefix("http://")
+        .or_else(|| s.strip_prefix("https://"))
+        .ok_or("URL должен начинаться с http:// или https://")?;
+    let host_port = rest.split('/').next().unwrap_or("");
+    // strip an optional :port; handle an IPv6 literal ([::1] / [::1]:port) without mistaking its
+    // inner colons for the port separator.
+    let host = if host_port.starts_with('[') {
+        host_port.trim_start_matches('[').split(']').next().unwrap_or("")
+    } else {
+        host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+    };
+    if host.is_empty() {
+        return Err("пустой хост в URL".into());
+    }
+    let hl = host.to_ascii_lowercase();
+    let blocked = ["169.254.169.254", "100.100.100.200", "fd00:ec2::254", "metadata.google.internal"];
+    if blocked.contains(&hl.as_str()) || hl.starts_with("169.254.") || hl == "metadata" {
+        return Err(format!("адрес заблокирован (SSRF/cloud-metadata): {host}"));
+    }
+    Ok(())
+}
+
+fn now_unix() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default()
+}
+fn gen_provider_id() -> String {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{:012x}", (n as u64) & 0xffff_ffff_ffff)
+}
+
+#[derive(Serialize)]
+struct MyProvider {
+    id: String,
+    name: String,
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    protocol: String,
+    #[serde(rename = "authScheme")]
+    auth_scheme: String,
+    model: String,
+    #[serde(rename = "smallModel")]
+    small_model: String,
+    #[serde(rename = "connectVia")]
+    connect_via: String,
+    #[serde(rename = "targetProfile")]
+    target_profile: String,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    /// Computed (never persisted): does a Credential Manager entry exist for this provider?
+    #[serde(rename = "hasKey")]
+    has_key: bool,
+}
+
+#[derive(Deserialize)]
+struct MyProviderInput {
+    #[serde(default)]
+    id: Option<String>, // empty/None = create a new record
+    name: String,
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    protocol: String,
+    #[serde(rename = "authScheme", default)]
+    auth_scheme: String,
+    #[serde(default)]
+    model: String,
+    #[serde(rename = "smallModel", default)]
+    small_model: String,
+    #[serde(rename = "connectVia")]
+    connect_via: String,
+    #[serde(rename = "targetProfile", default)]
+    target_profile: String,
+}
+
+fn read_myproviders_raw() -> Vec<serde_json::Value> {
+    std::fs::read_to_string(abs(MYPROVIDERS_CONFIG_REL))
+        .ok()
+        .and_then(|c| parse_json_bom(&c).ok())
+        .and_then(|v| v.get("providers").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default()
+}
+
+fn write_myproviders_raw(list: &[serde_json::Value]) -> Result<(), String> {
+    let path = abs(MYPROVIDERS_CONFIG_REL);
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::path::Path::new(&path).exists() {
+        let _ = std::fs::copy(&path, format!("{path}.bak"));
+    }
+    let v = serde_json::json!({ "schemaVersion": 1, "providers": list });
+    let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("write myproviders.json: {e}"))
+}
+
+fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
+    let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let id = s("id");
+    let has_key = kr_get(KR_PROVIDERS, &format!("provider:{id}")).is_some();
+    MyProvider {
+        name: s("name"),
+        base_url: s("baseUrl"),
+        protocol: s("protocol"),
+        auth_scheme: s("authScheme"),
+        model: s("model"),
+        small_model: s("smallModel"),
+        connect_via: s("connectVia"),
+        target_profile: s("targetProfile"),
+        created_at: s("createdAt"),
+        has_key,
+        id,
+    }
+}
+
+/// List the user's custom providers (metadata + computed hasKey). Read-only.
+#[tauri::command]
+fn list_my_providers() -> Vec<MyProvider> {
+    read_myproviders_raw().iter().map(myprovider_from_entry).collect()
+}
+
+/// Upsert a provider record. `api_key` arrives over the (local) Tauri IPC channel — not argv —
+/// and is written to the Credential Manager; an empty/None key keeps any existing one.
+#[tauri::command]
+fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyProvider, String> {
+    if !valid_provider_name(&p.name) {
+        return Err("недопустимое имя провайдера (1–64 символа, без управляющих)".into());
+    }
+    valid_base_url(&p.base_url)?;
+    if !matches!(p.protocol.as_str(), "anthropic" | "openai") {
+        return Err("protocol должен быть anthropic или openai".into());
+    }
+    if !matches!(p.connect_via.as_str(), "freellmapi" | "direct") {
+        return Err("connectVia должен быть freellmapi или direct".into());
+    }
+    let id = p.id.clone().filter(|s| !s.is_empty()).unwrap_or_else(gen_provider_id);
+    let auth = if !p.auth_scheme.is_empty() {
+        p.auth_scheme.clone()
+    } else if p.protocol == "anthropic" {
+        "x-api-key".to_string()
+    } else {
+        "bearer".to_string()
+    };
+    let mut list = read_myproviders_raw();
+    let created = list
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .and_then(|e| e.get("createdAt").and_then(|x| x.as_str()))
+        .map(|s| s.to_string())
+        .unwrap_or_else(now_unix);
+    let entry = serde_json::json!({
+        "id": id,
+        "name": p.name.trim(),
+        "baseUrl": p.base_url.trim(),
+        "protocol": p.protocol,
+        "authScheme": auth,
+        "model": p.model.trim(),
+        "smallModel": p.small_model.trim(),
+        "connectVia": p.connect_via,
+        "targetProfile": p.target_profile.trim(),
+        "createdAt": created,
+    });
+    list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
+    list.push(entry.clone());
+    write_myproviders_raw(&list)?;
+    if let Some(k) = api_key {
+        if !k.trim().is_empty() {
+            kr_set(KR_PROVIDERS, &format!("provider:{id}"), k.trim())?;
+        }
+    }
+    Ok(myprovider_from_entry(&entry))
+}
+
+/// Delete a provider record and its Credential Manager entry.
+#[tauri::command]
+fn delete_my_provider(id: String) -> Result<(), String> {
+    let mut list = read_myproviders_raw();
+    let before = list.len();
+    list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
+    if list.len() != before {
+        write_myproviders_raw(&list)?;
+    }
+    kr_delete(KR_PROVIDERS, &format!("provider:{id}"));
+    Ok(())
+}
+
+/// Store the freellmapi dashboard-session token (needed for the "connect via freellmapi" path).
+#[tauri::command]
+fn set_freellmapi_token(token: String) -> Result<(), String> {
+    if token.trim().is_empty() {
+        return Err("пустой токен дашборда".into());
+    }
+    kr_set(KR_FREELLMAPI, "dashboard", token.trim())
+}
+
+/// freellmapi gateway base URL from the `gateway` service port in stack.json. None if absent.
+fn gateway_base_url() -> Option<String> {
+    let content = std::fs::read_to_string(abs(STACK_CONFIG_REL)).ok()?;
+    let v = parse_json_bom(&content).ok()?;
+    let port = v
+        .get("services")?
+        .as_array()?
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some("gateway"))
+        .and_then(|e| e.get("port"))
+        .and_then(|x| x.as_u64())?;
+    Some(format!("http://localhost:{port}"))
+}
+
+/// Connect a saved provider to a harness. Dispatches by connectVia/protocol; the key (and the
+/// freellmapi dash-token) are read from the Credential Manager and handed to PowerShell over STDIN.
+#[tauri::command]
+async fn connect_my_provider(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    id: String,
+) -> Result<i32, String> {
+    let list = read_myproviders_raw();
+    let e = list
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .ok_or("провайдер не найден")?;
+    let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let (protocol, via, base_url) = (s("protocol"), s("connectVia"), s("baseUrl"));
+    valid_base_url(&base_url)?;
+    let api_key = kr_get(KR_PROVIDERS, &format!("provider:{id}"))
+        .ok_or("для этого провайдера не задан API-ключ")?;
+
+    match (via.as_str(), protocol.as_str()) {
+        // Anthropic-native → bind straight to a profile's settings.json (existing Manage-Provider.ps1).
+        ("direct", "anthropic") => {
+            let name = s("targetProfile");
+            if !valid_profile_name(&name) {
+                return Err("для прямого подключения укажите корректный целевой профиль".into());
+            }
+            let args = vec![
+                "-Action".into(),
+                "set".into(),
+                "-Name".into(),
+                name,
+                "-BaseUrl".into(),
+                base_url,
+                "-Model".into(),
+                s("model"),
+                "-SmallModel".into(),
+                s("smallModel"),
+                "-TokenStdin".into(),
+            ];
+            let script = abs(PROVIDER_SCRIPT_REL);
+            spawn_streamed_io(app, state, "provider".into(), script, args, Some(api_key)).await
+        }
+        // OpenAI direct → would need claude-code-router, which is currently broken.
+        ("direct", "openai") => Err(
+            "OpenAI-провайдер напрямую требует claude-code-router (сейчас недоступен) — подключите через freellmapi"
+                .into(),
+        ),
+        // Via the freellmapi hub → register as a custom OpenAI-compatible endpoint.
+        ("freellmapi", _) => {
+            let dash = kr_get(KR_FREELLMAPI, "dashboard")
+                .ok_or("сначала задайте dashboard-токен freellmapi")?;
+            let gateway = gateway_base_url().ok_or("не найден gateway в stack.json")?;
+            let args = vec![
+                "-Gateway".into(),
+                gateway,
+                "-BaseUrl".into(),
+                base_url,
+                "-Model".into(),
+                s("model"),
+                "-DisplayName".into(),
+                s("name"),
+                "-Label".into(),
+                format!("agenthub:{}", s("name")),
+            ];
+            // STDIN payload: first line = dashboard token, remainder = provider API key.
+            let payload = format!("{dash}\n{api_key}");
+            let script = abs(CONNECT_CUSTOM_SCRIPT_REL);
+            spawn_streamed_io(app, state, "provider".into(), script, args, Some(payload)).await
+        }
+        _ => Err(format!("неизвестная комбинация connectVia/protocol: {via}/{protocol}")),
+    }
+}
+
 const OPENCODE_PROVIDER_SCRIPT_REL: &str =
     "!Настройки и MCP\\ClaudeProfiles\\Manage-OpenCode-Provider.ps1";
 
@@ -2628,6 +2954,11 @@ pub fn run() {
             read_freellmapi_analytics,
             read_providers,
             run_provider,
+            list_my_providers,
+            save_my_provider,
+            delete_my_provider,
+            set_freellmapi_token,
+            connect_my_provider,
             read_opencode,
             run_opencode_provider,
             read_mcp,
@@ -2734,6 +3065,29 @@ mod tests {
         assert!(!valid_profile_name("a/b")); // path sep
         assert!(!valid_profile_name("a\"b")); // quote
         assert!(!valid_profile_name(&"x".repeat(33))); // too long
+    }
+
+    #[test]
+    fn provider_name_validation() {
+        assert!(valid_provider_name("DeepSeek"));
+        assert!(valid_provider_name("My Provider 2")); // spaces ok — it's a label
+        assert!(!valid_provider_name("")); // empty
+        assert!(!valid_provider_name("   ")); // whitespace-only
+        assert!(!valid_provider_name("bad\nname")); // control char
+        assert!(!valid_provider_name(&"x".repeat(65))); // too long
+    }
+
+    #[test]
+    fn base_url_validation() {
+        assert!(valid_base_url("https://api.deepseek.com/v1").is_ok());
+        assert!(valid_base_url("http://localhost:1234").is_ok()); // local engine
+        assert!(valid_base_url("http://127.0.0.1:11434/v1").is_ok());
+        assert!(valid_base_url("https://[::1]:8080/v1").is_ok()); // ipv6 literal
+        assert!(valid_base_url("ftp://x").is_err()); // bad scheme
+        assert!(valid_base_url("api.deepseek.com").is_err()); // no scheme
+        assert!(valid_base_url("http://169.254.169.254/latest/meta-data").is_err()); // AWS IMDS
+        assert!(valid_base_url("http://100.100.100.200/").is_err()); // Alibaba metadata
+        assert!(valid_base_url("http://metadata.google.internal/").is_err()); // GCP metadata
     }
 
     #[test]

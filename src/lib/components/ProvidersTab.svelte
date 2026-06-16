@@ -1,8 +1,16 @@
 <script lang="ts">
-  import type { EngineStatus, ProfileProvider, ProviderArgs, StackService } from '$lib/ipc';
+  import type {
+    EngineStatus,
+    ProfileProvider,
+    ProviderArgs,
+    StackService,
+    MyProvider,
+    MyProviderInput
+  } from '$lib/ipc';
   import { updateEngine } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
+  import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
   import StackHealthCard from './StackHealthCard.svelte';
 
@@ -19,7 +27,12 @@
     onConnectRouter,
     onConnectOpencode,
     onRefresh,
-    onOpenUrl
+    onOpenUrl,
+    myProviders = null,
+    onMyProviderSave,
+    onMyProviderDelete,
+    onMyProviderConnect,
+    onSetDashToken
   }: {
     engines: EngineStatus[] | null;
     providers: ProfileProvider[] | null;
@@ -34,6 +47,11 @@
     onConnectOpencode?: (engine: EngineStatus, model: string, key: string) => void;
     onRefresh: () => void;
     onOpenUrl: (url: string) => void;
+    myProviders?: MyProvider[] | null;
+    onMyProviderSave: (p: MyProviderInput, apiKey: string) => void;
+    onMyProviderDelete: (id: string) => void;
+    onMyProviderConnect: (id: string) => void;
+    onSetDashToken: (token: string) => void;
   } = $props();
 
   const busy = $derived(!!running);
@@ -127,6 +145,32 @@
       keepToken: v.keepToken
     });
   }
+
+  // Custom provider registry (own list; keys in Credential Manager).
+  const myProviderList = $derived(myProviders ?? []);
+  let mpDlgOpen = $state(false);
+  let mpCurrent = $state<MyProvider | null>(null);
+  function mpAdd() {
+    mpCurrent = null;
+    mpDlgOpen = true;
+  }
+  function mpEdit(p: MyProvider) {
+    mpCurrent = p;
+    mpDlgOpen = true;
+  }
+  function mpDlgSubmit(p: MyProviderInput, apiKey: string) {
+    mpDlgOpen = false;
+    onMyProviderSave(p, apiKey);
+  }
+  // Inline freellmapi dashboard-token entry (needed for the "connect via freellmapi" path).
+  let dashOpen = $state(false);
+  let dashToken = $state('');
+  function saveDash() {
+    if (!dashToken.trim()) return;
+    onSetDashToken(dashToken.trim());
+    dashToken = '';
+    dashOpen = false;
+  }
 </script>
 
 <div class="p-sw-6">
@@ -158,6 +202,14 @@
     profiles={profileNames}
     onSubmit={onRcSubmit}
     onCancel={() => (rcOpen = false)}
+  />
+
+  <MyProviderEditDialog
+    open={mpDlgOpen}
+    current={mpCurrent}
+    profiles={profileNames}
+    onSubmit={mpDlgSubmit}
+    onCancel={() => (mpDlgOpen = false)}
   />
 
   <!-- System health (real /health probes of the stack services) -->
@@ -351,6 +403,70 @@
     </div>
   {:else}
     <div class="sw-card text-sw-sm text-sw-text-muted">{t('providers.noProviderData')}</div>
+  {/if}
+
+  <!-- Custom provider registry (own list; keys in Credential Manager) -->
+  <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
+    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('myProviders.title')}</h2>
+    <div class="flex shrink-0 gap-sw-2">
+      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => (dashOpen = !dashOpen)}
+        title={t('myProviders.dashTokenTitle')}>{t('myProviders.setDashToken')}</button>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenUrl('http://localhost:13001')}
+        title={t('myProviders.openFreellmapiTitle')}>{t('myProviders.openFreellmapi')}</button>
+      <button class="sw-btn text-sw-xs" disabled={busy} onclick={mpAdd} title={t('myProviders.addTitle')}>{t('myProviders.add')}</button>
+    </div>
+  </div>
+  <p class="mb-sw-2 text-sw-xs text-sw-text-muted">{t('myProviders.sectionDesc')}</p>
+
+  {#if dashOpen}
+    <div class="sw-card mb-sw-3 flex items-end gap-sw-2">
+      <label class="block flex-1">
+        <span class="mb-1 block text-sw-xs text-sw-text-secondary">{t('myProviders.dashTokenLabel')}</span>
+        <input class="sw-input" type="password" bind:value={dashToken} autocomplete="off" placeholder={t('myProviders.dashTokenPlaceholder')} />
+      </label>
+      <button class="sw-btn text-sw-xs" disabled={!dashToken.trim()} onclick={saveDash}>{t('myProviders.save')}</button>
+    </div>
+  {/if}
+
+  {#if myProviderList.length}
+    <div class="card-grid">
+      {#each myProviderList as p (p.id)}
+        {@const openaiDirect = p.connectVia === 'direct' && p.protocol === 'openai'}
+        <div class="sw-card flex flex-col gap-sw-3">
+          <div class="flex items-start justify-between gap-sw-2">
+            <div class="min-w-0">
+              <h3 class="truncate font-medium">{p.name}</h3>
+              <p class="truncate font-mono text-[11px] text-sw-text-secondary" title={p.baseUrl}>{p.baseUrl}</p>
+            </div>
+            <div class="flex shrink-0 flex-col items-end gap-1">
+              <span class="badge {p.protocol === 'anthropic' ? 'badge-info' : 'badge-warn'}">{p.protocol}</span>
+              <span class="badge {p.hasKey ? 'badge-ok' : 'badge-muted'}"
+                title={p.hasKey ? t('myProviders.hasKey') : t('myProviders.noKey')}>
+                {p.hasKey ? t('myProviders.keySet') : t('myProviders.noKeyShort')}
+              </span>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-sw-2">
+            <span class="badge badge-muted">{p.connectVia === 'freellmapi' ? t('myProviders.viaFreellmapi') : t('myProviders.viaDirect')}</span>
+            {#if p.model}<span class="badge badge-muted">{p.model}</span>{/if}
+            {#if p.connectVia === 'direct' && p.targetProfile}<span class="badge badge-muted">→ {p.targetProfile}</span>{/if}
+          </div>
+          <div class="mt-auto flex flex-wrap gap-sw-2 border-t border-sw-border pt-sw-2">
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !p.hasKey || openaiDirect}
+              onclick={() => onMyProviderConnect(p.id)}
+              title={openaiDirect ? t('myProviders.openaiNeedsRouter') : !p.hasKey ? t('myProviders.noKey') : t('myProviders.connectTitle')}>
+              {t('myProviders.connect')}
+            </button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => mpEdit(p)}
+              title={t('myProviders.editTitle')}>{t('myProviders.edit')}</button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onMyProviderDelete(p.id)}
+              title={t('myProviders.deleteTitle')}>{t('myProviders.delete')}</button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {:else}
+    <div class="sw-card text-sw-sm text-sw-text-muted">{t('myProviders.empty')}</div>
   {/if}
 
   <p class="mt-sw-4 text-sw-xs text-sw-text-muted">

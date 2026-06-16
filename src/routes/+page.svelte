@@ -31,6 +31,11 @@
     readEngineModels,
     readProviders,
     runProvider,
+    listMyProviders,
+    saveMyProvider,
+    deleteMyProvider,
+    connectMyProvider,
+    setFreellmapiToken,
     listGithubRepos,
     readStack,
     runStack,
@@ -63,6 +68,8 @@
     type EngineStatus,
     type ProfileProvider,
     type ProviderArgs,
+    type MyProvider,
+    type MyProviderInput,
     type SchedulesStatus,
     type ScheduleAction,
     type PluginInfo,
@@ -117,6 +124,7 @@
   let syncLoaded = $state(false);
   let enginesData = $state<EngineStatus[] | null>(null);
   let providersData = $state<ProfileProvider[] | null>(null);
+  let myProvidersData = $state<MyProvider[] | null>(null);
   let stackData = $state<StackService[] | null>(null);
   let opencodeData = $state<OpencodeStatus | null>(null);
   let providersLoaded = $state(false);
@@ -570,6 +578,11 @@
     } catch {
       providersData = null;
     }
+    try {
+      myProvidersData = await listMyProviders();
+    } catch {
+      myProvidersData = null;
+    }
   }
 
   async function reloadStack() {
@@ -685,6 +698,38 @@
 
   function onOpenUrl(url: string) {
     openPath(url).catch((e) => (log = [...log, t('page.log_warn', { e })]));
+  }
+
+  // --- Custom provider registry handlers ---
+  function onMyProviderSave(p: MyProviderInput, apiKey: string) {
+    saveMyProvider(p, apiKey || undefined)
+      .then(() => reloadProviders())
+      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+  }
+  function onMyProviderDelete(id: string) {
+    askConfirm(
+      t('myProviders.confirmDeleteTitle'),
+      t('myProviders.confirmDeleteMsg'),
+      t('myProviders.delete'),
+      () =>
+        deleteMyProvider(id)
+          .then(() => reloadProviders())
+          .catch((e) => (log = [...log, t('page.log_error', { e })]))
+    );
+  }
+  function onMyProviderConnect(id: string) {
+    if (running) return;
+    running = 'provider';
+    log = [t('myProviders.connectLog')];
+    connectMyProvider(id).catch((e) => {
+      log = [...log, t('page.log_error', { e })];
+      running = null;
+    });
+  }
+  function onSetDashToken(token: string) {
+    setFreellmapiToken(token)
+      .then(() => (log = [...log, t('myProviders.dashTokenSaved')]))
+      .catch((e) => (log = [...log, t('page.log_error', { e })]));
   }
 
   function onRouterInstall() {
@@ -1145,6 +1190,11 @@
           onRouterInstall={onRouterInstall}
           onConnectRouter={onConnectRouter}
           onConnectOpencode={onConnectOpencode}
+          myProviders={myProvidersData}
+          {onMyProviderSave}
+          {onMyProviderDelete}
+          {onMyProviderConnect}
+          {onSetDashToken}
           onRefresh={() => {
             reloadProviders();
             reloadStack();

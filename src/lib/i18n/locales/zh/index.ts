@@ -11,6 +11,7 @@ import forks from './forks';
 import backup from './backup';
 import profiles from './profiles';
 import providers from './providers';
+import myProviders from './myProviders';
 import analytics from './analytics';
 import health from './health';
 import mcp from './mcp';
@@ -31,6 +32,7 @@ const zh: TranslationDict = {
   backup,
   profiles,
   providers,
+  myProviders,
   analytics,
   health,
   mcp,
