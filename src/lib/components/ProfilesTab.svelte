@@ -206,6 +206,16 @@
         disabled: busy
       });
     }
+    // Reset a custom provider back to the Anthropic default lives in the menu (kept off the card to
+    // keep every card the same height) and only when there's a custom provider to reset.
+    if (p.exists && providerByName.get(p.name)?.baseUrl) {
+      items.push({
+        label: t('profiles.menuResetProvider'),
+        title: t('profiles.menuResetProviderTip'),
+        onClick: () => onProviderClear(p.name),
+        disabled: busy
+      });
+    }
     items.push(
       {
         label: t('profiles.menuSharedFolders'),
@@ -366,18 +376,14 @@
             {/if}
           </div>
 
-          <!-- Provider -->
+          <!-- Provider (single line: value truncates so every card keeps the same height) -->
           {#if p.exists}
             {@const prov = providerByName.get(p.name)}
-            <div class="flex flex-wrap items-center gap-sw-2 text-sw-xs">
-              <span class="text-sw-text-muted">{t('profiles.providerLabel')}</span>
-              <span class="font-medium text-sw-text-secondary" title={prov?.baseUrl || t('profiles.providerStdTip')}>{providerLabel(p.name)}</span>
-              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => editProvider(p.name)}
+            <div class="flex min-w-0 items-center gap-sw-2 text-sw-xs">
+              <span class="shrink-0 text-sw-text-muted">{t('profiles.providerLabel')}</span>
+              <span class="min-w-0 flex-1 truncate font-medium text-sw-text-secondary" title={prov?.baseUrl || t('profiles.providerStdTip')}>{providerLabel(p.name)}</span>
+              <button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" disabled={busy} onclick={() => editProvider(p.name)}
                 title={t('profiles.providerEditTip')}>{t('profiles.providerEdit')}</button>
-              {#if prov?.baseUrl}
-                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onProviderClear(p.name)}
-                  title={t('profiles.providerClearTip')}>{t('profiles.providerClear')}</button>
-              {/if}
             </div>
           {/if}
 

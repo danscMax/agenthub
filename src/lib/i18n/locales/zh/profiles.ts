@@ -82,6 +82,8 @@ export default {
   menuToolsTip: '精简模式、MCP/CLAUDE.md 选择以及系统提示大小测量',
   menuRepair: '修复链接',
   menuRepairTip: '重建损坏/缺失的 junction/符号链接，无需完全重新安装',
+  menuResetProvider: '重置提供方',
+  menuResetProviderTip: '将此配置恢复为 Anthropic 默认（移除自定义提供方）',
   menuSharedFolders: '共享文件夹…',
   menuSharedFoldersTip: '选择此配置要链接哪些共享文件夹',
   menuColor: '颜色…',

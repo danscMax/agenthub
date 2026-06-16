@@ -89,6 +89,8 @@ export default {
   menuRepair: 'Починить связи',
   menuRepairTip:
     'Пересоздать битые/отсутствующие junction/symlink без полной переустановки',
+  menuResetProvider: 'Сбросить провайдера',
+  menuResetProviderTip: 'Вернуть профиль к Anthropic по умолчанию (убрать кастомный провайдер)',
   menuSharedFolders: 'Общие папки…',
   menuSharedFoldersTip: 'Выбрать, какие общие папки связывать у этого профиля',
   menuColor: 'Цвет…',

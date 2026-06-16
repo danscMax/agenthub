@@ -87,6 +87,8 @@ export default {
   menuToolsTip: 'Lean mode, MCP/CLAUDE.md selection and system-prompt size measurement',
   menuRepair: 'Repair links',
   menuRepairTip: 'Recreate broken/missing junctions/symlinks without a full reinstall',
+  menuResetProvider: 'Reset provider',
+  menuResetProviderTip: 'Revert this profile to the Anthropic default (remove the custom provider)',
   menuSharedFolders: 'Shared folders…',
   menuSharedFoldersTip: 'Choose which shared folders to link for this profile',
   menuColor: 'Color…',
