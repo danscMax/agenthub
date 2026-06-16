@@ -58,5 +58,19 @@ export default {
   loginSaved: 'freellmapi login saved to Credential Manager.',
   confirmDeleteTitle: 'Delete provider?',
   confirmDeleteMsg:
-    'The record and its API key will be removed from the registry and Credential Manager. Already-connected targets (freellmapi/profile) are left unchanged.'
+    'The record and its API key will be removed from the registry and Credential Manager. Already-connected targets (freellmapi/profile) are left unchanged.',
+  keyPoolTitle: 'Active key from the pool',
+  nextKey: 'Next key',
+  nextKeyTitle: 'Switch to the next key and reconnect (on balance exhaustion)',
+  nextKeyLog: 'Rotating key and reconnecting…',
+  keys: 'Keys',
+  keysTitle: 'Manage the key pool (add/remove, rotation)',
+  keysHint:
+    'Several interchangeable keys for one service (e.g. aerolink). "Next key" switches the active one and reconnects the target.',
+  keySlot: 'Key',
+  keyActive: 'active',
+  removeKey: 'Remove',
+  removeKeyTitle: 'Remove this key from the pool',
+  addKey: 'Add key',
+  addKeyPlaceholder: 'another key (sk-…)'
 };

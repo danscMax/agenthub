@@ -55,5 +55,18 @@ export default {
   loginTokenOpt: '或会话令牌（可选）',
   loginSaved: 'freellmapi 登录信息已存入凭据管理器。',
   confirmDeleteTitle: '删除供应商？',
-  confirmDeleteMsg: '该记录及其 API 密钥将从注册表和凭据管理器中移除。已连接的目标（freellmapi/配置）保持不变。'
+  confirmDeleteMsg: '该记录及其 API 密钥将从注册表和凭据管理器中移除。已连接的目标（freellmapi/配置）保持不变。',
+  keyPoolTitle: '池中的活动密钥',
+  nextKey: '下一个密钥',
+  nextKeyTitle: '切换到下一个密钥并重新连接（余额耗尽时）',
+  nextKeyLog: '正在切换密钥并重新连接…',
+  keys: '密钥',
+  keysTitle: '管理密钥池（添加/删除、轮换）',
+  keysHint: '同一服务的多个可互换密钥（例如 aerolink）。「下一个密钥」切换活动密钥并重新连接目标。',
+  keySlot: '密钥',
+  keyActive: '活动',
+  removeKey: '删除',
+  removeKeyTitle: '从池中删除此密钥',
+  addKey: '添加密钥',
+  addKeyPlaceholder: '另一个密钥（sk-…）'
 };

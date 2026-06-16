@@ -351,6 +351,8 @@ export type MyProvider = {
   targetProfile: string;
   createdAt: string;
   hasKey: boolean;
+  keyCount: number; // keys in the rotation pool (0 = legacy single key)
+  activeKey: number; // index of the active key within the pool
 };
 export type MyProviderInput = {
   id?: string; // omitted/empty → create
@@ -374,6 +376,12 @@ export const freellmapiAuthStatus = () =>
   invoke<{ hasEmail: boolean; hasToken: boolean }>('freellmapi_auth_status');
 export const checkMyProvider = (id: string) =>
   invoke<{ ok: boolean; detail: string; count?: number }>('check_my_provider', { id });
+// Multi-key rotation pool (e.g. several aerolink keys rotated on balance exhaustion).
+export const addProviderKey = (id: string, apiKey: string) =>
+  invoke<MyProvider>('add_provider_key', { id, apiKey });
+export const removeProviderKey = (id: string, index: number) =>
+  invoke<MyProvider>('remove_provider_key', { id, index });
+export const nextProviderKey = (id: string) => invoke<number>('next_provider_key', { id });
 
 // --- Per-profile launch config (lean mode + tool set + context size) ---
 export type ProfileLaunch = {

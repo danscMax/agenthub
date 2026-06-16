@@ -1539,6 +1539,32 @@ fn kr_delete(service: &str, user: &str) {
     }
 }
 
+/// Key-pool metadata from a provider's JSON entry: (keyCount, activeKey). A provider may hold
+/// several interchangeable keys (e.g. multiple aerolink keys); `activeKey` selects which one is
+/// written to the harness on connect. keyCount==0 means the legacy single-key layout (`provider:<id>`).
+fn key_pool_meta(e: &serde_json::Value) -> (u64, u64) {
+    let count = e.get("keyCount").and_then(|x| x.as_u64()).unwrap_or(0);
+    let active = e.get("activeKey").and_then(|x| x.as_u64()).unwrap_or(0);
+    (count, active)
+}
+
+/// Next index when rotating a pool of `count` keys (wraps around). count<=1 → 0 (no-op rotation).
+fn next_key_index(active: u64, count: u64) -> u64 {
+    if count <= 1 { 0 } else { (active + 1) % count }
+}
+
+/// The currently active API key for a provider: pool slot `provider:<id>:<active>` when a pool
+/// exists, otherwise the legacy single entry `provider:<id>`. Read-only.
+fn active_provider_key(id: &str, e: &serde_json::Value) -> Option<String> {
+    let (count, active) = key_pool_meta(e);
+    if count > 0 {
+        let idx = if active < count { active } else { 0 };
+        kr_get(KR_PROVIDERS, &format!("provider:{id}:{idx}"))
+    } else {
+        kr_get(KR_PROVIDERS, &format!("provider:{id}"))
+    }
+}
+
 /// Provider display name: non-empty, bounded, no control chars (it's a label, not a shell arg —
 /// the shell-safe identifier is the generated `id`).
 fn valid_provider_name(s: &str) -> bool {
@@ -1609,6 +1635,12 @@ struct MyProvider {
     /// Computed (never persisted): does a Credential Manager entry exist for this provider?
     #[serde(rename = "hasKey")]
     has_key: bool,
+    /// Number of keys in the rotation pool (0 = legacy single key in `provider:<id>`).
+    #[serde(rename = "keyCount")]
+    key_count: u64,
+    /// Index of the active key within the pool (which one connect writes to the harness).
+    #[serde(rename = "activeKey")]
+    active_key: u64,
 }
 
 #[derive(Deserialize)]
@@ -1655,7 +1687,13 @@ fn write_myproviders_raw(list: &[serde_json::Value]) -> Result<(), String> {
 fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
     let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let id = s("id");
-    let has_key = kr_get(KR_PROVIDERS, &format!("provider:{id}")).is_some();
+    let (key_count, active_key) = key_pool_meta(e);
+    // A pool (keyCount>0) is authoritative; otherwise fall back to the legacy single entry.
+    let has_key = if key_count > 0 {
+        true
+    } else {
+        kr_get(KR_PROVIDERS, &format!("provider:{id}")).is_some()
+    };
     MyProvider {
         name: s("name"),
         base_url: s("baseUrl"),
@@ -1667,6 +1705,8 @@ fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
         target_profile: s("targetProfile"),
         created_at: s("createdAt"),
         has_key,
+        key_count,
+        active_key,
         id,
     }
 }
@@ -1700,12 +1740,15 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
         "bearer".to_string()
     };
     let mut list = read_myproviders_raw();
-    let created = list
+    let prev = list
         .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()));
+    let created = prev
         .and_then(|e| e.get("createdAt").and_then(|x| x.as_str()))
         .map(|s| s.to_string())
         .unwrap_or_else(now_unix);
+    // Carry the key-pool metadata across edits — the main dialog never reshapes the pool.
+    let (key_count, active_key) = prev.map(key_pool_meta).unwrap_or((0, 0));
     let entry = serde_json::json!({
         "id": id,
         "name": p.name.trim(),
@@ -1717,13 +1760,22 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
         "connectVia": p.connect_via,
         "targetProfile": p.target_profile.trim(),
         "createdAt": created,
+        "keyCount": key_count,
+        "activeKey": active_key,
     });
     list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
     list.push(entry.clone());
     write_myproviders_raw(&list)?;
     if let Some(k) = api_key {
         if !k.trim().is_empty() {
-            kr_set(KR_PROVIDERS, &format!("provider:{id}"), k.trim())?;
+            // The dialog's key replaces the *active* key: overwrite its pool slot if a pool exists,
+            // otherwise write the legacy single entry (pools are created via add_provider_key).
+            if key_count > 0 {
+                let idx = if active_key < key_count { active_key } else { 0 };
+                kr_set(KR_PROVIDERS, &format!("provider:{id}:{idx}"), k.trim())?;
+            } else {
+                kr_set(KR_PROVIDERS, &format!("provider:{id}"), k.trim())?;
+            }
         }
     }
     Ok(myprovider_from_entry(&entry))
@@ -1733,13 +1785,98 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
 #[tauri::command]
 fn delete_my_provider(id: String) -> Result<(), String> {
     let mut list = read_myproviders_raw();
+    let (key_count, _) = list
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .map(key_pool_meta)
+        .unwrap_or((0, 0));
     let before = list.len();
     list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
     if list.len() != before {
         write_myproviders_raw(&list)?;
     }
+    // Purge both the legacy single entry and every pool slot.
     kr_delete(KR_PROVIDERS, &format!("provider:{id}"));
+    for i in 0..key_count {
+        kr_delete(KR_PROVIDERS, &format!("provider:{id}:{i}"));
+    }
     Ok(())
+}
+
+/// Append a key to a provider's rotation pool. On the first add we migrate the legacy single key
+/// (`provider:<id>`) into slot 0 so the pool subsumes it. The new key is appended (it does not
+/// become active — rotation is explicit via next_provider_key). `api_key` arrives over Tauri IPC.
+#[tauri::command]
+fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("пустой ключ".into());
+    }
+    let mut list = read_myproviders_raw();
+    let idx = list
+        .iter()
+        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .ok_or("провайдер не найден")?;
+    let (mut count, active) = key_pool_meta(&list[idx]);
+    // First add: fold the legacy single key (if any) into slot 0 so nothing is orphaned.
+    if count == 0 {
+        if let Some(legacy) = kr_get(KR_PROVIDERS, &format!("provider:{id}")) {
+            kr_set(KR_PROVIDERS, &format!("provider:{id}:0"), &legacy)?;
+            kr_delete(KR_PROVIDERS, &format!("provider:{id}"));
+            count = 1;
+        }
+    }
+    kr_set(KR_PROVIDERS, &format!("provider:{id}:{count}"), key)?;
+    count += 1;
+    list[idx]["keyCount"] = serde_json::json!(count);
+    list[idx]["activeKey"] = serde_json::json!(active.min(count - 1));
+    write_myproviders_raw(&list)?;
+    Ok(myprovider_from_entry(&list[idx]))
+}
+
+/// Remove one key from the pool by index and re-pack the remaining slots (keyring has no enum, so
+/// we read survivors, rewrite slots 0..n-1, drop the top slot, and clamp activeKey). Returns the
+/// updated provider. Removing the last key collapses the pool back to "no key".
+#[tauri::command]
+fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
+    let mut list = read_myproviders_raw();
+    let pos = list
+        .iter()
+        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .ok_or("провайдер не найден")?;
+    let (count, active) = key_pool_meta(&list[pos]);
+    if count == 0 || index >= count {
+        return Err("ключ не найден".into());
+    }
+    // Read all surviving secrets in order, then rewrite slots compactly.
+    let mut survivors: Vec<String> = Vec::new();
+    for i in 0..count {
+        if i == index {
+            continue;
+        }
+        if let Some(k) = kr_get(KR_PROVIDERS, &format!("provider:{id}:{i}")) {
+            survivors.push(k);
+        }
+    }
+    for i in 0..count {
+        kr_delete(KR_PROVIDERS, &format!("provider:{id}:{i}"));
+    }
+    for (i, k) in survivors.iter().enumerate() {
+        kr_set(KR_PROVIDERS, &format!("provider:{id}:{i}"), k)?;
+    }
+    let new_count = survivors.len() as u64;
+    // Keep the active key pointing at a valid slot: shift down if we removed at/below it.
+    let new_active = if new_count == 0 {
+        0
+    } else if active >= index && active > 0 {
+        (active - 1).min(new_count - 1)
+    } else {
+        active.min(new_count - 1)
+    };
+    list[pos]["keyCount"] = serde_json::json!(new_count);
+    list[pos]["activeKey"] = serde_json::json!(new_active);
+    write_myproviders_raw(&list)?;
+    Ok(myprovider_from_entry(&list[pos]))
 }
 
 /// Persist freellmapi dashboard credentials in the Credential Manager: email+password (preferred —
@@ -1806,7 +1943,7 @@ async fn connect_my_provider(
     let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let (protocol, via, base_url) = (s("protocol"), s("connectVia"), s("baseUrl"));
     valid_base_url(&base_url)?;
-    let api_key = kr_get(KR_PROVIDERS, &format!("provider:{id}"))
+    let api_key = active_provider_key(&id, e)
         .ok_or("для этого провайдера не задан API-ключ")?;
 
     match (via.as_str(), protocol.as_str()) {
@@ -1872,6 +2009,31 @@ async fn connect_my_provider(
     }
 }
 
+/// Rotate to the next key in a provider's pool and re-connect (rewrites the target harness with the
+/// newly-active key). For manual balance-exhaustion rotation, e.g. aerolink: click → next key → cc2
+/// is rebound. Errors if the pool has fewer than two keys. Returns the connect exit code.
+#[tauri::command]
+async fn next_provider_key(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    id: String,
+) -> Result<i32, String> {
+    let mut list = read_myproviders_raw();
+    let pos = list
+        .iter()
+        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .ok_or("провайдер не найден")?;
+    let (count, active) = key_pool_meta(&list[pos]);
+    if count < 2 {
+        return Err("у провайдера только один ключ — добавьте ещё для ротации".into());
+    }
+    let next = next_key_index(active, count);
+    list[pos]["activeKey"] = serde_json::json!(next);
+    write_myproviders_raw(&list)?;
+    // Re-bind the harness to the now-active key (reuses the full connect dispatch).
+    connect_my_provider(app, state, id).await
+}
+
 const CHECK_PROVIDER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Check-Provider.ps1";
 
 /// Liveness check for a saved provider: GET {baseUrl}/models with its key (read from the Credential
@@ -1888,7 +2050,7 @@ async fn check_my_provider(id: String) -> serde_json::Value {
     };
     let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai").to_string();
-    let api_key = kr_get(KR_PROVIDERS, &format!("provider:{id}")).unwrap_or_default();
+    let api_key = active_provider_key(&id, &e).unwrap_or_default();
     let script = abs(CHECK_PROVIDER_SCRIPT_REL);
     let child = tokio::process::Command::new("pwsh")
         .args([
@@ -3048,6 +3210,9 @@ pub fn run() {
             freellmapi_auth_status,
             connect_my_provider,
             check_my_provider,
+            add_provider_key,
+            remove_provider_key,
+            next_provider_key,
             read_opencode,
             run_opencode_provider,
             read_mcp,
@@ -3164,6 +3329,25 @@ mod tests {
         assert!(!valid_provider_name("   ")); // whitespace-only
         assert!(!valid_provider_name("bad\nname")); // control char
         assert!(!valid_provider_name(&"x".repeat(65))); // too long
+    }
+
+    #[test]
+    fn key_pool_rotation() {
+        // wraps around the pool
+        assert_eq!(next_key_index(0, 3), 1);
+        assert_eq!(next_key_index(2, 3), 0);
+        // single key or empty pool → stays at 0 (no-op)
+        assert_eq!(next_key_index(0, 1), 0);
+        assert_eq!(next_key_index(0, 0), 0);
+        // active beyond count still produces a valid in-range successor
+        assert_eq!(next_key_index(5, 3), 0);
+    }
+
+    #[test]
+    fn key_pool_meta_defaults() {
+        // no metadata → legacy layout (0, 0)
+        assert_eq!(key_pool_meta(&serde_json::json!({})), (0, 0));
+        assert_eq!(key_pool_meta(&serde_json::json!({ "keyCount": 3, "activeKey": 2 })), (3, 2));
     }
 
     #[test]

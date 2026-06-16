@@ -35,6 +35,9 @@
     saveMyProvider,
     deleteMyProvider,
     connectMyProvider,
+    addProviderKey,
+    removeProviderKey,
+    nextProviderKey,
     setFreellmapiAuth,
     listGithubRepos,
     readStack,
@@ -726,6 +729,25 @@
       running = null;
     });
   }
+  function onMyProviderAddKey(id: string, apiKey: string) {
+    addProviderKey(id, apiKey)
+      .then(() => reloadProviders())
+      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+  }
+  function onMyProviderRemoveKey(id: string, index: number) {
+    removeProviderKey(id, index)
+      .then(() => reloadProviders())
+      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+  }
+  function onMyProviderNextKey(id: string) {
+    if (running) return;
+    running = 'provider';
+    log = [t('myProviders.nextKeyLog')];
+    nextProviderKey(id).catch((e) => {
+      log = [...log, t('page.log_error', { e })];
+      running = null;
+    });
+  }
   function onSetFreellmapiAuth(email: string, password: string, token: string) {
     setFreellmapiAuth(email || undefined, password || undefined, token || undefined)
       .then(() => (log = [...log, t('myProviders.loginSaved')]))
@@ -1194,6 +1216,9 @@
           {onMyProviderSave}
           {onMyProviderDelete}
           {onMyProviderConnect}
+          {onMyProviderAddKey}
+          {onMyProviderRemoveKey}
+          {onMyProviderNextKey}
           {onSetFreellmapiAuth}
           onRefresh={() => {
             reloadProviders();

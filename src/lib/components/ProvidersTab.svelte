@@ -33,6 +33,9 @@
     onMyProviderSave,
     onMyProviderDelete,
     onMyProviderConnect,
+    onMyProviderAddKey,
+    onMyProviderRemoveKey,
+    onMyProviderNextKey,
     onSetFreellmapiAuth
   }: {
     engines: EngineStatus[] | null;
@@ -52,6 +55,9 @@
     onMyProviderSave: (p: MyProviderInput, apiKey: string) => void;
     onMyProviderDelete: (id: string) => void;
     onMyProviderConnect: (id: string) => void;
+    onMyProviderAddKey: (id: string, apiKey: string) => void;
+    onMyProviderRemoveKey: (id: string, index: number) => void;
+    onMyProviderNextKey: (id: string) => void;
     onSetFreellmapiAuth: (email: string, password: string, token: string) => void;
   } = $props();
 
@@ -186,6 +192,19 @@
     } catch (e) {
       health = { ...health, [id]: { ok: false, detail: String(e) } };
     }
+  }
+
+  // Key rotation pool: expandable per-card panel + inline "add key" input.
+  let keysOpen = $state<Record<string, boolean>>({});
+  let newKey = $state<Record<string, string>>({});
+  function toggleKeys(id: string) {
+    keysOpen = { ...keysOpen, [id]: !keysOpen[id] };
+  }
+  function addKey(id: string) {
+    const k = (newKey[id] ?? '').trim();
+    if (!k) return;
+    onMyProviderAddKey(id, k);
+    newKey = { ...newKey, [id]: '' };
   }
 </script>
 
@@ -484,6 +503,11 @@
             <span class="badge badge-muted">{p.connectVia === 'freellmapi' ? t('myProviders.viaFreellmapi') : t('myProviders.viaDirect')}</span>
             {#if p.model}<span class="badge badge-muted">{p.model}</span>{/if}
             {#if p.connectVia === 'direct' && p.targetProfile}<span class="badge badge-muted">→ {p.targetProfile}</span>{/if}
+            {#if p.keyCount > 1}
+              <span class="badge badge-muted" title={t('myProviders.keyPoolTitle')}>
+                🔑 {p.activeKey + 1}/{p.keyCount}
+              </span>
+            {/if}
           </div>
           <div class="mt-auto flex flex-wrap gap-sw-2 border-t border-sw-border pt-sw-2">
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !p.hasKey || openaiDirect}
@@ -491,15 +515,51 @@
               title={openaiDirect ? t('myProviders.openaiNeedsRouter') : !p.hasKey ? t('myProviders.noKey') : t('myProviders.connectTitle')}>
               {t('myProviders.connect')}
             </button>
+            {#if p.keyCount > 1}
+              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                onclick={() => onMyProviderNextKey(p.id)} title={t('myProviders.nextKeyTitle')}>
+                {t('myProviders.nextKey')}
+              </button>
+            {/if}
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!p.hasKey || h === 'checking'}
               onclick={() => check(p.id)} title={t('myProviders.checkTitle')}>
               {h === 'checking' ? t('myProviders.checking') : t('myProviders.check')}
+            </button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => toggleKeys(p.id)}
+              title={t('myProviders.keysTitle')}>
+              {t('myProviders.keys')}{p.keyCount > 1 ? ` (${p.keyCount})` : ''}
             </button>
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => mpEdit(p)}
               title={t('myProviders.editTitle')}>{t('myProviders.edit')}</button>
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onMyProviderDelete(p.id)}
               title={t('myProviders.deleteTitle')}>{t('myProviders.delete')}</button>
           </div>
+          {#if keysOpen[p.id]}
+            <div class="flex flex-col gap-sw-2 rounded border border-sw-border bg-sw-bg-subtle p-sw-2">
+              <p class="text-sw-xs text-sw-text-muted">{t('myProviders.keysHint')}</p>
+              {#if p.keyCount > 1}
+                <ul class="flex flex-col gap-1">
+                  {#each Array(p.keyCount) as _, i (i)}
+                    <li class="flex items-center justify-between gap-sw-2 text-sw-xs">
+                      <span class={i === p.activeKey ? 'font-medium text-sw-text' : 'text-sw-text-secondary'}>
+                        {t('myProviders.keySlot')} {i + 1}{i === p.activeKey ? ` — ${t('myProviders.keyActive')}` : ''}
+                      </span>
+                      <button class="sw-btn sw-btn-ghost text-[11px]" disabled={busy}
+                        onclick={() => onMyProviderRemoveKey(p.id, i)} title={t('myProviders.removeKeyTitle')}>
+                        {t('myProviders.removeKey')}
+                      </button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+              <div class="flex gap-sw-2">
+                <input class="sw-input flex-1 text-sw-xs" type="password" autocomplete="off"
+                  bind:value={newKey[p.id]} placeholder={t('myProviders.addKeyPlaceholder')} />
+                <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!(newKey[p.id] ?? '').trim()}
+                  onclick={() => addKey(p.id)}>{t('myProviders.addKey')}</button>
+              </div>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
