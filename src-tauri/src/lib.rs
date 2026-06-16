@@ -1887,10 +1887,21 @@ async fn check_my_provider(id: String) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "detail": "провайдер не найден" });
     };
     let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai").to_string();
     let api_key = kr_get(KR_PROVIDERS, &format!("provider:{id}")).unwrap_or_default();
     let script = abs(CHECK_PROVIDER_SCRIPT_REL);
     let child = tokio::process::Command::new("pwsh")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script, "-BaseUrl", &base_url])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script,
+            "-BaseUrl",
+            &base_url,
+            "-Protocol",
+            &protocol,
+        ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
