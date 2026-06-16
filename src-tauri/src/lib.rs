@@ -951,17 +951,47 @@ fn read_stack() -> Vec<StackService> {
     svcs
 }
 
-/// Start (`-Router`, includes the paid GLM router on :4000) or stop (`-All`) the whole
-/// LLM stack via `llm-stack\start-stack.ps1` / `stop-stack.ps1` (streamed via pwsh).
+/// A stack service id is a manifest key, passed to PowerShell as a standalone argv element (no
+/// shell), so this only needs to reject obviously malformed ids — keep it to the manifest's shape.
+fn valid_stack_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 40
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Start or stop the LLM stack. With no `only`, acts on the whole stack (start `-Router` includes
+/// the paid GLM router on :4000; stop `-All`). With `only=<service id>`, acts on that one service
+/// via the launchers' `-Only` switch. Streamed via pwsh.
 #[tauri::command]
 async fn run_stack(
     app: AppHandle,
     state: State<'_, RunState>,
     action: String,
+    only: Option<String>,
 ) -> Result<i32, String> {
+    let only = only.filter(|s| !s.is_empty());
+    if let Some(id) = &only {
+        if !valid_stack_id(id) {
+            return Err(format!("недопустимый id сервиса: {id}"));
+        }
+    }
     let (script, args) = match action.as_str() {
-        "start" => (abs(STACK_START_REL), vec!["-Router".to_string()]),
-        "stop" => (abs(STACK_STOP_REL), vec!["-All".to_string()]),
+        "start" => {
+            let script = abs(STACK_START_REL);
+            let args = match &only {
+                Some(id) => vec!["-Only".to_string(), id.clone()],
+                None => vec!["-Router".to_string()],
+            };
+            (script, args)
+        }
+        "stop" => {
+            let script = abs(STACK_STOP_REL);
+            let args = match &only {
+                Some(id) => vec!["-Only".to_string(), id.clone()],
+                None => vec!["-All".to_string()],
+            };
+            (script, args)
+        }
         _ => return Err(format!("неизвестное действие стека: {action}")),
     };
     spawn_streamed(app, state, "engine".to_string(), script, args).await
@@ -3329,6 +3359,17 @@ mod tests {
         assert!(!valid_provider_name("   ")); // whitespace-only
         assert!(!valid_provider_name("bad\nname")); // control char
         assert!(!valid_provider_name(&"x".repeat(65))); // too long
+    }
+
+    #[test]
+    fn stack_id_validation() {
+        assert!(valid_stack_id("qwen"));
+        assert!(valid_stack_id("glm-kimi"));
+        assert!(valid_stack_id("gateway_2"));
+        assert!(!valid_stack_id("")); // empty
+        assert!(!valid_stack_id("a b")); // space
+        assert!(!valid_stack_id("a;rm")); // injection-shaped
+        assert!(!valid_stack_id(&"x".repeat(41))); // too long
     }
 
     #[test]

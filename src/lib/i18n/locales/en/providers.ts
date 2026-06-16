@@ -60,6 +60,8 @@ export default {
   stackStartTip: 'start-stack.ps1 -Router — bring up the whole stack (incl. the paid GLM router on :4000)',
   stackStopAll: 'Stop all',
   stackStopTip: 'stop-stack.ps1 -All — stop every stack service',
+  stackStartOneTip: 'Start only “{name}” (start-stack.ps1 -Only)',
+  stackStopOneTip: 'Stop only “{name}” (stop-stack.ps1 -Only)',
   stackPaid: 'paid (Z.AI)',
   stackPaidTip:
     'GLM router :4000 — paid Z.AI key, for coding in Claude Code (ANTHROPIC_BASE_URL). Keep it off unless needed.',

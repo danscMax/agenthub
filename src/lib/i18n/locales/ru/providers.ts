@@ -60,6 +60,8 @@ export default {
   stackStartTip: 'start-stack.ps1 -Router — поднять весь стек (вкл. платный GLM-роутер :4000)',
   stackStopAll: 'Остановить всё',
   stackStopTip: 'stop-stack.ps1 -All — остановить все сервисы стека',
+  stackStartOneTip: 'Запустить только «{name}» (start-stack.ps1 -Only)',
+  stackStopOneTip: 'Остановить только «{name}» (stop-stack.ps1 -Only)',
   stackPaid: 'платный (Z.AI)',
   stackPaidTip:
     'GLM-роутер :4000 — платный ключ Z.AI, для кодинга в Claude Code (ANTHROPIC_BASE_URL). Не держи включённым без нужды.',

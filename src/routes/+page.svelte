@@ -617,7 +617,7 @@
   });
 
   // Start (-Router, incl. paid GLM) or stop (-All) the whole LLM stack via stack scripts.
-  function onStack(action: 'start' | 'stop') {
+  function onStack(action: 'start' | 'stop', only?: string) {
     if (running) return;
     const go = () => {
       running = 'engine';
@@ -626,12 +626,13 @@
           verb: action === 'start' ? t('page.stack_verb_start') : t('page.stack_verb_stop')
         })
       ];
-      runStack(action).catch((e) => {
+      runStack(action, only).catch((e) => {
         log = [...log, t('page.log_error', { e })];
         running = null;
       });
     };
-    if (action === 'stop') {
+    // Confirm only the destructive "stop the whole stack"; single-service stop is cheap to undo.
+    if (action === 'stop' && !only) {
       askConfirm(
         t('page.confirm_stack_stop_title'),
         t('page.confirm_stack_stop_msg'),

@@ -59,6 +59,8 @@ export default {
   stackStartTip: 'start-stack.ps1 -Router — 启动整个栈（含付费 GLM 路由 :4000）',
   stackStopAll: '全部停止',
   stackStopTip: 'stop-stack.ps1 -All — 停止所有栈服务',
+  stackStartOneTip: '仅启动「{name}」(start-stack.ps1 -Only)',
+  stackStopOneTip: '仅停止「{name}」(stop-stack.ps1 -Only)',
   stackPaid: '付费（Z.AI）',
   stackPaidTip: 'GLM 路由 :4000 — 付费 Z.AI 密钥，用于 Claude Code 编码（ANTHROPIC_BASE_URL）。非必要请关闭。',
   rcOpencodeTarget: 'opencode（智能体）',

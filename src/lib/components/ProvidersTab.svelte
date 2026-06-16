@@ -43,7 +43,7 @@
     stack?: StackService[] | null;
     running: string | null;
     onEngine: (action: 'start' | 'stop', id: string) => void;
-    onStack?: (action: 'start' | 'stop') => void;
+    onStack?: (action: 'start' | 'stop', only?: string) => void;
     onProviderSet: (args: ProviderArgs) => void;
     onProviderClear: (name: string) => void;
     onRouterInstall: () => void;
@@ -283,14 +283,21 @@
                 {/if}
               </div>
             </div>
-            {#if s.dashboard}
-              <div class="mt-auto flex gap-sw-2 border-t border-sw-border pt-sw-2">
+            <div class="mt-auto flex flex-wrap gap-sw-2 border-t border-sw-border pt-sw-2">
+              {#if s.running}
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('stop', s.id)}
+                  title={t('providers.stackStopOneTip', { name: s.name })}>{t('providers.stop')}</button>
+              {:else}
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('start', s.id)}
+                  title={t('providers.stackStartOneTip', { name: s.name })}>{t('providers.start')}</button>
+              {/if}
+              {#if s.dashboard}
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!s.running} onclick={() => onOpenUrl(s.dashboard)}
                   title={s.running ? t('providers.openDashboardTitle', { url: s.dashboard }) : t('providers.dashboardWhenRunningTitle')}>
                   {t('providers.dashboard')}
                 </button>
-              </div>
-            {/if}
+              {/if}
+            </div>
           </div>
         {/each}
       </div>
