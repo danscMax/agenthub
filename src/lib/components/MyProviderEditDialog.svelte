@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MyProvider, MyProviderInput } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import DropdownMenu from './DropdownMenu.svelte';
 
   let {
     open,
@@ -24,6 +25,7 @@
   let connectVia = $state<'freellmapi' | 'direct'>('freellmapi');
   let targetProfile = $state('');
   let apiKey = $state('');
+  let advanced = $state(false);
   let seeded = '';
 
   $effect(() => {
@@ -37,6 +39,7 @@
       connectVia = current?.connectVia ?? 'freellmapi';
       targetProfile = current?.targetProfile ?? '';
       apiKey = '';
+      advanced = !!current?.smallModel || current?.protocol === 'anthropic';
       seeded = key;
     }
   });
@@ -49,12 +52,15 @@
       return false;
     }
   }
-  // direct + openai can't reach Claude Code (needs ccr, currently broken) — flag at the UI.
   const directOpenaiBlocked = $derived(connectVia === 'direct' && protocol === 'openai');
   const needsProfile = $derived(connectVia === 'direct');
   const canSubmit = $derived(
     !!name.trim() && isValidUrl(baseUrl.trim()) && (!needsProfile || !!targetProfile)
   );
+  const viaLabel = $derived(
+    connectVia === 'freellmapi' ? t('myProviders.viaFreellmapi') : t('myProviders.viaDirect')
+  );
+  const protoLabel = $derived(protocol === 'openai' ? 'OpenAI' : 'Anthropic');
 
   function submit() {
     if (!canSubmit) return;
@@ -95,53 +101,76 @@
         {/if}
       </label>
 
-      <div class="two">
-        <label class="fld">
-          <span>{t('myProviders.protocol')}</span>
-          <select class="sw-input" bind:value={protocol}>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-          </select>
-        </label>
-        <label class="fld">
-          <span>{t('myProviders.connectVia')}</span>
-          <select class="sw-input" bind:value={connectVia}>
-            <option value="freellmapi">{t('myProviders.viaFreellmapi')}</option>
-            <option value="direct">{t('myProviders.viaDirect')}</option>
-          </select>
-        </label>
+      <div class="fld">
+        <span>{t('myProviders.connectVia')}</span>
+        <div class="ddwrap">
+          <DropdownMenu
+            label={viaLabel}
+            align="left"
+            items={[
+              { label: t('myProviders.viaFreellmapi'), onClick: () => (connectVia = 'freellmapi') },
+              { label: t('myProviders.viaDirect'), onClick: () => (connectVia = 'direct') }
+            ]}
+          />
+        </div>
+        <span class="hint">{t('myProviders.connectViaHint')}</span>
       </div>
 
       {#if needsProfile}
-        <label class="fld">
+        <div class="fld">
           <span>{t('myProviders.targetProfile')}</span>
-          <select class="sw-input" bind:value={targetProfile}>
-            <option value="" disabled>{t('myProviders.targetProfilePlaceholder')}</option>
-            {#each profiles as p (p)}<option value={p}>{p}</option>{/each}
-          </select>
-        </label>
+          <div class="ddwrap">
+            <DropdownMenu
+              label={targetProfile || t('myProviders.targetProfilePlaceholder')}
+              align="left"
+              items={profiles.map((p) => ({ label: p, onClick: () => (targetProfile = p) }))}
+            />
+          </div>
+        </div>
       {/if}
 
       {#if directOpenaiBlocked}
         <p class="warn">{t('myProviders.openaiNeedsRouter')}</p>
       {/if}
 
-      <div class="two">
-        <label class="fld">
-          <span>{t('myProviders.model')}</span>
-          <input class="sw-input" bind:value={model} placeholder="deepseek-chat" spellcheck="false" />
-        </label>
-        <label class="fld">
-          <span>{t('myProviders.smallModel')}</span>
-          <input class="sw-input" bind:value={smallModel} placeholder="—" spellcheck="false" />
-        </label>
-      </div>
+      <label class="fld">
+        <span>{t('myProviders.model')}</span>
+        <input class="sw-input" bind:value={model} placeholder="deepseek-chat" spellcheck="false" />
+      </label>
 
       <label class="fld">
         <span>{t('myProviders.apiKey')}</span>
         <input class="sw-input" type="password" bind:value={apiKey} autocomplete="off"
           placeholder={current?.hasKey ? t('myProviders.apiKeyKeep') : t('myProviders.apiKeyPlaceholder')} />
       </label>
+
+      <!-- Advanced: protocol + small model — hidden by default (most users never need them) -->
+      <button type="button" class="adv-toggle" onclick={() => (advanced = !advanced)}>
+        <span class="caret" class:open={advanced}>▸</span> {t('myProviders.advanced')}
+      </button>
+      {#if advanced}
+        <div class="adv">
+          <div class="fld">
+            <span>{t('myProviders.protocol')}</span>
+            <div class="ddwrap">
+              <DropdownMenu
+                label={protoLabel}
+                align="left"
+                items={[
+                  { label: 'OpenAI', onClick: () => (protocol = 'openai') },
+                  { label: 'Anthropic', onClick: () => (protocol = 'anthropic') }
+                ]}
+              />
+            </div>
+            <span class="hint">{t('myProviders.protocolHint')}</span>
+          </div>
+          <label class="fld">
+            <span>{t('myProviders.smallModel')}</span>
+            <input class="sw-input" bind:value={smallModel} placeholder={t('myProviders.smallModelPlaceholder')} spellcheck="false" />
+            <span class="hint">{t('myProviders.smallModelHint')}</span>
+          </label>
+        </div>
+      {/if}
 
       <div class="row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('myProviders.cancel')}</button>
@@ -171,7 +200,9 @@
   }
   .dialog {
     position: relative;
-    width: min(480px, 94vw);
+    width: min(460px, 92vw);
+    max-height: 92vh;
+    overflow-y: auto;
     background: var(--sw-bg-secondary);
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-lg);
@@ -188,21 +219,52 @@
     display: block;
     margin-bottom: var(--sw-space-3);
   }
-  .fld > span {
+  .fld > span:first-child {
     display: block;
     margin-bottom: 6px;
     font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
   }
-  .two {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--sw-space-3);
+  .ddwrap :global(.dd),
+  .ddwrap :global(.dd > button) {
+    width: 100%;
+  }
+  .ddwrap :global(.dd > button) {
+    justify-content: space-between;
+    display: flex;
+  }
+  .hint {
+    display: block;
+    margin-top: 4px;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-muted);
   }
   .warn {
+    display: block;
     margin-top: 4px;
     color: #f59e0b;
     font-size: var(--sw-text-xs);
+  }
+  .adv-toggle {
+    background: none;
+    border: none;
+    padding: 4px 0;
+    margin: 2px 0 var(--sw-space-2);
+    color: var(--sw-text-secondary);
+    font-size: var(--sw-text-xs);
+    cursor: pointer;
+  }
+  .adv-toggle .caret {
+    display: inline-block;
+    transition: transform 0.15s;
+  }
+  .adv-toggle .caret.open {
+    transform: rotate(90deg);
+  }
+  .adv {
+    border-left: 2px solid var(--sw-border);
+    padding-left: var(--sw-space-3);
+    margin-bottom: var(--sw-space-2);
   }
   .row {
     display: flex;

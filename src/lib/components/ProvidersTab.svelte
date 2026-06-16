@@ -7,10 +7,11 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine } from '$lib/ipc';
+  import { updateEngine, checkMyProvider } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
+  import DropdownMenu from './DropdownMenu.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
   import StackHealthCard from './StackHealthCard.svelte';
 
@@ -32,7 +33,7 @@
     onMyProviderSave,
     onMyProviderDelete,
     onMyProviderConnect,
-    onSetDashToken
+    onSetFreellmapiAuth
   }: {
     engines: EngineStatus[] | null;
     providers: ProfileProvider[] | null;
@@ -51,7 +52,7 @@
     onMyProviderSave: (p: MyProviderInput, apiKey: string) => void;
     onMyProviderDelete: (id: string) => void;
     onMyProviderConnect: (id: string) => void;
-    onSetDashToken: (token: string) => void;
+    onSetFreellmapiAuth: (email: string, password: string, token: string) => void;
   } = $props();
 
   const busy = $derived(!!running);
@@ -162,14 +163,29 @@
     mpDlgOpen = false;
     onMyProviderSave(p, apiKey);
   }
-  // Inline freellmapi dashboard-token entry (needed for the "connect via freellmapi" path).
-  let dashOpen = $state(false);
-  let dashToken = $state('');
-  function saveDash() {
-    if (!dashToken.trim()) return;
-    onSetDashToken(dashToken.trim());
-    dashToken = '';
-    dashOpen = false;
+  // Inline freellmapi login (email+password preferred, token fallback) for the "via freellmapi" path.
+  let loginOpen = $state(false);
+  let loginEmail = $state('');
+  let loginPassword = $state('');
+  let loginToken = $state('');
+  function saveLogin() {
+    if (!loginEmail.trim() && !loginToken.trim()) return;
+    onSetFreellmapiAuth(loginEmail.trim(), loginPassword, loginToken.trim());
+    loginEmail = '';
+    loginPassword = '';
+    loginToken = '';
+    loginOpen = false;
+  }
+  // Per-provider liveness check result (id -> {ok, detail} | 'checking').
+  let health = $state<Record<string, { ok: boolean; detail: string } | 'checking'>>({});
+  async function check(id: string) {
+    health = { ...health, [id]: 'checking' };
+    try {
+      const r = await checkMyProvider(id);
+      health = { ...health, [id]: { ok: r.ok, detail: r.detail } };
+    } catch (e) {
+      health = { ...health, [id]: { ok: false, detail: String(e) } };
+    }
   }
 </script>
 
@@ -408,23 +424,34 @@
   <!-- Custom provider registry (own list; keys in Credential Manager) -->
   <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
     <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('myProviders.title')}</h2>
-    <div class="flex shrink-0 gap-sw-2">
-      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => (dashOpen = !dashOpen)}
-        title={t('myProviders.dashTokenTitle')}>{t('myProviders.setDashToken')}</button>
-      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenUrl('http://localhost:13001')}
-        title={t('myProviders.openFreellmapiTitle')}>{t('myProviders.openFreellmapi')}</button>
-      <button class="sw-btn text-sw-xs" disabled={busy} onclick={mpAdd} title={t('myProviders.addTitle')}>{t('myProviders.add')}</button>
+    <div class="flex shrink-0 items-center gap-sw-2">
+      <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={mpAdd} title={t('myProviders.addTitle')}>
+        {t('myProviders.add')}
+      </button>
+      <DropdownMenu
+        title={t('myProviders.moreActions')}
+        items={[
+          { label: t('myProviders.setLogin'), onClick: () => (loginOpen = !loginOpen) },
+          { label: t('myProviders.openFreellmapi'), onClick: () => onOpenUrl('http://localhost:13001') }
+        ]}
+      />
     </div>
   </div>
   <p class="mb-sw-2 text-sw-xs text-sw-text-muted">{t('myProviders.sectionDesc')}</p>
 
-  {#if dashOpen}
-    <div class="sw-card mb-sw-3 flex items-end gap-sw-2">
-      <label class="block flex-1">
-        <span class="mb-1 block text-sw-xs text-sw-text-secondary">{t('myProviders.dashTokenLabel')}</span>
-        <input class="sw-input" type="password" bind:value={dashToken} autocomplete="off" placeholder={t('myProviders.dashTokenPlaceholder')} />
-      </label>
-      <button class="sw-btn text-sw-xs" disabled={!dashToken.trim()} onclick={saveDash}>{t('myProviders.save')}</button>
+  {#if loginOpen}
+    <div class="sw-card mb-sw-3 flex flex-col gap-sw-2">
+      <p class="text-sw-xs font-medium text-sw-text-secondary">{t('myProviders.loginTitle')}</p>
+      <p class="text-sw-xs text-sw-text-muted">{t('myProviders.loginHint')}</p>
+      <div class="flex gap-sw-2">
+        <input class="sw-input flex-1" type="email" bind:value={loginEmail} autocomplete="off" placeholder={t('myProviders.loginEmail')} />
+        <input class="sw-input flex-1" type="password" bind:value={loginPassword} autocomplete="off" placeholder={t('myProviders.loginPassword')} />
+      </div>
+      <input class="sw-input" type="password" bind:value={loginToken} autocomplete="off" placeholder={t('myProviders.loginTokenOpt')} />
+      <div class="flex justify-end gap-sw-2">
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (loginOpen = false)}>{t('myProviders.cancel')}</button>
+        <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!loginEmail.trim() && !loginToken.trim()} onclick={saveLogin}>{t('myProviders.save')}</button>
+      </div>
     </div>
   {/if}
 
@@ -432,6 +459,7 @@
     <div class="card-grid">
       {#each myProviderList as p (p.id)}
         {@const openaiDirect = p.connectVia === 'direct' && p.protocol === 'openai'}
+        {@const h = health[p.id]}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
@@ -439,11 +467,17 @@
               <p class="truncate font-mono text-[11px] text-sw-text-secondary" title={p.baseUrl}>{p.baseUrl}</p>
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">
-              <span class="badge {p.protocol === 'anthropic' ? 'badge-info' : 'badge-warn'}">{p.protocol}</span>
               <span class="badge {p.hasKey ? 'badge-ok' : 'badge-muted'}"
                 title={p.hasKey ? t('myProviders.hasKey') : t('myProviders.noKey')}>
                 {p.hasKey ? t('myProviders.keySet') : t('myProviders.noKeyShort')}
               </span>
+              {#if h === 'checking'}
+                <span class="badge badge-muted">{t('myProviders.checking')}</span>
+              {:else if h}
+                <span class="badge {h.ok ? 'badge-ok' : 'badge-warn'}" title={h.detail}>
+                  {h.ok ? t('myProviders.alive') : t('myProviders.dead')}
+                </span>
+              {/if}
             </div>
           </div>
           <div class="flex flex-wrap gap-sw-2">
@@ -456,6 +490,10 @@
               onclick={() => onMyProviderConnect(p.id)}
               title={openaiDirect ? t('myProviders.openaiNeedsRouter') : !p.hasKey ? t('myProviders.noKey') : t('myProviders.connectTitle')}>
               {t('myProviders.connect')}
+            </button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!p.hasKey || h === 'checking'}
+              onclick={() => check(p.id)} title={t('myProviders.checkTitle')}>
+              {h === 'checking' ? t('myProviders.checking') : t('myProviders.check')}
             </button>
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => mpEdit(p)}
               title={t('myProviders.editTitle')}>{t('myProviders.edit')}</button>

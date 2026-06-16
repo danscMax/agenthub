@@ -368,7 +368,12 @@ export const saveMyProvider = (p: MyProviderInput, apiKey?: string) =>
   invoke<MyProvider>('save_my_provider', { p, apiKey });
 export const deleteMyProvider = (id: string) => invoke('delete_my_provider', { id });
 export const connectMyProvider = (id: string) => invoke<number>('connect_my_provider', { id });
-export const setFreellmapiToken = (token: string) => invoke('set_freellmapi_token', { token });
+export const setFreellmapiAuth = (email?: string, password?: string, token?: string) =>
+  invoke('set_freellmapi_auth', { email, password, token });
+export const freellmapiAuthStatus = () =>
+  invoke<{ hasEmail: boolean; hasToken: boolean }>('freellmapi_auth_status');
+export const checkMyProvider = (id: string) =>
+  invoke<{ ok: boolean; detail: string; count?: number }>('check_my_provider', { id });
 
 // --- Per-profile launch config (lean mode + tool set + context size) ---
 export type ProfileLaunch = {

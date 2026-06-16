@@ -1742,13 +1742,38 @@ fn delete_my_provider(id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Store the freellmapi dashboard-session token (needed for the "connect via freellmapi" path).
+/// Persist freellmapi dashboard credentials in the Credential Manager: email+password (preferred —
+/// AgentHub logs in programmatically via /api/auth/login) and/or a pasted session token (fallback).
+/// Empty/None fields are left untouched. Secrets never touch JSON.
 #[tauri::command]
-fn set_freellmapi_token(token: String) -> Result<(), String> {
-    if token.trim().is_empty() {
-        return Err("пустой токен дашборда".into());
+fn set_freellmapi_auth(
+    email: Option<String>,
+    password: Option<String>,
+    token: Option<String>,
+) -> Result<(), String> {
+    let mut any = false;
+    for (user, val) in [("email", &email), ("password", &password), ("token", &token)] {
+        if let Some(v) = val {
+            let v = v.trim();
+            if !v.is_empty() {
+                kr_set(KR_FREELLMAPI, user, v)?;
+                any = true;
+            }
+        }
     }
-    kr_set(KR_FREELLMAPI, "dashboard", token.trim())
+    if !any {
+        return Err("укажите email+пароль или токен дашборда freellmapi".into());
+    }
+    Ok(())
+}
+
+/// Which freellmapi auth is configured (for the UI). Never returns the secret values themselves.
+#[tauri::command]
+fn freellmapi_auth_status() -> serde_json::Value {
+    serde_json::json!({
+        "hasEmail": kr_get(KR_FREELLMAPI, "email").is_some(),
+        "hasToken": kr_get(KR_FREELLMAPI, "token").is_some(),
+    })
 }
 
 /// freellmapi gateway base URL from the `gateway` service port in stack.json. None if absent.
@@ -1812,10 +1837,15 @@ async fn connect_my_provider(
             "OpenAI-провайдер напрямую требует claude-code-router (сейчас недоступен) — подключите через freellmapi"
                 .into(),
         ),
-        // Via the freellmapi hub → register as a custom OpenAI-compatible endpoint.
+        // Via the freellmapi hub → register as a custom OpenAI-compatible endpoint. The script
+        // logs in (email+password → session) if no token is set, then POSTs /api/keys/custom.
         ("freellmapi", _) => {
-            let dash = kr_get(KR_FREELLMAPI, "dashboard")
-                .ok_or("сначала задайте dashboard-токен freellmapi")?;
+            let token = kr_get(KR_FREELLMAPI, "token").unwrap_or_default();
+            let email = kr_get(KR_FREELLMAPI, "email").unwrap_or_default();
+            let password = kr_get(KR_FREELLMAPI, "password").unwrap_or_default();
+            if token.is_empty() && (email.is_empty() || password.is_empty()) {
+                return Err("сначала задайте вход в freellmapi (email+пароль или токен) — кнопка «Вход freellmapi»".into());
+            }
             let gateway = gateway_base_url().ok_or("не найден gateway в stack.json")?;
             let args = vec![
                 "-Gateway".into(),
@@ -1829,13 +1859,59 @@ async fn connect_my_provider(
                 "-Label".into(),
                 format!("agenthub:{}", s("name")),
             ];
-            // STDIN payload: first line = dashboard token, remainder = provider API key.
-            let payload = format!("{dash}\n{api_key}");
+            // STDIN payload: JSON with auth (token or email/password) + provider apiKey. Secrets
+            // never reach argv. The script logs in via /api/auth/login when token is empty.
+            let payload = serde_json::json!({
+                "token": token, "email": email, "password": password, "apiKey": api_key
+            })
+            .to_string();
             let script = abs(CONNECT_CUSTOM_SCRIPT_REL);
             spawn_streamed_io(app, state, "provider".into(), script, args, Some(payload)).await
         }
         _ => Err(format!("неизвестная комбинация connectVia/protocol: {via}/{protocol}")),
     }
+}
+
+const CHECK_PROVIDER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Check-Provider.ps1";
+
+/// Liveness check for a saved provider: GET {baseUrl}/models with its key (read from the Credential
+/// Manager, fed via STDIN). Returns `{ ok, detail, count? }`. Does not take the run slot.
+#[tauri::command]
+async fn check_my_provider(id: String) -> serde_json::Value {
+    let list = read_myproviders_raw();
+    let entry = list
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .cloned();
+    let Some(e) = entry else {
+        return serde_json::json!({ "ok": false, "detail": "провайдер не найден" });
+    };
+    let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let api_key = kr_get(KR_PROVIDERS, &format!("provider:{id}")).unwrap_or_default();
+    let script = abs(CHECK_PROVIDER_SCRIPT_REL);
+    let child = tokio::process::Command::new("pwsh")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script, "-BaseUrl", &base_url])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return serde_json::json!({ "ok": false, "detail": format!("запуск: {e}") }),
+    };
+    if let Some(mut sin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        let _ = sin.write_all(api_key.as_bytes()).await;
+        let _ = sin.shutdown().await;
+    }
+    let out = match child.wait_with_output().await {
+        Ok(o) => o,
+        Err(e) => return serde_json::json!({ "ok": false, "detail": format!("{e}") }),
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_json_bom(stdout.trim())
+        .unwrap_or_else(|_| serde_json::json!({ "ok": false, "detail": "нет ответа" }))
 }
 
 const OPENCODE_PROVIDER_SCRIPT_REL: &str =
@@ -2957,8 +3033,10 @@ pub fn run() {
             list_my_providers,
             save_my_provider,
             delete_my_provider,
-            set_freellmapi_token,
+            set_freellmapi_auth,
+            freellmapi_auth_status,
             connect_my_provider,
+            check_my_provider,
             read_opencode,
             run_opencode_provider,
             read_mcp,

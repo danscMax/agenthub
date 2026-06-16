@@ -35,7 +35,7 @@
     saveMyProvider,
     deleteMyProvider,
     connectMyProvider,
-    setFreellmapiToken,
+    setFreellmapiAuth,
     listGithubRepos,
     readStack,
     runStack,
@@ -726,9 +726,9 @@
       running = null;
     });
   }
-  function onSetDashToken(token: string) {
-    setFreellmapiToken(token)
-      .then(() => (log = [...log, t('myProviders.dashTokenSaved')]))
+  function onSetFreellmapiAuth(email: string, password: string, token: string) {
+    setFreellmapiAuth(email || undefined, password || undefined, token || undefined)
+      .then(() => (log = [...log, t('myProviders.loginSaved')]))
       .catch((e) => (log = [...log, t('page.log_error', { e })]));
   }
 
@@ -1194,7 +1194,7 @@
           {onMyProviderSave}
           {onMyProviderDelete}
           {onMyProviderConnect}
-          {onSetDashToken}
+          {onSetFreellmapiAuth}
           onRefresh={() => {
             reloadProviders();
             reloadStack();
