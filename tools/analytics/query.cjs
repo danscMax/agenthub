@@ -46,6 +46,11 @@ try {
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   const since = `-${rangeHours} hours`;
 
+  // Adaptive time-series bucket so the sparkline always has ~12-30 points regardless of range:
+  // 1h -> 5 min, 24h -> 1 h, 7d -> 6 h, 30d+ -> 1 day.
+  const stepSec =
+    rangeHours <= 1 ? 300 : rangeHours <= 24 ? 3600 : rangeHours <= 168 ? 21600 : 86400;
+
   const s = db.prepare(`
     SELECT
       COUNT(*) AS total_requests,
@@ -82,6 +87,24 @@ try {
     GROUP BY r.platform, r.model_id
     ORDER BY requests DESC
   `).all(FIN, FOUT, since);
+
+  // Time-series, broken down by model — lets the UI draw a global sparkline (sum across models per
+  // bucket) and re-scope it to a single model on row click. `bucket` is a unix-epoch second floored
+  // to stepSec (created_at is UTC, like the datetime('now') comparisons above).
+  const seriesRows = db.prepare(`
+    SELECT
+      -- CAST the step param to INTEGER: better-sqlite3 binds JS numbers as REAL, which would make
+      -- the division floating-point and skip the flooring. Casting forces integer division.
+      (CAST(strftime('%s', r.created_at) AS INTEGER) / CAST(? AS INTEGER)) * CAST(? AS INTEGER) AS bucket,
+      r.platform, r.model_id,
+      COUNT(*) AS requests,
+      SUM(r.input_tokens)  AS total_input_tokens,
+      SUM(r.output_tokens) AS total_output_tokens
+    FROM requests r
+    WHERE r.created_at >= datetime('now', ?)
+    GROUP BY bucket, r.platform, r.model_id
+    ORDER BY bucket
+  `).all(stepSec, stepSec, since);
   db.close();
 
   out({
@@ -104,6 +127,15 @@ try {
       totalInputTokens: r.total_input_tokens ?? 0,
       totalOutputTokens: r.total_output_tokens ?? 0,
       estimatedCost: Math.round((r.est_cost ?? 0) * 100) / 100,
+    })),
+    stepSec,
+    series: seriesRows.map((r) => ({
+      bucket: r.bucket,
+      platform: r.platform,
+      modelId: r.model_id,
+      requests: r.requests,
+      totalInputTokens: r.total_input_tokens ?? 0,
+      totalOutputTokens: r.total_output_tokens ?? 0,
     })),
   });
 } catch (e) {

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { readFreellmapiAnalytics, type FreellmapiAnalytics } from '$lib/ipc';
+  import { readFreellmapiAnalytics, type FreellmapiAnalytics, type AnalyticsModel } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import Sparkline from './Sparkline.svelte';
 
   // Range presets (hours). Self-contained: this tab owns its fetch + range state.
   const ranges = [
@@ -14,6 +15,14 @@
   let data = $state<FreellmapiAnalytics | null>(null);
   let loading = $state(false);
   let loaded = '';
+
+  // Row interactivity: a selected model re-scopes the totals + the trend; column sort orders the table.
+  let selectedKey = $state<string | null>(null);
+  type SortKey = 'requests' | 'successRate' | 'avgLatencyMs' | 'tokens' | 'estimatedCost';
+  let sortKey = $state<SortKey>('requests');
+  let sortDir = $state<'asc' | 'desc'>('desc');
+
+  const keyOf = (m: { platform: string; modelId: string }) => `${m.platform}/${m.modelId}`;
 
   async function load(h: number) {
     loading = true;
@@ -29,17 +38,95 @@
     }
   }
 
-  // Load on mount and whenever the range changes.
+  // Load on mount and whenever the range changes; a range switch clears any model filter
+  // (the selected model may not exist in the new window).
   $effect(() => {
     const h = rangeHours;
+    selectedKey = null;
     load(h);
   });
 
   const nf = new Intl.NumberFormat();
   const fmt = (n: number) => nf.format(n ?? 0);
-  const totals = $derived(data?.totals);
-  const models = $derived(data?.perModel ?? []);
   const available = $derived(!!data?.available);
+  const models = $derived(data?.perModel ?? []);
+
+  const selectedModel = $derived(
+    selectedKey ? (models.find((m) => keyOf(m) === selectedKey) ?? null) : null
+  );
+
+  // Totals cards reflect the selected model when one is picked — derived entirely from its
+  // already-fetched per-model row (savings = its estimated cost), so no extra backend call.
+  const totals = $derived.by(() => {
+    const t0 = data?.totals;
+    const m = selectedModel;
+    if (!m) return t0;
+    return {
+      totalRequests: m.requests,
+      successRate: m.successRate,
+      totalInputTokens: m.totalInputTokens,
+      totalOutputTokens: m.totalOutputTokens,
+      avgLatencyMs: m.avgLatencyMs,
+      estimatedCostSavings: m.estimatedCost,
+      firstRequestAt: t0?.firstRequestAt ?? null
+    };
+  });
+
+  // Sorted table rows.
+  const valOf = (m: AnalyticsModel, k: SortKey) =>
+    k === 'tokens' ? m.totalInputTokens + m.totalOutputTokens : m[k];
+  const sortedModels = $derived.by(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...models].sort((a, b) => (valOf(a, sortKey) - valOf(b, sortKey)) * dir);
+  });
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else {
+      sortKey = k;
+      sortDir = 'desc';
+    }
+  }
+  const sortArrow = (k: SortKey) => (sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+
+  function toggleSelect(m: AnalyticsModel) {
+    const k = keyOf(m);
+    selectedKey = selectedKey === k ? null : k;
+  }
+
+  // Trend: zero-filled requests-per-bucket over a stable axis (global min..max bucket), optionally
+  // scoped to the selected model. Axis is global so the shape stays put when filtering.
+  const trend = $derived.by(() => {
+    const series = data?.series ?? [];
+    const step = data?.stepSec ?? 0;
+    if (!series.length || step <= 0) return [] as number[];
+    const buckets = series.map((s) => s.bucket);
+    const lo = Math.min(...buckets);
+    const hi = Math.max(...buckets);
+    const n = Math.floor((hi - lo) / step) + 1;
+    if (n <= 0 || n > 1000) return [];
+    const sums = new Array(n).fill(0);
+    for (const s of series) {
+      if (selectedKey && keyOf(s) !== selectedKey) continue;
+      const idx = Math.round((s.bucket - lo) / step);
+      if (idx >= 0 && idx < n) sums[idx] += s.requests;
+    }
+    return sums;
+  });
+
+  const grainLabel = $derived.by(() => {
+    const step = data?.stepSec ?? 0;
+    const k =
+      step === 300
+        ? 'analytics.grain5m'
+        : step === 3600
+          ? 'analytics.grain1h'
+          : step === 21600
+            ? 'analytics.grain6h'
+            : step === 86400
+              ? 'analytics.grain1d'
+              : '';
+    return k ? t(k) : '';
+  });
 </script>
 
 <div class="p-sw-6">
@@ -70,8 +157,17 @@
       {loading ? t('analytics.loading') : t('analytics.empty')}
     </div>
   {:else}
-    <!-- Totals -->
-    <div class="card-grid mb-sw-6">
+    {#if selectedModel}
+      <div class="mb-sw-3 flex items-center gap-sw-2 text-sw-sm">
+        <span class="badge badge-info">{t('analytics.selectedFilter', { model: selectedModel.displayName })}</span>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (selectedKey = null)}>
+          {t('analytics.clearFilter')}
+        </button>
+      </div>
+    {/if}
+
+    <!-- Totals (reflect the selected model when filtered) -->
+    <div class="card-grid mb-sw-4">
       <div class="sw-card">
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.totalRequests')}</p>
         <p class="mt-1 text-2xl font-semibold">{fmt(totals?.totalRequests ?? 0)}</p>
@@ -97,6 +193,19 @@
       </div>
     </div>
 
+    <!-- Trend -->
+    <div class="sw-card mb-sw-6">
+      <div class="mb-sw-2 flex items-baseline justify-between gap-sw-2">
+        <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.trend')}</p>
+        <p class="text-sw-xs text-sw-text-muted">{grainLabel}</p>
+      </div>
+      {#if trend.length >= 2}
+        <Sparkline points={trend} width={680} height={56} title={t('analytics.trend')} />
+      {:else}
+        <p class="text-sw-sm text-sw-text-muted">{t('analytics.trendEmpty')}</p>
+      {/if}
+    </div>
+
     <!-- Per-model -->
     <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
       {t('analytics.perModel')}
@@ -107,19 +216,32 @@
           <thead>
             <tr class="border-b border-sw-border text-left text-sw-xs text-sw-text-muted">
               <th class="px-sw-3 py-sw-2 font-medium">{t('analytics.colModel')}</th>
-              <th class="px-sw-3 py-sw-2 text-right font-medium">{t('analytics.colRequests')}</th>
-              <th class="px-sw-3 py-sw-2 text-right font-medium">{t('analytics.colSuccess')}</th>
-              <th class="px-sw-3 py-sw-2 text-right font-medium">{t('analytics.colLatency')}</th>
-              <th class="px-sw-3 py-sw-2 text-right font-medium">{t('analytics.colTokens')}</th>
-              <th class="px-sw-3 py-sw-2 text-right font-medium">{t('analytics.colCost')}</th>
+              <th class="px-sw-3 py-sw-2 text-right font-medium">
+                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('requests')}>{t('analytics.colRequests')}{sortArrow('requests')}</button>
+              </th>
+              <th class="px-sw-3 py-sw-2 text-right font-medium">
+                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('successRate')}>{t('analytics.colSuccess')}{sortArrow('successRate')}</button>
+              </th>
+              <th class="px-sw-3 py-sw-2 text-right font-medium">
+                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('avgLatencyMs')}>{t('analytics.colLatency')}{sortArrow('avgLatencyMs')}</button>
+              </th>
+              <th class="px-sw-3 py-sw-2 text-right font-medium">
+                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('tokens')}>{t('analytics.colTokens')}{sortArrow('tokens')}</button>
+              </th>
+              <th class="px-sw-3 py-sw-2 text-right font-medium">
+                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('estimatedCost')}>{t('analytics.colCost')}{sortArrow('estimatedCost')}</button>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {#each models as m (m.platform + '/' + m.modelId)}
-              <tr class="border-b border-sw-border last:border-0">
+            {#each sortedModels as m (keyOf(m))}
+              <tr class="border-b border-sw-border last:border-0 {selectedKey === keyOf(m) ? 'row-active' : ''}"
+                aria-selected={selectedKey === keyOf(m)}>
                 <td class="px-sw-3 py-sw-2">
-                  <div class="truncate font-medium" title={m.displayName}>{m.displayName}</div>
-                  <div class="truncate font-mono text-[11px] text-sw-text-muted">{m.platform}/{m.modelId}</div>
+                  <button class="row-pick" title={t('analytics.rowTip')} onclick={() => toggleSelect(m)}>
+                    <span class="block truncate font-medium" title={m.displayName}>{m.displayName}</span>
+                    <span class="block truncate font-mono text-[11px] text-sw-text-muted">{m.platform}/{m.modelId}</span>
+                  </button>
                 </td>
                 <td class="px-sw-3 py-sw-2 text-right">{fmt(m.requests)}</td>
                 <td class="px-sw-3 py-sw-2 text-right">{m.successRate}%</td>
@@ -148,5 +270,24 @@
     position: sticky;
     top: 0;
     background: var(--sw-bg-secondary);
+  }
+  .th-sort {
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  .th-sort:hover {
+    color: var(--sw-text-primary);
+  }
+  .row-active {
+    background: var(--sw-bg-secondary);
+  }
+  .row-pick {
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
   }
 </style>

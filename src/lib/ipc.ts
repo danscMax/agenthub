@@ -262,10 +262,20 @@ export type AnalyticsModel = {
   totalOutputTokens: number;
   estimatedCost: number;
 };
+export type AnalyticsSeriesPoint = {
+  bucket: number; // unix-epoch second, floored to stepSec
+  platform: string;
+  modelId: string;
+  requests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+};
 export type FreellmapiAnalytics = {
   available: boolean; // false → gateway DB/node/data missing (empty state)
   totals: AnalyticsTotals;
   perModel: AnalyticsModel[];
+  series: AnalyticsSeriesPoint[]; // per-model usage over time (sparkline source)
+  stepSec: number; // bucket width in seconds
 };
 export const readFreellmapiAnalytics = (rangeHours: number) =>
   invoke<FreellmapiAnalytics>('read_freellmapi_analytics', { rangeHours });

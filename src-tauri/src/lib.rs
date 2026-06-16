@@ -995,11 +995,25 @@ struct AnalyticsModel {
     estimated_cost: f64,
 }
 
+/// One time-series bucket for a single model. `bucket` is a unix-epoch second floored to `step_sec`.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyticsSeriesPoint {
+    bucket: i64,
+    platform: String,
+    model_id: String,
+    requests: i64,
+    total_input_tokens: i64,
+    total_output_tokens: i64,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnalyticsHelperOut {
     totals: Option<AnalyticsTotals>,
     per_model: Option<Vec<AnalyticsModel>>,
+    series: Option<Vec<AnalyticsSeriesPoint>>,
+    step_sec: Option<i64>,
     error: Option<String>,
 }
 
@@ -1010,6 +1024,9 @@ struct FreellmapiAnalytics {
     available: bool,
     totals: AnalyticsTotals,
     per_model: Vec<AnalyticsModel>,
+    /// Per-model usage over time (sparkline source); bucket width is `step_sec`.
+    series: Vec<AnalyticsSeriesPoint>,
+    step_sec: i64,
 }
 
 /// Path to the freellmapi SQLite DB, from the `gateway` service `dir` in stack.json (placeholders
@@ -1055,6 +1072,8 @@ async fn read_freellmapi_analytics(range_hours: u32) -> FreellmapiAnalytics {
             available: true,
             totals: p.totals.unwrap_or_default(),
             per_model: p.per_model.unwrap_or_default(),
+            series: p.series.unwrap_or_default(),
+            step_sec: p.step_sec.unwrap_or(0),
         },
         _ => FreellmapiAnalytics::default(),
     }

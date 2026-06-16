@@ -25,5 +25,15 @@ export default {
   colTokens: '令牌',
   colCost: '估算成本',
   noModels: '该时间段无按模型数据。',
+  trend: '请求随时间',
+  trendEmpty: '数据不足，无法显示趋势',
+  grain5m: '每5分钟',
+  grain1h: '每小时',
+  grain6h: '每6小时',
+  grain1d: '每天',
+  selectedFilter: '筛选：{model}',
+  clearFilter: '清除',
+  rowTip: '点击按此模型筛选',
+  sortTip: '点击按列排序',
   footnote: '以只读方式读取 freeapi.db；“已节省”为相较付费定价的估算。'
 };

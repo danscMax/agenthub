@@ -25,5 +25,15 @@ export default {
   colTokens: 'Tokens',
   colCost: 'Est. cost',
   noModels: 'No per-model data for this range.',
+  trend: 'Requests over time',
+  trendEmpty: 'Not enough data for a trend',
+  grain5m: '5-min buckets',
+  grain1h: 'hourly',
+  grain6h: '6-hour buckets',
+  grain1d: 'daily',
+  selectedFilter: 'Filter: {model}',
+  clearFilter: 'Clear',
+  rowTip: 'Click to filter by this model',
+  sortTip: 'Click to sort by column',
   footnote: 'Read from freeapi.db read-only; “saved” is an estimate vs paid pricing.'
 };
