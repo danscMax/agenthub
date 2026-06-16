@@ -5,11 +5,14 @@ export default {
   loading: 'Проверка…',
   empty: 'Нет сервисов в манифесте стека.',
   ovOk: 'В норме',
-  ovDegraded: 'Частичный сбой',
-  ovDown: 'Стек недоступен',
-  summary: '{up}/{total} в норме',
-  svUp: 'жив',
+  ovDegraded: 'Часть сбоит',
+  ovStopped: 'Часть остановлена',
+  ovDown: 'Шлюз недоступен',
+  summary: '{up}/{total} работает',
+  svUp: 'работает',
   svDegraded: 'сбоит',
-  svDown: 'лежит',
-  svPortOnly: 'порт открыт'
+  svDown: 'остановлен',
+  svPortOnly: 'работает',
+  details: 'Подробнее',
+  hide: 'Свернуть'
 };

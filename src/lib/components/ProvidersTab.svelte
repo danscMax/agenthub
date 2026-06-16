@@ -279,7 +279,7 @@
                   {s.running ? t('providers.running') : t('providers.stopped')}
                 </span>
                 {#if s.group === 'router'}
-                  <span class="badge badge-warn" title={t('providers.stackPaidTip')}>{t('providers.stackPaid')}</span>
+                  <span class="badge badge-muted" title={t('providers.stackPaidTip')}>💲 {t('providers.stackPaid')}</span>
                 {/if}
               </div>
             </div>

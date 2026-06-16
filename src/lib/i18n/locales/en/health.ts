@@ -5,11 +5,14 @@ export default {
   loading: 'Checking…',
   empty: 'No services in the stack manifest.',
   ovOk: 'Healthy',
-  ovDegraded: 'Partial outage',
-  ovDown: 'Stack down',
-  summary: '{up}/{total} healthy',
-  svUp: 'up',
+  ovDegraded: 'Some degraded',
+  ovStopped: 'Some stopped',
+  ovDown: 'Gateway down',
+  summary: '{up}/{total} running',
+  svUp: 'running',
   svDegraded: 'degraded',
-  svDown: 'down',
-  svPortOnly: 'port open'
+  svDown: 'stopped',
+  svPortOnly: 'running',
+  details: 'Details',
+  hide: 'Collapse'
 };

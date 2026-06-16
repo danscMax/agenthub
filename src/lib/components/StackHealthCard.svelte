@@ -21,31 +21,53 @@
     load();
   });
 
-  // up = HTTP-healthy, or (port-only service) just listening; degraded = listening but health failed.
+  // up = HTTP-healthy or (port-only) just listening; degraded = listening but health failed;
+  // down = port closed. A closed port is usually a deliberately-stopped backend, NOT a fault —
+  // only the gateway (the critical hop) being down is treated as an alarm.
   function statusOf(s: StackHealth): 'up' | 'degraded' | 'down' {
     if (!s.portOpen) return 'down';
     if (s.healthy === false) return 'degraded';
     return 'up';
   }
-  const dot = { up: '#10b981', degraded: '#f59e0b', down: '#ef4444' } as const;
+  const dot = { up: '#10b981', degraded: '#f59e0b', down: '#ef4444', off: '#6b7280' } as const;
+  // Stopped non-gateway backends are neutral grey; a dead gateway / sick service keep alarm colours.
+  function dotColor(s: StackHealth): string {
+    const st = statusOf(s);
+    if (st === 'down') return s.id === 'gateway' ? dot.down : dot.off;
+    return dot[st];
+  }
+
+  let showDetails = $state(false);
 
   const enabled = $derived(items.filter((i) => i.enabled));
   const ups = $derived(enabled.filter((i) => statusOf(i) === 'up').length);
   const total = $derived(enabled.length);
   const gateway = $derived(items.find((i) => i.id === 'gateway'));
-  // Gateway is the critical hop → its outage is red regardless of the rest.
-  const overall = $derived<'ok' | 'degraded' | 'down'>(
+  const anySick = $derived(enabled.some((i) => statusOf(i) === 'degraded'));
+  // ok=all up · degraded=a service is sick (port open, /health fails) · stopped=some backends are
+  // just off (normal) · down=gateway unreachable (the only real outage).
+  const overall = $derived<'ok' | 'degraded' | 'stopped' | 'down'>(
     total === 0
       ? 'down'
       : gateway && statusOf(gateway) !== 'up'
         ? 'down'
-        : ups === total
-          ? 'ok'
-          : 'degraded'
+        : anySick
+          ? 'degraded'
+          : ups === total
+            ? 'ok'
+            : 'stopped'
   );
-  const overallColor = $derived(overall === 'ok' ? dot.up : overall === 'degraded' ? dot.degraded : dot.down);
+  const overallColor = $derived(
+    overall === 'ok' ? dot.up : overall === 'degraded' ? dot.degraded : overall === 'stopped' ? dot.off : dot.down
+  );
   const overallLabel = $derived(
-    overall === 'ok' ? t('health.ovOk') : overall === 'degraded' ? t('health.ovDegraded') : t('health.ovDown')
+    overall === 'ok'
+      ? t('health.ovOk')
+      : overall === 'degraded'
+        ? t('health.ovDegraded')
+        : overall === 'stopped'
+          ? t('health.ovStopped')
+          : t('health.ovDown')
   );
   function svcLabel(s: StackHealth): string {
     const st = statusOf(s);
@@ -66,23 +88,31 @@
         </p>
       </div>
     </div>
-    <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={load} title={t('health.refreshTip')}>
-      {loading ? t('health.loading') : t('health.refresh')}
-    </button>
+    <div class="flex shrink-0 items-center gap-sw-2">
+      {#if enabled.length}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (showDetails = !showDetails)}
+          title={t('health.refreshTip')}>
+          {showDetails ? t('health.hide') : t('health.details')} {showDetails ? '▴' : '▾'}
+        </button>
+      {/if}
+      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={load} title={t('health.refreshTip')}>
+        {loading ? t('health.loading') : t('health.refresh')}
+      </button>
+    </div>
   </div>
 
-  {#if enabled.length}
+  {#if enabled.length && showDetails}
     <div class="mt-sw-3 flex flex-wrap gap-x-sw-4 gap-y-sw-2 border-t border-sw-border pt-sw-3">
       {#each enabled as s (s.id)}
         <div class="flex items-center gap-sw-2" title="{s.name} :{s.port}">
-          <span class="dot" style="background:{dot[statusOf(s)]}" aria-hidden="true"></span>
+          <span class="dot" style="background:{dotColor(s)}" aria-hidden="true"></span>
           <span class="text-sw-sm">{s.name}</span>
           <span class="font-mono text-[11px] text-sw-text-muted">:{s.port}</span>
           <span class="text-sw-xs text-sw-text-secondary">· {svcLabel(s)}</span>
         </div>
       {/each}
     </div>
-  {:else if loadedOnce && !loading}
+  {:else if loadedOnce && !loading && !enabled.length}
     <p class="mt-sw-2 text-sw-xs text-sw-text-muted">{t('health.empty')}</p>
   {/if}
 </section>

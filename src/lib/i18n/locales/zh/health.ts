@@ -6,10 +6,13 @@ export default {
   empty: '技术栈清单中没有服务。',
   ovOk: '正常',
   ovDegraded: '部分故障',
-  ovDown: '技术栈不可用',
-  summary: '{up}/{total} 正常',
-  svUp: '正常',
+  ovStopped: '部分已停止',
+  ovDown: '网关不可用',
+  summary: '{up}/{total} 运行中',
+  svUp: '运行中',
   svDegraded: '故障',
-  svDown: '宕机',
-  svPortOnly: '端口开放'
+  svDown: '已停止',
+  svPortOnly: '运行中',
+  details: '详情',
+  hide: '收起'
 };
