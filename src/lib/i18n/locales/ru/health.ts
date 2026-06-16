@@ -14,5 +14,7 @@ export default {
   svDown: 'остановлен',
   svPortOnly: 'работает',
   details: 'Подробнее',
-  hide: 'Свернуть'
+  hide: 'Свернуть',
+  start: 'Запустить',
+  startTip: 'Запустить «{name}»'
 };

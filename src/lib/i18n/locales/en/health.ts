@@ -14,5 +14,7 @@ export default {
   svDown: 'stopped',
   svPortOnly: 'running',
   details: 'Details',
-  hide: 'Collapse'
+  hide: 'Collapse',
+  start: 'Start',
+  startTip: 'Start “{name}”'
 };

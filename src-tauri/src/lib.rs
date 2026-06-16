@@ -997,6 +997,41 @@ async fn run_stack(
     spawn_streamed(app, state, "engine".to_string(), script, args).await
 }
 
+const STACK_PROCS_SCRIPT_REL: &str = "AgentHub\\tools\\stack\\Stack-Procs.ps1";
+
+/// Listening-process info for one stack port: PID + uptime. Frontend joins this onto service cards
+/// by port to show "PID 1234 · 2h" without an extra per-service probe.
+#[derive(Serialize, Deserialize)]
+struct StackProc {
+    port: u16,
+    pid: u32,
+    #[serde(rename = "uptimeSec")]
+    uptime_sec: u64,
+}
+
+/// PID + uptime for every currently-listening stack port (one process snapshot via pwsh). Ports
+/// with no listener are omitted. Read-only; never touches the services. Empty on any failure.
+#[tauri::command]
+async fn read_stack_procs() -> Vec<StackProc> {
+    let ports: Vec<u16> = read_stack().iter().filter(|s| s.port != 0).map(|s| s.port).collect();
+    if ports.is_empty() {
+        return Vec::new();
+    }
+    let port_args = ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+    let script = abs(STACK_PROCS_SCRIPT_REL);
+    let out = tokio::process::Command::new("pwsh")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script, "-Ports", &port_args])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .await;
+    let Ok(out) = out else { return Vec::new() };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_json_bom(stdout.trim())
+        .ok()
+        .and_then(|v| serde_json::from_value::<Vec<StackProc>>(v).ok())
+        .unwrap_or_default()
+}
+
 // ---- freellmapi analytics (read-only via a node helper over its SQLite DB) ----
 
 #[derive(Serialize, Deserialize, Default)]
@@ -3230,6 +3265,7 @@ pub fn run() {
             read_stack,
             run_stack,
             read_stack_health,
+            read_stack_procs,
             read_freellmapi_analytics,
             read_providers,
             run_provider,

@@ -14,5 +14,7 @@ export default {
   svDown: '已停止',
   svPortOnly: '运行中',
   details: '详情',
-  hide: '收起'
+  hide: '收起',
+  start: '启动',
+  startTip: '启动「{name}」'
 };

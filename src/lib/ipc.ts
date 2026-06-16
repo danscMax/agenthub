@@ -243,6 +243,10 @@ export type StackHealth = {
 };
 export const readStackHealth = () => invoke<StackHealth[]>('read_stack_health');
 
+// --- stack process info (PID + uptime per listening port, one pwsh snapshot) ---
+export type StackProc = { port: number; pid: number; uptimeSec: number };
+export const readStackProcs = () => invoke<StackProc[]>('read_stack_procs');
+
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {
   totalRequests: number;

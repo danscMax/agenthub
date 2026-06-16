@@ -62,6 +62,10 @@ export default {
   stackStopTip: 'stop-stack.ps1 -All — остановить все сервисы стека',
   stackStartOneTip: 'Запустить только «{name}» (start-stack.ps1 -Only)',
   stackStopOneTip: 'Остановить только «{name}» (stop-stack.ps1 -Only)',
+  procTitle: 'PID процесса на порту: {pid}',
+  uptimeM: '{m} мин',
+  uptimeH: '{h} ч {m} м',
+  uptimeD: '{d} д {h} ч',
   stackPaid: 'платный (Z.AI)',
   stackPaidTip:
     'GLM-роутер :4000 — платный ключ Z.AI, для кодинга в Claude Code (ANTHROPIC_BASE_URL). Не держи включённым без нужды.',

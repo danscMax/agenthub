@@ -7,7 +7,7 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine, checkMyProvider } from '$lib/ipc';
+  import { updateEngine, checkMyProvider, readStackProcs, type StackProc } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
@@ -153,6 +153,24 @@
     });
   }
 
+  // Stack process info (PID + uptime per port), refreshed whenever the stack list changes.
+  let procs = $state<StackProc[]>([]);
+  const procByPort = $derived(new Map(procs.map((p) => [p.port, p])));
+  $effect(() => {
+    stackList.length; // re-probe when the set of services changes
+    readStackProcs()
+      .then((r) => (procs = r))
+      .catch(() => (procs = []));
+  });
+  function fmtUptime(sec: number): string {
+    if (sec <= 0) return '';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (h >= 24) return t('providers.uptimeD', { d: Math.floor(h / 24), h: h % 24 });
+    if (h > 0) return t('providers.uptimeH', { h, m });
+    return t('providers.uptimeM', { m: Math.max(1, m) });
+  }
+
   // Custom provider registry (own list; keys in Credential Manager).
   const myProviderList = $derived(myProviders ?? []);
   let mpDlgOpen = $state(false);
@@ -248,7 +266,7 @@
   />
 
   <!-- System health (real /health probes of the stack services) -->
-  <StackHealthCard />
+  <StackHealthCard {busy} onStart={(id) => onStack?.('start', id)} />
 
   <!-- LLM stack (single source of truth: stack.json) -->
   {#if stackList.length}
@@ -272,6 +290,14 @@
               <div class="min-w-0">
                 <h3 class="truncate font-medium">{s.name}</h3>
                 <p class="truncate font-mono text-[11px] text-sw-text-muted">:{s.port} · {s.protocol}</p>
+                {#if s.running}
+                  {@const pr = procByPort.get(s.port)}
+                  {#if pr}
+                    <p class="truncate font-mono text-[11px] text-sw-text-muted" title={t('providers.procTitle', { pid: pr.pid })}>
+                      PID {pr.pid}{fmtUptime(pr.uptimeSec) ? ` · ${fmtUptime(pr.uptimeSec)}` : ''}
+                    </p>
+                  {/if}
+                {/if}
               </div>
               <div class="flex shrink-0 flex-col items-end gap-1">
                 <span class="badge {s.running ? 'badge-ok' : 'badge-muted'}"

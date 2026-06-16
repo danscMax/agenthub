@@ -2,6 +2,9 @@
   import { readStackHealth, type StackHealth } from '$lib/ipc';
   import { t } from '$lib/i18n';
 
+  // onStart lets a stopped service be brought up straight from the health list (id → start).
+  let { onStart, busy = false }: { onStart?: (id: string) => void; busy?: boolean } = $props();
+
   let items = $state<StackHealth[]>([]);
   let loading = $state(false);
   let loadedOnce = $state(false);
@@ -95,8 +98,9 @@
           {showDetails ? t('health.hide') : t('health.details')} {showDetails ? '▴' : '▾'}
         </button>
       {/if}
-      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={load} title={t('health.refreshTip')}>
-        {loading ? t('health.loading') : t('health.refresh')}
+      <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={load}
+        title={t('health.refresh') + ' — ' + t('health.refreshTip')} aria-label={t('health.refresh')}>
+        {loading ? t('health.loading') : '⟳'}
       </button>
     </div>
   </div>
@@ -109,6 +113,10 @@
           <span class="text-sw-sm">{s.name}</span>
           <span class="font-mono text-[11px] text-sw-text-muted">:{s.port}</span>
           <span class="text-sw-xs text-sw-text-secondary">· {svcLabel(s)}</span>
+          {#if onStart && statusOf(s) === 'down'}
+            <button class="sw-btn sw-btn-ghost text-[11px]" disabled={busy} onclick={() => onStart?.(s.id)}
+              title={t('health.startTip', { name: s.name })}>{t('health.start')}</button>
+          {/if}
         </div>
       {/each}
     </div>
