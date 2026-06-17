@@ -5,6 +5,7 @@
   import { SearchAddon } from '@xterm/addon-search';
   import { WebglAddon } from '@xterm/addon-webgl';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+  import { Channel } from '@tauri-apps/api/core';
   import '@xterm/xterm/css/xterm.css';
   import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
   import { t } from '$lib/i18n';
@@ -98,14 +99,6 @@
     else search?.findPrevious(query);
   }
 
-  // The PTY frames are base64 (binary-safe across multibyte/ANSI). Decode to bytes for xterm.
-  function b64ToBytes(b64: string): Uint8Array {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
-
   const FONT_KEY = 'cmh-sessions-fontsize';
   let fontSize = $state(13);
 
@@ -149,17 +142,17 @@
     exited = false;
     error = '';
     refit();
+    // Binary output channel: raw PTY bytes arrive as ArrayBuffers (no base64/JSON per chunk).
+    const chan = new Channel<ArrayBuffer>();
+    chan.onmessage = (buf) => term?.write(new Uint8Array(buf));
     try {
-      id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows);
+      id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows, chan);
     } catch (e) {
       error = String(e);
       term.writeln(`\r\n\x1b[31m${t('sessions.spawnError', { e: String(e) })}\x1b[0m`);
       return;
     }
     onIdChange?.(paneKey, id);
-    unlisteners.push(
-      await listen<string>(`pty:data:${id}`, (ev) => term?.write(b64ToBytes(ev.payload)))
-    );
     unlisteners.push(
       await listen<number>(`pty:exit:${id}`, () => {
         exited = true;

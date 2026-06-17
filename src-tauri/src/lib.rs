@@ -3266,6 +3266,7 @@ fn session_spawn(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+    on_data: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<String, String> {
     use portable_pty::{CommandBuilder, PtySize};
     let tool = tool.unwrap_or_else(|| "claude".into());
@@ -3309,21 +3310,25 @@ fn session_spawn(
     let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
 
     let id = gen_session_id();
-    let data_event = format!("pty:data:{id}");
     let exit_event = format!("pty:exit:{id}");
 
-    // Reader thread: pump PTY output → base64 → per-session event until EOF.
+    // Reader thread: stream PTY output as raw bytes over the binary channel (no base64/JSON event
+    // per chunk) until EOF; then signal termination once.
     let app2 = app.clone();
     std::thread::spawn(move || {
-        use base64::Engine;
         use std::io::Read;
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                    let _ = app2.emit(data_event.as_str(), b64);
+                    // Raw body → delivered to JS as an ArrayBuffer (binary, no base64).
+                    if on_data
+                        .send(tauri::ipc::InvokeResponseBody::Raw(buf[..n].to_vec()))
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
         }

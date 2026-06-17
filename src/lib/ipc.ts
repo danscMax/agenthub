@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, Channel } from '@tauri-apps/api/core';
 
 export type Component = {
   id: string;
@@ -251,14 +251,16 @@ export const readStackProcs = () => invoke<StackProc[]>('read_stack_procs');
 // session_spawn returns a session id; output arrives on event `pty:data:<id>` (base64),
 // termination on `pty:exit:<id>`. Input/resize/kill go back through these commands.
 export type SessionTool = 'claude' | 'opencode' | 'shell';
+// PTY output streams as raw bytes over a binary Channel (no base64) — onData.onmessage gets ArrayBuffers.
 export const sessionSpawn = (
   profile: string,
   tool: SessionTool | undefined,
   args: string | undefined,
   cwd: string | undefined,
   cols: number,
-  rows: number
-) => invoke<string>('session_spawn', { profile, tool, args, cwd, cols, rows });
+  rows: number,
+  onData: Channel<ArrayBuffer>
+) => invoke<string>('session_spawn', { profile, tool, args, cwd, cols, rows, onData });
 export const sessionWrite = (id: string, data: string) => invoke('session_write', { id, data });
 export const sessionResize = (id: string, cols: number, rows: number) =>
   invoke('session_resize', { id, cols, rows });
