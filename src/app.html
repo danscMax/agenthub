@@ -4,7 +4,19 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>AgentHub</title>
+    <!-- Paint the window background dark (or light, per saved theme) BEFORE CSS/JS load, so the
+         app doesn't flash white while booting. -->
+    <style>
+      html { background: #080c18; }
+    </style>
+    <script>
+      try {
+        var t = localStorage.getItem('cmh-theme');
+        var light = t === 'light' || (t === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
+        document.documentElement.style.background = light ? '#f8fafc' : '#080c18';
+      } catch (e) { /* default dark */ }
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     open,
@@ -37,12 +38,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
-
-{#if open}
-  <div class="overlay">
-    <button type="button" class="backdrop" aria-label={t('common.close')} onclick={onCancel}></button>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
+<ModalShell {open} onClose={onCancel} onEnter={confirm} size="sm" role="alertdialog">
       <h3>{title}</h3>
       <p>{message}</p>
       {#if details.length}
@@ -70,37 +66,9 @@
           disabled={blocked}
           onclick={confirm}>{confirmLabel}</button>
       </div>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    cursor: default;
-  }
-  .dialog {
-    position: relative;
-    width: min(420px, 90vw);
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-lg);
-    padding: var(--sw-space-6);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  }
   h3 {
     margin: 0 0 var(--sw-space-2);
     font-size: 1rem;

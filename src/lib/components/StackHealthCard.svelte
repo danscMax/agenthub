@@ -32,7 +32,12 @@
     if (s.healthy === false) return 'degraded';
     return 'up';
   }
-  const dot = { up: '#10b981', degraded: '#f59e0b', down: '#ef4444', off: '#6b7280' } as const;
+  const dot = {
+    up: 'var(--sw-status-up)',
+    degraded: 'var(--sw-status-degraded)',
+    down: 'var(--sw-status-down)',
+    off: 'var(--sw-status-off)'
+  } as const;
   // Stopped non-gateway backends are neutral grey; a dead gateway / sick service keep alarm colours.
   function dotColor(s: StackHealth): string {
     const st = statusOf(s);

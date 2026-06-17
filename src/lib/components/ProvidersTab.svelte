@@ -7,9 +7,8 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine, checkMyProvider, readStackProcs, type StackProc } from '$lib/ipc';
+  import { updateEngine, checkMyProvider, readStackProcs, freellmapiAuthStatus, type StackProc } from '$lib/ipc';
   import { t } from '$lib/i18n';
-  import ProviderEditDialog from './ProviderEditDialog.svelte';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
@@ -29,6 +28,7 @@
     onConnectOpencode,
     onRefresh,
     onOpenUrl,
+    onOpenProfiles,
     myProviders = null,
     onMyProviderSave,
     onMyProviderDelete,
@@ -51,6 +51,7 @@
     onConnectOpencode?: (engine: EngineStatus, model: string, key: string) => void;
     onRefresh: () => void;
     onOpenUrl: (url: string) => void;
+    onOpenProfiles?: () => void;
     myProviders?: MyProvider[] | null;
     onMyProviderSave: (p: MyProviderInput, apiKey: string) => void;
     onMyProviderDelete: (id: string) => void;
@@ -69,6 +70,10 @@
   const runningDashboards = $derived(engineList.filter((e) => e.running && e.dashboardUrl));
   // LLM-stack services (from stack.json, the single source of truth).
   const stackList = $derived(stack ?? []);
+
+  // Collapsible heavy sections (this screen is long) — open by default.
+  let stackOpen = $state(true);
+  let enginesOpen = $state(true);
 
   // Router-connect dialog (pick model + profile).
   let rcOpen = $state(false);
@@ -102,14 +107,6 @@
     }
   }
 
-  let dlgOpen = $state(false);
-  let dlgProfile = $state('');
-  let dlgCurrent = $state<ProfileProvider | null>(null);
-  function edit(p: ProfileProvider) {
-    dlgProfile = p.name;
-    dlgCurrent = p;
-    dlgOpen = true;
-  }
   function onRcSubmit(v: { model: string; profile: string; key?: string }) {
     rcOpen = false;
     if (!rcEngine) return;
@@ -134,25 +131,6 @@
       onConnectRouter(rcEngine, v.model, v.profile);
     }
   }
-  function onDlgSubmit(v: {
-    baseUrl: string;
-    token: string;
-    model: string;
-    smallModel: string;
-    keepToken: boolean;
-  }) {
-    dlgOpen = false;
-    onProviderSet({
-      action: 'set',
-      name: dlgProfile,
-      baseUrl: v.baseUrl,
-      token: v.token,
-      model: v.model,
-      smallModel: v.smallModel,
-      keepToken: v.keepToken
-    });
-  }
-
   // Stack process info (PID + uptime per port), refreshed whenever the stack list changes.
   let procs = $state<StackProc[]>([]);
   const procByPort = $derived(new Map(procs.map((p) => [p.port, p])));
@@ -192,6 +170,18 @@
   let loginEmail = $state('');
   let loginPassword = $state('');
   let loginToken = $state('');
+  // Whether email/token are already stored (Credential Manager) — shown when the panel opens.
+  let authStatus = $state<{ hasEmail: boolean; hasToken: boolean } | null>(null);
+  async function toggleLogin() {
+    loginOpen = !loginOpen;
+    if (loginOpen) {
+      try {
+        authStatus = await freellmapiAuthStatus();
+      } catch {
+        authStatus = null;
+      }
+    }
+  }
   function saveLogin() {
     if (!loginEmail.trim() && !loginToken.trim()) return;
     onSetFreellmapiAuth(loginEmail.trim(), loginPassword, loginToken.trim());
@@ -240,15 +230,6 @@
     </button>
   </header>
 
-  <ProviderEditDialog
-    open={dlgOpen}
-    profileName={dlgProfile}
-    current={dlgCurrent}
-    engines={engineList}
-    onSubmit={onDlgSubmit}
-    onCancel={() => (dlgOpen = false)}
-  />
-
   <RouterConnectDialog
     open={rcOpen}
     engine={rcEngine}
@@ -272,10 +253,13 @@
   {#if stackList.length}
     <section class="mb-sw-6">
       <div class="mb-sw-2 flex items-start justify-between gap-sw-2">
-        <div class="min-w-0">
-          <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.stackHeading')}</h2>
-          <p class="text-sw-xs text-sw-text-muted">{t('providers.stackSub')}</p>
-        </div>
+        <button class="flex min-w-0 items-center gap-sw-2 border-0 bg-transparent p-0 text-left" onclick={() => (stackOpen = !stackOpen)}>
+          <span class="text-sw-text-muted transition-transform" class:rotate-90={stackOpen}>▸</span>
+          <span class="min-w-0">
+            <span class="block text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.stackHeading')}</span>
+            <span class="block text-sw-xs text-sw-text-muted">{t('providers.stackSub')}</span>
+          </span>
+        </button>
         <div class="flex shrink-0 gap-sw-2">
           <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('start')}
             title={t('providers.stackStartTip')}>{t('providers.stackStartAll')}</button>
@@ -283,12 +267,13 @@
             title={t('providers.stackStopTip')}>{t('providers.stackStopAll')}</button>
         </div>
       </div>
+      {#if stackOpen}
       <div class="card-grid">
         {#each stackList as s (s.id)}
           <div class="sw-card flex flex-col gap-sw-2">
             <div class="flex items-start justify-between gap-sw-2">
               <div class="min-w-0">
-                <h3 class="truncate font-medium">{s.name}</h3>
+                <h3 class="truncate font-medium" title={s.name}>{s.name}</h3>
                 <p class="truncate font-mono text-[11px] text-sw-text-muted">:{s.port} · {s.protocol}</p>
                 {#if s.running}
                   {@const pr = procByPort.get(s.port)}
@@ -327,12 +312,16 @@
           </div>
         {/each}
       </div>
+      {/if}
     </section>
   {/if}
 
   <!-- Engines -->
   <div class="mb-sw-2 flex items-center justify-between gap-sw-2">
-    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.enginesHeading')}</h2>
+    <button class="flex min-w-0 items-center gap-sw-2 border-0 bg-transparent p-0 text-left" onclick={() => (enginesOpen = !enginesOpen)}>
+      <span class="text-sw-text-muted transition-transform" class:rotate-90={enginesOpen}>▸</span>
+      <span class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.enginesHeading')}</span>
+    </button>
     {#if engineList.length}
       <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !runningDashboards.length}
         onclick={() => runningDashboards.forEach((e) => onOpenUrl(e.dashboardUrl))}
@@ -343,6 +332,7 @@
       </button>
     {/if}
   </div>
+  {#if enginesOpen}
   <p class="mb-sw-2 text-sw-xs text-sw-text-muted">{t('providers.enginesDesc')}</p>
   {#if engineList.length}
     <div class="card-grid">
@@ -350,7 +340,7 @@
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
-              <h3 class="truncate font-medium">{e.name}</h3>
+              <h3 class="truncate font-medium" title={e.name}>{e.name}</h3>
               <p class="truncate font-mono text-[11px] text-sw-text-muted">{e.baseUrl} · :{e.port}</p>
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">
@@ -428,50 +418,20 @@
   {:else}
     <div class="sw-card text-sw-sm text-sw-text-muted">{t('providers.noEngines')}</div>
   {/if}
-
-  <!-- Provider per profile -->
-  <h2 class="mb-sw-2 mt-sw-6 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
-    {t('providers.providerPerProfileHeading')}
-  </h2>
-  {#if providerList.length}
-    <div class="card-grid">
-      {#each providerList as p (p.name)}
-        {@const custom = !!p.baseUrl}
-        <div class="sw-card flex flex-col gap-sw-3">
-          <div class="flex items-start justify-between gap-sw-2">
-            <div class="min-w-0">
-              <h3 class="font-medium">{p.name}</h3>
-              {#if custom}
-                <p class="truncate font-mono text-[11px] text-sw-text-secondary" title={p.baseUrl}>{p.baseUrl}</p>
-              {:else}
-                <p class="text-sw-xs text-sw-text-muted">{t('providers.defaultProvider')}</p>
-              {/if}
-            </div>
-            {#if custom}
-              <span class="badge badge-info shrink-0" title={t('providers.customProviderTitle')}>{t('providers.custom')}</span>
-            {/if}
-          </div>
-          {#if custom && (p.model || p.smallModel || p.hasToken)}
-            <div class="flex flex-wrap gap-sw-2">
-              {#if p.model}<span class="badge badge-muted" title={t('providers.modelTitle')}>{p.model}</span>{/if}
-              {#if p.smallModel}<span class="badge badge-muted" title={t('providers.smallModelTitle')}>{p.smallModel}</span>{/if}
-              {#if p.hasToken}<span class="badge badge-ok" title={t('providers.tokenSetTitle')}>{t('providers.tokenSet')}</span>{/if}
-            </div>
-          {/if}
-          <div class="mt-auto flex flex-wrap gap-sw-2 border-t border-sw-border pt-sw-2">
-            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => edit(p)}
-              title={t('providers.editProviderTitle')}>{t('providers.edit')}</button>
-            {#if custom}
-              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onProviderClear(p.name)}
-                title={t('providers.resetProviderTitle')}>{t('providers.reset')}</button>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
-  {:else}
-    <div class="sw-card text-sw-sm text-sw-text-muted">{t('providers.noProviderData')}</div>
   {/if}
+
+  <!-- Provider per profile lives on the Profiles tab (single source of truth) — no duplicate
+       controls here, just a jump. -->
+  <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
+    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+      {t('providers.providerPerProfileHeading')}
+    </h2>
+    {#if onOpenProfiles}
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={onOpenProfiles}
+        title={t('providers.openProfilesTip')}>{t('providers.openProfiles')}</button>
+    {/if}
+  </div>
+  <p class="mb-sw-2 text-sw-xs text-sw-text-muted">{t('providers.perProfileMovedNote')}</p>
 
   <!-- Custom provider registry (own list; keys in Credential Manager) -->
   <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
@@ -483,7 +443,7 @@
       <DropdownMenu
         title={t('myProviders.moreActions')}
         items={[
-          { label: t('myProviders.setLogin'), onClick: () => (loginOpen = !loginOpen) },
+          { label: t('myProviders.setLogin'), onClick: toggleLogin },
           { label: t('myProviders.openFreellmapi'), onClick: () => onOpenUrl('http://localhost:13001') }
         ]}
       />
@@ -495,6 +455,12 @@
     <div class="sw-card mb-sw-3 flex flex-col gap-sw-2">
       <p class="text-sw-xs font-medium text-sw-text-secondary">{t('myProviders.loginTitle')}</p>
       <p class="text-sw-xs text-sw-text-muted">{t('myProviders.loginHint')}</p>
+      {#if authStatus}
+        <div class="flex flex-wrap gap-sw-2">
+          <span class="badge {authStatus.hasEmail ? 'badge-ok' : 'badge-muted'}">{authStatus.hasEmail ? t('myProviders.statusEmail') : t('myProviders.statusNone')}</span>
+          <span class="badge {authStatus.hasToken ? 'badge-ok' : 'badge-muted'}">{authStatus.hasToken ? t('myProviders.statusToken') : t('myProviders.statusNone')}</span>
+        </div>
+      {/if}
       <div class="flex gap-sw-2">
         <input class="sw-input flex-1" type="email" bind:value={loginEmail} autocomplete="off" placeholder={t('myProviders.loginEmail')} />
         <input class="sw-input flex-1" type="password" bind:value={loginPassword} autocomplete="off" placeholder={t('myProviders.loginPassword')} />
@@ -515,7 +481,7 @@
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
-              <h3 class="truncate font-medium">{p.name}</h3>
+              <h3 class="truncate font-medium" title={p.name}>{p.name}</h3>
               <p class="truncate font-mono text-[11px] text-sw-text-secondary" title={p.baseUrl}>{p.baseUrl}</p>
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">

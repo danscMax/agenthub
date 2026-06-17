@@ -71,6 +71,7 @@
   <button
     type="button"
     class="trigger"
+    class:open
     {disabled}
     onclick={toggle}
     onkeydown={onKey}
@@ -122,14 +123,19 @@
     padding: 7px 10px;
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-md);
-    background: var(--sw-bg-input, var(--sw-bg-secondary));
+    background: var(--sw-input-bg);
     color: var(--sw-text-primary);
     font-size: var(--sw-text-sm);
     cursor: pointer;
     text-align: left;
+    transition: border-color 0.15s, background 0.15s;
   }
   .trigger:hover:not(:disabled) {
     border-color: var(--sw-accent-text);
+  }
+  .trigger.open {
+    border-color: var(--sw-accent);
+    background: color-mix(in srgb, var(--sw-accent) 8%, var(--sw-input-bg));
   }
   .trigger:focus-visible {
     outline: none;
@@ -191,11 +197,11 @@
     text-align: left;
   }
   .opt.active {
-    background: var(--sw-accent-glow);
+    background: var(--sw-bg-hover);
     color: var(--sw-text-primary);
   }
   .opt.sel {
-    color: var(--sw-text-primary);
+    color: var(--sw-accent-text);
     font-weight: 500;
   }
   .opt-label {

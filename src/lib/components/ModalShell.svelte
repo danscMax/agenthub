@@ -1,0 +1,139 @@
+<script lang="ts">
+  // Shared modal wrapper (ported from Sweet Whisper's ModalShell): backdrop + centered card +
+  // fade/scale animation + Escape/Enter + a simple focus trap. Each dialog passes its own
+  // header/body/footer as the default snippet and keeps its own open/close wiring.
+  import type { Snippet } from 'svelte';
+  import { tick } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { t } from '$lib/i18n';
+
+  let {
+    open = false,
+    onClose,
+    onEnter,
+    size = 'md',
+    role = 'dialog',
+    closeOnBackdrop = true,
+    children
+  }: {
+    open?: boolean;
+    onClose: () => void;
+    onEnter?: () => void;
+    size?: 'sm' | 'md' | 'lg' | 'xl';
+    role?: 'dialog' | 'alertdialog';
+    closeOnBackdrop?: boolean;
+    children: Snippet;
+  } = $props();
+
+  const WIDTH: Record<string, string> = {
+    sm: '420px',
+    md: '500px',
+    lg: '800px',
+    xl: '850px'
+  };
+
+  let cardEl = $state<HTMLDivElement | null>(null);
+  const FOCUSABLE =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  // Move focus into the dialog on open, restore it on close.
+  $effect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    tick().then(() => cardEl?.focus());
+    return () => prev?.focus?.();
+  });
+
+  function onBackdrop(e: MouseEvent) {
+    if (closeOnBackdrop && e.target === e.currentTarget) onClose();
+  }
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+    if (e.key === 'Enter' && onEnter) {
+      const a = document.activeElement;
+      if (a instanceof HTMLElement && ['BUTTON', 'A', 'TEXTAREA', 'SELECT'].includes(a.tagName)) return;
+      onEnter();
+      return;
+    }
+    if (e.key === 'Tab' && cardEl) {
+      const f = Array.from(cardEl.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0];
+      const last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+</script>
+
+{#if open}
+  <div class="overlay" onkeydown={onKeydown} role="presentation">
+    <button type="button" class="backdrop" aria-label={t('common.close')} onclick={onBackdrop} transition:fade={{ duration: 130 }}></button>
+    <div
+      bind:this={cardEl}
+      class="card"
+      style="width: min({WIDTH[size]}, 94vw)"
+      {role}
+      aria-modal="true"
+      tabindex="-1"
+    >
+      {@render children()}
+    </div>
+  </div>
+{/if}
+
+<style>
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    border: none;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    cursor: default;
+  }
+  .card {
+    position: relative;
+    max-height: 92vh;
+    overflow-y: auto;
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-lg);
+    padding: var(--sw-space-6);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    outline: none;
+    animation: modal-in 0.18s ease-out;
+  }
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card {
+      animation: none;
+    }
+  }
+</style>

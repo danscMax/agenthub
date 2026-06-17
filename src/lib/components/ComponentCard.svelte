@@ -2,6 +2,7 @@
   import type { Component } from '$lib/ipc';
   import { glossaryText } from '$lib/glossary';
   import { t, locale, pUpdate } from '$lib/i18n';
+  import { relTime } from '$lib/relativeTime';
 
   let {
     comp,
@@ -122,7 +123,7 @@
     <dl class="space-y-1 text-sw-sm text-sw-text-secondary">
       <div class="flex justify-between">
         <dt>{t('updates.lastRun')}</dt>
-        <dd class="text-sw-text">{fmtTime(status?.timestamp)}</dd>
+        <dd class="text-sw-text" title={fmtTime(status?.timestamp)}>{relTime(status?.timestamp) || fmtTime(status?.timestamp)}</dd>
       </div>
       {#if durationText}
         <div class="flex justify-between">
@@ -159,7 +160,7 @@
           {updateInfo.count > 1 ? t('updates.updateBtnCount', { count: updateInfo.count }) : t('updates.updateBtn')}
         </button>
       {:else if !updateInfo.known}
-        <button class="sw-btn sw-btn-primary flex-1" disabled={anyRunning} onclick={onApply}
+        <button class="sw-btn sw-btn-ghost flex-1" disabled={anyRunning} onclick={onApply}
           title={t('updates.applyTip')}>
           {t('updates.applyBtn')}
         </button>

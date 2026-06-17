@@ -6,10 +6,12 @@
   let {
     data,
     running,
+    profiles = [],
     onAction
   }: {
     data: BackupList | null;
     running: string | null;
+    profiles?: string[];
     onAction: (action: BackupAction, opts?: RestoreOpts) => void;
   } = $props();
 
@@ -133,6 +135,7 @@
   open={restoreSnap !== null}
   snapshot={restoreSnap ?? ''}
   {busy}
+  {profiles}
   onPreview={(opts) => onAction('restore-preview', opts)}
   onRestore={(opts) => onAction('restore', opts)}
   onClose={() => (restoreSnap = null)}

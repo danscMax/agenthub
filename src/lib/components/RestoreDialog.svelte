@@ -1,11 +1,14 @@
 <script lang="ts">
   import type { RestoreOpts } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import Toggle from './Toggle.svelte';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     open,
     snapshot,
     busy,
+    profiles = [],
     onPreview,
     onRestore,
     onClose
@@ -13,17 +16,29 @@
     open: boolean;
     snapshot: string;
     busy: boolean;
+    profiles?: string[];
     onPreview: (opts: RestoreOpts) => void;
     onRestore: (opts: RestoreOpts) => void;
     onClose: () => void;
   } = $props();
 
-  const ALL = ['ccmy', 'cc1', 'cc2', 'cc3', 'cc4', 'cc5'];
-  let sel = $state<Record<string, boolean>>(Object.fromEntries(ALL.map((p) => [p, true])));
+  // Real profile list from the backup payload; falls back to the canonical set on first paint.
+  const FALLBACK = ['ccmy', 'cc1', 'cc2', 'cc3', 'cc4', 'cc5'];
+  const list = $derived(profiles.length ? profiles : FALLBACK);
+  let sel = $state<Record<string, boolean>>({});
   let includeCreds = $state(false);
   let hasPreviewed = $state(false);
 
-  const selected = $derived(ALL.filter((p) => sel[p]));
+  // Default every (newly seen) profile to selected.
+  $effect(() => {
+    for (const p of list) if (sel[p] === undefined) sel[p] = true;
+  });
+  const selected = $derived(list.filter((p) => sel[p]));
+  const allOn = $derived(list.length > 0 && list.every((p) => sel[p]));
+  function setAll(v: boolean) {
+    for (const p of list) sel[p] = v;
+    hasPreviewed = false;
+  }
 
   // New snapshot => force a fresh preview before a real restore is allowed.
   $effect(() => {
@@ -35,8 +50,8 @@
     sel[p] = !sel[p];
     hasPreviewed = false; // selection changed -> preview is stale
   }
-  function toggleCreds() {
-    includeCreds = !includeCreds;
+  function toggleCreds(v: boolean) {
+    includeCreds = v;
     hasPreviewed = false;
   }
 
@@ -52,31 +67,27 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onClose()} />
-
-{#if open}
-  <div class="overlay">
-    <button type="button" class="backdrop" aria-label={t('common.close')} onclick={onClose}></button>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
+<ModalShell {open} onClose={onClose} size="sm">
       <h3>{t('backup.dialogTitle')}</h3>
       <p class="snap">{snapshot}</p>
 
       <div class="section">
-        <div class="section-title">{t('backup.profiles')}</div>
+        <div class="section-head">
+          <span class="section-title">{t('backup.profiles')}</span>
+          <button class="selall" onclick={() => setAll(!allOn)}>
+            {allOn ? t('common.deselectAll') : t('common.selectAll')}
+          </button>
+        </div>
         <div class="profiles">
-          {#each ALL as p (p)}
-            <label class="chk">
-              <input type="checkbox" checked={sel[p]} onchange={() => toggle(p)}
-                title={t('backup.profileToggleTip')} />
-              <span>{p}</span>
-            </label>
+          {#each list as p (p)}
+            <button type="button" class="pchip" class:on={sel[p]} onclick={() => toggle(p)}
+              title={t('backup.profileToggleTip')}>{p}</button>
           {/each}
         </div>
       </div>
 
-      <label class="chk creds">
-        <input type="checkbox" checked={includeCreds} onchange={toggleCreds}
-          title={t('backup.includeCredsTip')} />
+      <label class="creds">
+        <Toggle checked={includeCreds} onCheckedChange={toggleCreds} title={t('backup.includeCredsTip')} />
         <span>{t('backup.includeCreds')}</span>
       </label>
 
@@ -101,37 +112,9 @@
           {t('backup.restore')}
         </button>
       </div>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    cursor: default;
-  }
-  .dialog {
-    position: relative;
-    width: min(460px, 92vw);
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-lg);
-    padding: var(--sw-space-6);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  }
   h3 {
     margin: 0 0 var(--sw-space-1);
     font-size: 1rem;
@@ -147,28 +130,59 @@
   .section {
     margin-bottom: var(--sw-space-4);
   }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--sw-space-2);
+  }
   .section-title {
     font-size: var(--sw-text-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--sw-text-muted);
-    margin-bottom: var(--sw-space-2);
+  }
+  .selall {
+    border: none;
+    background: transparent;
+    color: var(--sw-accent-text);
+    cursor: pointer;
+    font-size: var(--sw-text-xs);
+    padding: 0;
+  }
+  .selall:hover {
+    text-decoration: underline;
   }
   .profiles {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--sw-space-2) var(--sw-space-4);
+    gap: var(--sw-space-2);
   }
-  .chk {
+  .pchip {
+    padding: 4px 12px;
+    border: 1px solid var(--sw-border);
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--sw-text-secondary);
+    font-size: var(--sw-text-sm);
+    cursor: pointer;
+  }
+  .pchip:hover {
+    color: var(--sw-text-primary);
+  }
+  .pchip.on {
+    background: var(--sw-accent-glow);
+    color: var(--sw-text-primary);
+    border-color: var(--sw-accent);
+  }
+  .creds {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--sw-space-2);
+    margin-bottom: var(--sw-space-4);
     font-size: var(--sw-text-sm);
     color: var(--sw-text);
     cursor: pointer;
-  }
-  .creds {
-    margin-bottom: var(--sw-space-4);
   }
   .warn {
     margin: 0 0 var(--sw-space-6);

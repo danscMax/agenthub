@@ -17,24 +17,32 @@
   } = $props();
 
   // Labels are resolved reactively in markup via t(it.labelKey) so they follow the UI language.
+  // Default order, grouped by intent: run agents (sessions/profiles/providers) → extend them
+  // (mcp/extensions) → automate & inspect (schedule/analytics) → maintain (sync/updates/forks/
+  // backup) → settings last. Users can drag to reorder; that custom order is persisted and
+  // re-seeded from this default whenever ORD_VER below is bumped.
   const items = [
+    { id: 'sessions', labelKey: 'nav.sessions', tipKey: 'nav.sessionsTip', icon: '▦', enabled: true },
+    { id: 'profiles', labelKey: 'nav.profiles', tipKey: 'nav.profilesTip', icon: '☰', enabled: true },
+    { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: '⚡', enabled: true },
+    { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: '⧉', enabled: true },
+    { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: '🧩', enabled: true },
+    { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },
+    { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: '📊', enabled: true },
+    { id: 'sync', labelKey: 'nav.sync', tipKey: 'nav.syncTip', icon: '⇄', enabled: true },
     { id: 'updates', labelKey: 'nav.updates', tipKey: 'nav.updatesTip', icon: '⟳', enabled: true },
     { id: 'forks', labelKey: 'nav.forks', tipKey: 'nav.forksTip', icon: '⑂', enabled: true },
     { id: 'backup', labelKey: 'nav.backup', tipKey: 'nav.backupTip', icon: '⛁', enabled: true },
-    { id: 'profiles', labelKey: 'nav.profiles', tipKey: 'nav.profilesTip', icon: '☰', enabled: true },
-    { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: '⧉', enabled: true },
-    { id: 'sync', labelKey: 'nav.sync', tipKey: 'nav.syncTip', icon: '⇄', enabled: true },
-    { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: '⚡', enabled: true },
-    { id: 'sessions', labelKey: 'nav.sessions', tipKey: 'nav.sessionsTip', icon: '▦', enabled: true },
-    { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: '📊', enabled: true },
-    { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: '🧩', enabled: true },
-    { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },
     { id: 'settings', labelKey: 'nav.settings', tipKey: 'nav.settingsTip', icon: '⚙', enabled: true }
   ];
 
   // Collapsed rail + user tab order, both persisted.
   const COLL_KEY = 'cmh-sidebar-collapsed';
   const ORD_KEY = 'cmh-sidebar-order';
+  const ORD_VER_KEY = 'cmh-sidebar-order-ver';
+  // Bump whenever the default `items` order above changes — re-seeds everyone to the new default
+  // once (overriding a stale saved order), while still letting later manual reorders persist.
+  const ORD_VER = '2';
   let collapsed = $state(false);
   let order = $state<string[]>(items.map((i) => i.id));
   const orderedItems = $derived(
@@ -44,10 +52,16 @@
     try {
       collapsed = localStorage.getItem(COLL_KEY) === '1';
       const saved = JSON.parse(localStorage.getItem(ORD_KEY) ?? '[]');
-      if (Array.isArray(saved) && saved.length) {
+      // Honor the saved order only if it was stamped with the current default version; otherwise
+      // re-seed from the new default and stamp it.
+      if (localStorage.getItem(ORD_VER_KEY) === ORD_VER && Array.isArray(saved) && saved.length) {
         const valid = saved.filter((id: string) => items.some((i) => i.id === id));
         const missing = items.map((i) => i.id).filter((id) => !valid.includes(id));
         order = [...valid, ...missing];
+      } else {
+        order = items.map((i) => i.id);
+        localStorage.setItem(ORD_KEY, JSON.stringify(order));
+        localStorage.setItem(ORD_VER_KEY, ORD_VER);
       }
     } catch {
       /* first run */
@@ -83,6 +97,7 @@
   function onDrop() {
     try {
       localStorage.setItem(ORD_KEY, JSON.stringify(order));
+      localStorage.setItem(ORD_VER_KEY, ORD_VER);
     } catch {
       /* ignore */
     }
@@ -137,7 +152,7 @@
     flex-direction: column;
     gap: 2px;
     padding: var(--sw-space-3);
-    transition: width 0.15s ease;
+    transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .sidebar.collapsed {
     width: 60px;
@@ -261,11 +276,11 @@
     color: #fff;
   }
   .att-warn {
-    background: #f59e0b;
+    background: var(--sw-warn);
     color: #1a1205;
   }
   .att-dot.att-warn {
-    background: #f59e0b;
+    background: var(--sw-warn);
   }
   .att-dot.att-info {
     background: var(--sw-accent);

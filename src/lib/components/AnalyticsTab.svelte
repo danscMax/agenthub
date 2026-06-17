@@ -1,6 +1,6 @@
 <script lang="ts">
   import { readFreellmapiAnalytics, type FreellmapiAnalytics, type AnalyticsModel } from '$lib/ipc';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import Sparkline from './Sparkline.svelte';
 
   // Range presets (hours). Self-contained: this tab owns its fetch + range state.
@@ -46,8 +46,36 @@
     load(h);
   });
 
-  const nf = new Intl.NumberFormat();
+  // Locale-aware formatters (re-derive on language change) — numbers, currency, percent.
+  const fmtLocale = $derived(
+    locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US'
+  );
+  const nf = $derived(new Intl.NumberFormat(fmtLocale));
+  const cf = $derived(new Intl.NumberFormat(fmtLocale, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }));
   const fmt = (n: number) => nf.format(n ?? 0);
+  const money = (n: number) => cf.format(n ?? 0);
+  const pct = (n: number) => `${(n ?? 0).toFixed(1)}%`;
+
+  // Export the per-model table to a CSV file (client-side blob download; no backend).
+  function exportCsv() {
+    const head = ['model', 'platform', 'modelId', 'requests', 'successRate', 'avgLatencyMs', 'tokens', 'estimatedCost'];
+    const esc = (c: string) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
+    const rows = [head.join(',')];
+    for (const m of models) {
+      rows.push(
+        [m.displayName, m.platform, m.modelId, m.requests, m.successRate, m.avgLatencyMs, m.totalInputTokens + m.totalOutputTokens, m.estimatedCost]
+          .map((c) => esc(String(c)))
+          .join(',')
+      );
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agenthub-analytics-${rangeHours}h.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
   const available = $derived(!!data?.available);
   const models = $derived(data?.perModel ?? []);
 
@@ -145,6 +173,11 @@
             onclick={() => (rangeHours = r.hours)}>{t(r.key)}</button>
         {/each}
       </div>
+      {#if available && models.length}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={exportCsv} title={t('analytics.exportCsvTip')}>
+          {t('analytics.exportCsv')}
+        </button>
+      {/if}
       <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={() => load(rangeHours)}
         title={t('analytics.refreshTip')}>
         {loading ? t('analytics.loading') : t('analytics.refresh')}
@@ -172,7 +205,7 @@
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.totalRequests')}</p>
         <p class="mt-1 text-2xl font-semibold">{fmt(totals?.totalRequests ?? 0)}</p>
         <p class="mt-1 text-sw-xs text-sw-text-secondary">
-          {t('analytics.successRate')}: {totals?.successRate ?? 0}%
+          {t('analytics.successRate')}: {pct(totals?.successRate ?? 0)}
         </p>
       </div>
       <div class="sw-card">
@@ -184,11 +217,11 @@
       </div>
       <div class="sw-card">
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.avgLatency')}</p>
-        <p class="mt-1 text-2xl font-semibold">{fmt(totals?.avgLatencyMs ?? 0)}<span class="text-sw-sm font-normal"> ms</span></p>
+        <p class="mt-1 text-2xl font-semibold">{fmt(totals?.avgLatencyMs ?? 0)}<span class="text-sw-sm font-normal"> {t('analytics.unitMs')}</span></p>
       </div>
       <div class="sw-card">
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.savings')}</p>
-        <p class="mt-1 text-2xl font-semibold text-emerald-500">${totals?.estimatedCostSavings ?? 0}</p>
+        <p class="mt-1 text-2xl font-semibold text-emerald-500">{money(totals?.estimatedCostSavings ?? 0)}</p>
         <p class="mt-1 text-sw-xs text-sw-text-secondary">{t('analytics.savingsHint')}</p>
       </div>
     </div>
@@ -200,7 +233,8 @@
         <p class="text-sw-xs text-sw-text-muted">{grainLabel}</p>
       </div>
       {#if trend.length >= 2}
-        <Sparkline points={trend} width={680} height={56} title={t('analytics.trend')} />
+        <Sparkline points={trend} width={680} height={56} title={t('analytics.trend')}
+          peakLabel={trend.length ? `↑ ${fmt(Math.max(...trend))}` : ''} />
       {:else}
         <p class="text-sw-sm text-sw-text-muted">{t('analytics.trendEmpty')}</p>
       {/if}
@@ -244,10 +278,10 @@
                   </button>
                 </td>
                 <td class="px-sw-3 py-sw-2 text-right">{fmt(m.requests)}</td>
-                <td class="px-sw-3 py-sw-2 text-right">{m.successRate}%</td>
-                <td class="px-sw-3 py-sw-2 text-right">{fmt(m.avgLatencyMs)} ms</td>
+                <td class="px-sw-3 py-sw-2 text-right">{pct(m.successRate)}</td>
+                <td class="px-sw-3 py-sw-2 text-right">{fmt(m.avgLatencyMs)} {t('analytics.unitMs')}</td>
                 <td class="px-sw-3 py-sw-2 text-right">{fmt(m.totalInputTokens + m.totalOutputTokens)}</td>
-                <td class="px-sw-3 py-sw-2 text-right">${m.estimatedCost}</td>
+                <td class="px-sw-3 py-sw-2 text-right">{money(m.estimatedCost)}</td>
               </tr>
             {/each}
           </tbody>

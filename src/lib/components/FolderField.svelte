@@ -85,6 +85,7 @@
 <div class="ff" bind:this={rootEl}>
   <input class="sw-input inp text-sw-xs" bind:value {placeholder} spellcheck="false" autocomplete="off" />
   <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}>★</button>
+  <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
   <button class="icon" onclick={() => (open ? (open = false) : openMenu())} title={t('sessions.folderMenu')} aria-label={t('sessions.folderMenu')}>▾</button>
   {#if open}
     <div class="menu">

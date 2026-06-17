@@ -6,13 +6,15 @@
     width = 240,
     height = 40,
     color = 'var(--sw-accent)',
-    title = ''
+    title = '',
+    peakLabel = ''
   }: {
     points?: number[];
     width?: number;
     height?: number;
     color?: string;
     title?: string;
+    peakLabel?: string;
   } = $props();
 
   const pad = 2; // keep the stroke off the edges
@@ -67,5 +69,8 @@
       stroke-linecap="round"
     />
     {#if last}<circle cx={last.x} cy={last.y} r="2" fill="currentColor" />{/if}
+    {#if peakLabel}
+      <text x={width} y="9" text-anchor="end" font-size="10" fill="currentColor" opacity="0.7">{peakLabel}</text>
+    {/if}
   </svg>
 {/if}

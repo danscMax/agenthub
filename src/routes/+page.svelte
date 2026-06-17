@@ -96,6 +96,7 @@
   import UpdatesTab from '$lib/components/UpdatesTab.svelte';
   import ForksTab from '$lib/components/ForksTab.svelte';
   import BackupTab from '$lib/components/BackupTab.svelte';
+  import HotkeyHelp from '$lib/components/HotkeyHelp.svelte';
   import ProfilesTab from '$lib/components/ProfilesTab.svelte';
   import McpTab from '$lib/components/McpTab.svelte';
   import SyncTab from '$lib/components/SyncTab.svelte';
@@ -507,23 +508,28 @@
     }
   }
 
-  function startMcp(action: 'deploy') {
+  function startMcp(action: 'deploy', only?: string[]) {
     if (running) return;
     running = 'mcp';
     log = [t('page.mcp_log')];
-    runMcp(action).catch((e) => {
+    runMcp(action, only).catch((e) => {
       log = [...log, t('page.log_error', { e })];
       running = null;
     });
   }
 
-  function onMcpDeploy() {
-    askConfirm(
-      t('page.confirm_mcp_title'),
-      t('page.confirm_mcp_msg'),
-      t('page.confirm_mcp_btn'),
-      () => startMcp('deploy')
-    );
+  // No arg → deploy to all profiles (confirm). A profile name → deploy just that one.
+  function onMcpDeploy(profile?: string) {
+    if (profile) {
+      startMcp('deploy', [profile]);
+    } else {
+      askConfirm(
+        t('page.confirm_mcp_title'),
+        t('page.confirm_mcp_msg'),
+        t('page.confirm_mcp_btn'),
+        () => startMcp('deploy')
+      );
+    }
   }
 
   // --- Sync tab ---
@@ -674,6 +680,7 @@
   }
 
   function startProvider(args: ProviderArgs) {
+    if (running) return; // match every sibling start* — don't clobber an in-flight run
     running = 'provider';
     log = [
       t('page.provider_log', {
@@ -834,7 +841,7 @@
     }
   });
 
-  function startSchedule(action: ScheduleAction, id: string) {
+  function startSchedule(action: ScheduleAction, id: string, time?: string) {
     if (running) return;
     running = 'schedule';
     const verb: Record<ScheduleAction, string> = {
@@ -845,13 +852,13 @@
       delete: t('page.sched_verb_delete')
     };
     log = [t('page.sched_log', { id, verb: verb[action] })];
-    runSchedule(action, id).catch((e) => {
+    runSchedule(action, id, time).catch((e) => {
       log = [...log, t('page.log_error', { e })];
       running = null;
     });
   }
 
-  function onScheduleAction(action: ScheduleAction, id: string) {
+  function onScheduleAction(action: ScheduleAction, id: string, time?: string) {
     if (action === 'delete') {
       askConfirm(
         t('page.confirm_sched_delete_title'),
@@ -860,7 +867,7 @@
         () => startSchedule('delete', id)
       );
     } else {
-      startSchedule(action, id);
+      startSchedule(action, id, time);
     }
   }
 
@@ -990,7 +997,7 @@
 
   // View prefs (UI-only, persisted in localStorage): compact density + full-width content.
   let density = $state<'comfortable' | 'compact'>('comfortable');
-  let fullWidth = $state(false);
+  let fullWidth = $state(true);
   function setDensity(d: 'comfortable' | 'compact') {
     density = d;
     try {
@@ -1011,6 +1018,7 @@
   // Command palette (Ctrl+K): jump to any tab + a few quick actions.
   const NAV_IDS = ['updates', 'forks', 'backup', 'profiles', 'mcp', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
   let paletteOpen = $state(false);
+  let hotkeyHelpOpen = $state(false);
   const paletteCommands = $derived([
     ...NAV_IDS.map((id) => ({ id: `tab:${id}`, label: t(`nav.${id}`), run: () => (active = id) })),
     {
@@ -1028,14 +1036,34 @@
     if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
       paletteOpen = !paletteOpen;
+      return;
+    }
+    // "?" opens the keyboard-shortcut cheatsheet — but not while typing in a field.
+    const tgt = e.target as HTMLElement | null;
+    const typing = !!tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+    if (e.key === '?' && !typing) {
+      e.preventDefault();
+      hotkeyHelpOpen = true;
     }
   }
+
+  // Persist the active tab so the app reopens where you left off.
+  $effect(() => {
+    try {
+      localStorage.setItem('cmh-active-tab', active);
+    } catch {
+      /* ignore */
+    }
+  });
 
   onMount(async () => {
     theme = getTheme();
     try {
       if (localStorage.getItem('cmh-density') === 'compact') density = 'compact';
-      fullWidth = localStorage.getItem('cmh-fullwidth') === '1';
+      fullWidth = localStorage.getItem('cmh-fullwidth') !== '0';
+      // Restore the last-open tab (validated against the known set).
+      const savedTab = localStorage.getItem('cmh-active-tab');
+      if (savedTab && NAV_IDS.includes(savedTab)) active = savedTab;
     } catch {
       /* ignore */
     }
@@ -1178,6 +1206,10 @@
     );
     unlisten.push(
       await listen('tray-check-all', () => {
+        // DIAGNOSTIC: this is the ONLY code path that force-switches to Updates. If the tab jumps
+        // without you clicking the tray's "Проверить всё", this line will show in the log — proving
+        // a spurious tray event is the source.
+        log = [...log, `[diag] tray-check-all @ ${new Date().toLocaleTimeString()}`];
         active = 'updates';
         startRun('all', 'check');
       })
@@ -1232,7 +1264,7 @@
       {:else if active === 'forks'}
         <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} {onBatchFf} {onOpenUrl} />
       {:else if active === 'backup'}
-        <BackupTab data={backupData} {running} onAction={onBackupAction} />
+        <BackupTab data={backupData} {running} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
       {:else if active === 'profiles'}
         <ProfilesTab
           data={profilesData}
@@ -1268,6 +1300,7 @@
           onRouterInstall={onRouterInstall}
           onConnectRouter={onConnectRouter}
           onConnectOpencode={onConnectOpencode}
+          onOpenProfiles={() => (active = 'profiles')}
           myProviders={myProvidersData}
           {onMyProviderSave}
           {onMyProviderDelete}
@@ -1324,6 +1357,7 @@
 </div>
 
 <ToastHost />
+<HotkeyHelp open={hotkeyHelpOpen} onClose={() => (hotkeyHelpOpen = false)} />
 
 <ConfirmDialog
   open={confirm.open}

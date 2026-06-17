@@ -27,6 +27,14 @@
   --sw-sidebar-item-hover: rgba(51, 65, 85, 0.5);
   --sw-sidebar-item-active: rgba(59, 130, 246, 0.15);
 
+  /* Semantic status / feedback colors (shared by StatusDot, badges, dots across tabs). */
+  --sw-status-up: #10b981;
+  --sw-status-degraded: #f59e0b;
+  --sw-status-down: #ef4444;
+  --sw-status-off: #6b7280;
+  --sw-danger: #f87171;
+  --sw-warn: #f59e0b;
+
   --sw-space-1: 0.25rem;
   --sw-space-2: 0.5rem;
   --sw-space-3: 0.75rem;
@@ -37,7 +45,7 @@
   --sw-text-sm: 0.75rem;
   --sw-text-base: 0.875rem;
   --sw-sidebar-width: 16rem;
-  --sw-titlebar-height: 32px;
+  --sw-titlebar-height: 36px;
   --sw-radius-sm: 0.375rem;
   --sw-radius-md: 0.5rem;
   --sw-radius-lg: 0.75rem;
@@ -85,6 +93,29 @@
     font-family: Inter, 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+  /* a11y: keyboard focus is always visible on interactive controls. */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role='switch']:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--sw-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* a11y: honour the OS "reduce motion" setting — kill transitions/animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -17,6 +17,12 @@
   const busy = $derived(!!running);
   const tasks = $derived(data?.tasks ?? []);
 
+  // Editable per-task time (HH:MM), seeded from the task's current/default time.
+  let times = $state<Record<string, string>>({});
+  $effect(() => {
+    for (const tk of tasks) if (times[tk.id] === undefined) times[tk.id] = tk.time ?? tk.defaultTime;
+  });
+
   function fmtNext(ts: string | null) {
     if (!ts) return '—';
     try {
@@ -43,7 +49,7 @@
   </header>
 
   {#if tasks.length}
-    <div class="flex flex-col gap-sw-4">
+    <div class="grid grid-cols-1 gap-sw-4 md:grid-cols-2 xl:grid-cols-3">
       {#each tasks as task (task.id)}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
@@ -72,15 +78,16 @@
               </div>
             </dl>
           {:else}
-            <p class="text-sw-sm text-sw-text-secondary">
-              {t('schedule.willCreate', { time: task.defaultTime })}
-            </p>
+            <label class="flex items-center gap-sw-2 text-sw-sm text-sw-text-secondary">
+              <span class="text-sw-xs text-sw-text-muted">{t('schedule.timeDaily')}</span>
+              <input type="time" class="sw-input w-28 text-sw-sm" bind:value={times[task.id]} />
+            </label>
           {/if}
 
           <div class="mt-auto flex flex-wrap gap-sw-2 border-t border-sw-border pt-sw-2">
             {#if !task.exists}
-              <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => onAction('create', task.id)}
-                title={t('schedule.createScheduleHint', { time: task.defaultTime })}>{t('schedule.createSchedule')}</button>
+              <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => onAction('create', task.id, times[task.id])}
+                title={t('schedule.createScheduleHint', { time: times[task.id] ?? task.defaultTime })}>{t('schedule.createSchedule')}</button>
             {:else}
               <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onAction('run', task.id)}
                 title={t('schedule.runNowHint')}>{t('schedule.runNow')}</button>

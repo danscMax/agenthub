@@ -2,6 +2,7 @@
   import type { MyProvider, MyProviderInput } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import DropdownMenu from './DropdownMenu.svelte';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     open,
@@ -80,12 +81,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
-
-{#if open}
-  <div class="overlay">
-    <button type="button" class="backdrop" aria-label={t('myProviders.dialogClose')} onclick={onCancel}></button>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
+<ModalShell {open} onClose={onCancel} size="md">
       <h3>{current?.id ? t('myProviders.editTitle') : t('myProviders.addTitle')}</h3>
 
       <label class="fld">
@@ -176,39 +172,9 @@
         <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('myProviders.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}>{t('myProviders.save')}</button>
       </div>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    cursor: default;
-  }
-  .dialog {
-    position: relative;
-    width: min(460px, 92vw);
-    max-height: 92vh;
-    overflow-y: auto;
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-lg);
-    padding: var(--sw-space-6);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  }
   h3 {
     margin: 0 0 var(--sw-space-4);
     font-size: 1rem;

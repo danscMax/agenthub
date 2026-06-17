@@ -46,6 +46,13 @@ if (Get-Command Write-Banner -ErrorAction SilentlyContinue) {
 }
 
 # 1. Pre-flight
+# rustup installs cargo to ~/.cargo/bin, but that dir is missing from PATH in some shells
+# (e.g. launched from a .bat without a login profile). Add it back before the check so the
+# build doesn't fail with a misleading "'cargo' не найден на PATH".
+$cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+if ((Test-Path -LiteralPath (Join-Path $cargoBin 'cargo.exe')) -and (";$env:PATH;" -notlike "*;$cargoBin;*")) {
+    $env:PATH = "$cargoBin;$env:PATH"
+}
 foreach ($c in 'node', 'npm', 'cargo') {
     if (-not (Get-Command $c -ErrorAction SilentlyContinue)) {
         Write-Host "  [FAIL] '$c' не найден на PATH." -ForegroundColor Red

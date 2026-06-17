@@ -13,6 +13,7 @@
   } from '$lib/ipc';
   import type { Theme } from '$lib/theme';
   import { t, locale, getLocaleName, type Locale } from '$lib/i18n';
+  import Toggle from './Toggle.svelte';
 
   let {
     theme,
@@ -40,6 +41,7 @@
   let paths = $state<AppPaths | null>(null);
   let version = $state('');
   let savedMsg = $state('');
+  let errMsg = $state('');
 
   onMount(async () => {
     try {
@@ -53,13 +55,19 @@
       paths = await appPaths();
       version = await getVersion();
     } catch (e) {
-      console.error(e);
+      // Surface in-app — devtools console is invisible in the packaged build.
+      errMsg = `${t('common.error')}: ${e}`;
     }
   });
 
   function flash(m: string) {
     savedMsg = m;
     setTimeout(() => (savedMsg = ''), 2000);
+  }
+  function resetView() {
+    onSetDensity?.('comfortable');
+    onSetFullWidth?.(false);
+    flash(t('common.done'));
   }
 
   async function persist(patch: Partial<HubConfig>) {
@@ -81,19 +89,19 @@
     });
     flash(t('settings.savedTimeouts'));
   }
-  async function toggleAutostart() {
-    autostart = !autostart;
-    await setAutostart(autostart);
-    flash(autostart ? t('settings.autostartOn') : t('settings.autostartOff'));
+  async function toggleAutostart(v: boolean) {
+    autostart = v;
+    await setAutostart(v);
+    flash(v ? t('settings.autostartOn') : t('settings.autostartOff'));
   }
-  async function toggleStartHidden() {
-    startHidden = !startHidden;
-    await persist({ startHidden });
+  async function toggleStartHidden(v: boolean) {
+    startHidden = v;
+    await persist({ startHidden: v });
     flash(t('settings.saved'));
   }
-  async function toggleCloseToTray() {
-    closeToTray = !closeToTray;
-    await persist({ closeToTray });
+  async function toggleCloseToTray(v: boolean) {
+    closeToTray = v;
+    await persist({ closeToTray: v });
     flash(t('settings.saved'));
   }
 </script>
@@ -101,7 +109,7 @@
 <div class="p-sw-6">
   <header class="mb-sw-4 flex items-center justify-between">
     <h1 class="text-lg font-semibold">{t('settings.title')}</h1>
-    {#if savedMsg}<span class="badge badge-ok">{savedMsg}</span>{/if}
+    {#if errMsg}<span class="badge badge-err">{errMsg}</span>{:else if savedMsg}<span class="badge badge-ok">{savedMsg}</span>{/if}
   </header>
 
   <div class="flex max-w-2xl flex-col gap-sw-4">
@@ -116,12 +124,17 @@
           onclick={() => onSetTheme('dark')} title={t('settings.themeDarkTip')}>{t('settings.themeDark')}</button>
         <button class="sw-btn {theme === 'light' ? 'sw-btn-primary' : 'sw-btn-ghost'}"
           onclick={() => onSetTheme('light')} title={t('settings.themeLightTip')}>{t('settings.themeLight')}</button>
+        <button class="sw-btn {theme === 'system' ? 'sw-btn-primary' : 'sw-btn-ghost'}"
+          onclick={() => onSetTheme('system')} title={t('settings.themeSystemTip')}>{t('settings.themeSystem')}</button>
       </div>
     </div>
 
     <!-- View: density + content width -->
     <div class="sw-card flex flex-col gap-sw-3">
-      <div class="font-medium">{t('settings.view')}</div>
+      <div class="flex items-center justify-between gap-sw-2">
+        <div class="font-medium">{t('settings.view')}</div>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={resetView} title={t('settings.resetViewTip')}>{t('settings.resetView')}</button>
+      </div>
       <div class="flex items-center justify-between gap-sw-4">
         <div class="text-sw-sm text-sw-text-secondary">{t('settings.density')}</div>
         <div class="flex gap-sw-2">
@@ -135,7 +148,7 @@
         <span class="text-sw-sm">{t('settings.fullWidth')}
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.fullWidthDesc')}</span>
         </span>
-        <input type="checkbox" checked={fullWidth} onchange={(e) => onSetFullWidth?.(e.currentTarget.checked)} />
+        <Toggle checked={fullWidth} onCheckedChange={(v) => onSetFullWidth?.(v)} title={t('settings.fullWidth')} />
       </label>
     </div>
 
@@ -183,19 +196,19 @@
         <span class="text-sw-sm">{t('settings.startWithWindows')}
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.startWithWindowsDesc')}</span>
         </span>
-        <input type="checkbox" checked={autostart} onchange={toggleAutostart} title={t('settings.startWithWindowsTip')} />
+        <Toggle checked={autostart} onCheckedChange={toggleAutostart} title={t('settings.startWithWindowsTip')} />
       </label>
       <label class="flex items-center justify-between gap-sw-4">
         <span class="text-sw-sm">{t('settings.startHidden')}
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.startHiddenDesc')}</span>
         </span>
-        <input type="checkbox" checked={startHidden} onchange={toggleStartHidden} title={t('settings.startHiddenTip')} />
+        <Toggle checked={startHidden} onCheckedChange={toggleStartHidden} title={t('settings.startHiddenTip')} />
       </label>
       <label class="flex items-center justify-between gap-sw-4">
         <span class="text-sw-sm">{t('settings.closeToTray')}
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.closeToTrayDesc')}</span>
         </span>
-        <input type="checkbox" checked={closeToTray} onchange={toggleCloseToTray} title={t('settings.closeToTrayTip')} />
+        <Toggle checked={closeToTray} onCheckedChange={toggleCloseToTray} title={t('settings.closeToTrayTip')} />
       </label>
     </div>
 

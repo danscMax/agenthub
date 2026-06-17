@@ -147,6 +147,6 @@
     cursor: not-allowed;
   }
   .item.danger {
-    color: #f87171;
+    color: var(--sw-danger);
   }
 </style>

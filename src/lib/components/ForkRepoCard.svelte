@@ -131,7 +131,7 @@
     const conflicts = branches.filter((b) => b.outcome === 'conflict').length;
     if (conflicts > 0) return { label: `${conflicts} ${pConflict(conflicts)}`, cls: 'badge-warn', tip: t('forks.healthConflictTip') };
     if ((repo.behindBy ?? 0) > 0) return { label: t('forks.healthBehind', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), cls: 'badge-info', tip: t('forks.healthBehindTip', { n: repo.behindBy ?? 0 }) };
-    if (wipBehind > 0) return { label: t('forks.wipBehind', { n: wipBehind, commits: pCommit(wipBehind) }), cls: 'badge-info', tip: t('forks.wipBehindTip', { n: wipBehind }) };
+    if (wipBehind > 0) return { label: t('forks.wipBehind', { n: wipBehind, commits: pCommit(wipBehind) }), cls: 'badge-info', tip: t('forks.wipBehindTip', { n: wipBehind, commits: pCommit(wipBehind) }) };
     return { label: t('forks.healthClean'), cls: 'badge-ok', tip: t('forks.healthCleanTip') };
   });
 
@@ -204,7 +204,7 @@
       {#if wipDetail}
         <div class="flex justify-between gap-sw-2">
           <dt>{t('forks.wipLabel')}</dt>
-          <dd class="text-sw-text" title={t('forks.wipBehindTip', { n: wipBehind })}>{wipDetail}</dd>
+          <dd class="text-sw-text" title={t('forks.wipBehindTip', { n: wipBehind, commits: pCommit(wipBehind) })}>{wipDetail}</dd>
         </div>
       {/if}
     </dl>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ForkStatus, ForkAction, GithubRepo } from '$lib/ipc';
-  import { forkMode, t, locale } from '$lib/i18n';
+  import { forkMode, t, locale, plural, pRepo, pConflict } from '$lib/i18n';
+  import { relTime } from '$lib/relativeTime';
   import ForkRepoCard from './ForkRepoCard.svelte';
 
   let {
@@ -42,19 +43,31 @@
 
   // Filter: all / forks / own — applied to BOTH local repos and the GitHub-only list.
   let repoFilter = $state<'all' | 'fork' | 'own'>('all');
-  const filteredRepos = $derived(
+  // Extra status filter toggled by clicking a KPI (conflict / needs-hands). Local repos only.
+  let statusFilter = $state<'conflict' | 'needHands' | null>(null);
+  const repoHasConflict = (r: import('$lib/ipc').ForkRepo) =>
+    (r.branches ?? []).some((b) => b.outcome === 'conflict' || (b.conflictFiles?.length ?? 0) > 0);
+  const repoNeedsHands = (r: import('$lib/ipc').ForkRepo) =>
+    r.dirty || r.untracked || r.midOp || r.detached || repoHasConflict(r) || (r.behindBy ?? 0) > 0;
+  const matchesStatus = (r: import('$lib/ipc').ForkRepo) =>
+    !statusFilter || (statusFilter === 'conflict' ? repoHasConflict(r) : repoNeedsHands(r));
+  const byKind = $derived(
     repoFilter === 'fork'
       ? repos.filter((r) => !r.isOwn)
       : repoFilter === 'own'
         ? repos.filter((r) => r.isOwn)
         : repos
   );
+  const filteredRepos = $derived(byKind.filter(matchesStatus));
   const filteredGithubOnly = $derived(
-    repoFilter === 'fork'
-      ? githubOnly.filter((g) => g.isFork)
-      : repoFilter === 'own'
-        ? githubOnly.filter((g) => !g.isFork)
-        : githubOnly
+    // Not-cloned repos have no local status, so hide them while a status filter is active.
+    statusFilter
+      ? []
+      : repoFilter === 'fork'
+        ? githubOnly.filter((g) => g.isFork)
+        : repoFilter === 'own'
+          ? githubOnly.filter((g) => !g.isFork)
+          : githubOnly
   );
   // Counts span local + GitHub-only, so the toggle reflects ALL your repos.
   const ownCount = $derived(
@@ -90,13 +103,16 @@
     const s = summary;
     if (!s) return [];
     return [
-      { label: t('forks.kpiRepos'), value: s.repos, cls: 'text-sw-text', tip: t('forks.kpiReposTip') },
-      { label: t('forks.kpiMerged'), value: s.merged, cls: 'text-emerald-400', tip: t('forks.kpiMergedTip') },
-      { label: t('forks.kpiOpen'), value: s.open, cls: 'text-sky-400', tip: t('forks.kpiOpenTip') },
-      { label: t('forks.kpiConflicts'), value: s.conflict, cls: s.conflict > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiConflictsTip') },
-      { label: t('forks.kpiNeedHands'), value: s.needHands, cls: s.needHands > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiNeedHandsTip') }
+      { label: pRepo(s.repos), value: s.repos, cls: 'text-sw-text', tip: t('forks.kpiReposTip'), filter: null },
+      { label: t('forks.kpiMerged'), value: s.merged, cls: 'text-emerald-400', tip: t('forks.kpiMergedTip'), filter: null },
+      { label: t('forks.kpiOpen'), value: s.open, cls: 'text-sky-400', tip: t('forks.kpiOpenTip'), filter: null },
+      { label: pConflict(s.conflict), value: s.conflict, cls: s.conflict > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiConflictsTip'), filter: 'conflict' as const },
+      { label: plural(s.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many')), value: s.needHands, cls: s.needHands > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiNeedHandsTip'), filter: 'needHands' as const }
     ];
   });
+  function clickKpi(filter: 'conflict' | 'needHands' | null) {
+    statusFilter = filter && statusFilter !== filter ? filter : null;
+  }
 </script>
 
 <div class="p-sw-6">
@@ -129,10 +145,18 @@
   {#if summary}
     <div class="sw-card mb-sw-4 flex flex-wrap items-center gap-sw-6">
       {#each kpis as k (k.label)}
-        <div class="min-w-[92px] text-center" title={k.tip}>
-          <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
-          <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
-        </div>
+        {#if k.filter}
+          <button class="min-w-[92px] cursor-pointer rounded-sw-md border text-center {statusFilter === k.filter ? 'border-sw-accent bg-sw-accent-glow' : 'border-transparent hover:border-sw-border'}"
+            title={k.tip} onclick={() => clickKpi(k.filter)}>
+            <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
+            <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
+          </button>
+        {:else}
+          <div class="min-w-[92px] text-center" title={k.tip}>
+            <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
+            <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
+          </div>
+        {/if}
       {/each}
       <div class="ml-auto text-right text-sw-xs text-sw-text-muted">
         <div>
@@ -140,7 +164,7 @@
             ? t('forks.refreshing')
             : t('forks.modeLine', { mode: forkMode(status?.mode) })}
         </div>
-        <div>{t('forks.updatedAt', { time: fmtTime(status?.timestamp ?? status?.generatedAt) })}</div>
+        <div title={fmtTime(status?.timestamp ?? status?.generatedAt)}>{t('forks.updatedAt', { time: relTime(status?.timestamp ?? status?.generatedAt) || fmtTime(status?.timestamp ?? status?.generatedAt) })}</div>
       </div>
     </div>
   {/if}

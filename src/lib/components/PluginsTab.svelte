@@ -7,6 +7,8 @@
     PluginContents
   } from '$lib/ipc';
   import { t, pSkill, pCommand, pAgent } from '$lib/i18n';
+  import Toggle from './Toggle.svelte';
+  import Spinner from './Spinner.svelte';
 
   let {
     plugins,
@@ -29,10 +31,47 @@
   } = $props();
 
   const busy = $derived(!!running);
+  // Which plugin the user just acted on — drives a per-card spinner (the global `running` flag
+  // has no id). Cleared when the run finishes.
+  let actingId = $state<string | null>(null);
+  $effect(() => {
+    if (!running) actingId = null;
+  });
+  function act(action: PluginAction, id: string) {
+    actingId = id;
+    onAction(action, id);
+  }
   const pluginList = $derived(plugins ?? []);
   const skillList = $derived(skills ?? []);
   const updateMap = $derived(new Map(updates.map((u) => [u.id, u.available])));
   const contentMap = $derived(new Map(contents.map((c) => [c.id, c])));
+
+  // Filter: free-text by id + quick toggles (has-update / enabled-only).
+  let query = $state('');
+  let onlyUpdates = $state(false);
+  let onlyEnabled = $state(false);
+  // Sort cycles name → status (enabled first) → update (has-update first).
+  let sortBy = $state<'name' | 'status' | 'update'>('name');
+  const sortLabel = $derived(
+    sortBy === 'status' ? t('plugins.sortStatus') : sortBy === 'update' ? t('plugins.sortUpdate') : t('plugins.sortName')
+  );
+  function cycleSort() {
+    sortBy = sortBy === 'name' ? 'status' : sortBy === 'status' ? 'update' : 'name';
+  }
+  const filtered = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    const list = pluginList.filter(
+      (p) =>
+        (!q || p.id.toLowerCase().includes(q)) &&
+        (!onlyUpdates || updateMap.has(p.id)) &&
+        (!onlyEnabled || p.enabled)
+    );
+    return [...list].sort((a, b) => {
+      if (sortBy === 'status') return Number(b.enabled) - Number(a.enabled) || a.id.localeCompare(b.id);
+      if (sortBy === 'update') return Number(updateMap.has(b.id)) - Number(updateMap.has(a.id)) || a.id.localeCompare(b.id);
+      return split(a.id).name.localeCompare(split(b.id).name);
+    });
+  });
 
   function split(id: string): { name: string; market: string } {
     const i = id.lastIndexOf('@');
@@ -53,19 +92,28 @@
   </header>
 
   <!-- Plugins -->
-  <h2 class="mb-sw-2 flex items-center gap-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+  <h2 class="mb-sw-2 flex flex-wrap items-center gap-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
     {t('plugins.pluginsHeading', { count: pluginList.length })}
     {#if updates.length}<span class="badge badge-info normal-case" title={t('plugins.withUpdateBadgeTip')}>{t('plugins.withUpdateBadge', { count: updates.length })}</span>{/if}
   </h2>
   {#if pluginList.length}
+    <div class="mb-sw-3 flex flex-wrap items-center gap-sw-2">
+      <input class="sw-input text-sw-xs" style="min-width:220px;flex:1;max-width:360px" bind:value={query}
+        placeholder={t('plugins.searchPlaceholder')} spellcheck="false" autocomplete="off" />
+      {#if updates.length}
+        <button class="sw-btn text-sw-xs {onlyUpdates ? 'sw-btn-primary' : 'sw-btn-ghost'}" onclick={() => (onlyUpdates = !onlyUpdates)}>{t('plugins.filterUpdates')}</button>
+      {/if}
+      <button class="sw-btn text-sw-xs {onlyEnabled ? 'sw-btn-primary' : 'sw-btn-ghost'}" onclick={() => (onlyEnabled = !onlyEnabled)}>{t('plugins.filterEnabled')}</button>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={cycleSort}>⇅ {sortLabel}</button>
+    </div>
     <div class="card-grid">
-      {#each pluginList as p (p.id)}
+      {#each filtered as p (p.id)}
         {@const s = split(p.id)}
         {@const c = contentMap.get(p.id)}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
-              <h3 class="truncate font-medium">{s.name}</h3>
+              <h3 class="truncate font-medium" title={p.id}>{s.name}</h3>
               <p class="truncate text-sw-xs text-sw-text-muted">
                 {s.market}{p.version && p.version !== 'unknown' ? ` · v${p.version}` : ''}
               </p>
@@ -73,9 +121,6 @@
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-sw-2">
               {#if updateMap.has(p.id)}<span class="badge badge-info" title={t('plugins.updateAvailableBadgeTip', { version: updateMap.get(p.id) ?? '' })}>{t('plugins.updateAvailableBadge')}</span>{/if}
               {#if p.scope === 'managed'}<span class="badge badge-muted" title={t('plugins.managedBadgeTip')}>{t('plugins.managedBadge')}</span>{/if}
-              <span class="badge {p.enabled ? 'badge-ok' : 'badge-warn'}" title={p.enabled ? t('plugins.enabledTip') : t('plugins.disabledTip')}>
-                {p.enabled ? t('plugins.enabledBadge') : t('plugins.disabledBadge')}
-              </span>
             </div>
           </div>
           {#if c && (c.skills.length || c.commands.length || c.agents.length)}
@@ -106,22 +151,25 @@
           {/if}
           <div class="mt-auto flex flex-wrap items-center gap-sw-2 border-t border-sw-border pt-sw-2">
             {#if updateMap.has(p.id)}
-              <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => onAction('update', p.id)}
+              <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => act('update', p.id)}
                 title={t('plugins.updateBtnTip', { version: updateMap.get(p.id) ?? '' })}>{t('plugins.updateBtn')}</button>
             {:else}
               <span class="text-sw-xs text-sw-text-muted" title={t('plugins.upToDateTip')}>{t('plugins.upToDate')}</span>
             {/if}
-            {#if p.enabled}
-              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onAction('disable', p.id)}
-                title={t('plugins.disableBtnTip')}>{t('plugins.disableBtn')}</button>
-            {:else}
-              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onAction('enable', p.id)}
-                title={t('plugins.enableBtnTip')}>{t('plugins.enableBtn')}</button>
-            {/if}
+            <span class="ml-auto flex items-center gap-sw-2 text-sw-xs text-sw-text-secondary">
+              {#if actingId === p.id}<Spinner size={13} />{/if}
+              {p.enabled ? t('plugins.enabledBadge') : t('plugins.disabledBadge')}
+              <Toggle checked={p.enabled} disabled={busy}
+                onCheckedChange={() => act(p.enabled ? 'disable' : 'enable', p.id)}
+                title={p.enabled ? t('plugins.disableBtnTip') : t('plugins.enableBtnTip')} />
+            </span>
           </div>
         </div>
       {/each}
     </div>
+    {#if !filtered.length}
+      <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noMatch')}</div>
+    {/if}
   {:else}
     <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noPlugins')}</div>
   {/if}

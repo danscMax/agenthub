@@ -1,10 +1,23 @@
 <script lang="ts">
-  // Pill toggle switch (Sweet Whisper style). Two-way bindable `checked`.
+  // Pill toggle switch (Sweet Whisper style). Two-way bindable `checked`, plus an optional
+  // `onCheckedChange` callback for side effects (so callers don't need a raw checkbox).
   let {
     checked = $bindable(false),
     disabled = false,
-    title = ''
-  }: { checked?: boolean; disabled?: boolean; title?: string } = $props();
+    title = '',
+    onCheckedChange
+  }: {
+    checked?: boolean;
+    disabled?: boolean;
+    title?: string;
+    onCheckedChange?: (checked: boolean) => void;
+  } = $props();
+
+  function toggle() {
+    if (disabled) return;
+    checked = !checked;
+    onCheckedChange?.(checked);
+  }
 </script>
 
 <button
@@ -15,7 +28,7 @@
   {title}
   role="switch"
   aria-checked={checked}
-  onclick={() => (checked = !checked)}
+  onclick={toggle}
 >
   <span class="knob"></span>
 </button>

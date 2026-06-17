@@ -11,11 +11,15 @@
     data: McpStatus | null;
     running: string | null;
     onRefresh: () => void;
-    onDeploy: () => void;
+    onDeploy: (profile?: string) => void;
   } = $props();
 
   const busy = $derived(!!running);
-  const ALL_PROFILES = ['ccmy', 'cc1', 'cc2', 'cc3', 'cc4', 'cc5'];
+  // Real profile list from the backend (read_mcp); falls back to the canonical set on first paint
+  // so the n/total badge and the per-profile chips never lie when profiles are added/removed.
+  const ALL_PROFILES = $derived(
+    data?.profiles?.length ? data.profiles : ['ccmy', 'cc1', 'cc2', 'cc3', 'cc4', 'cc5']
+  );
   // Provided by the plugin marketplace, not deployed per-profile (installer skips them).
   const PLUGIN_PROVIDED = ['context7', 'serena'];
 
@@ -25,6 +29,14 @@
   function isPlugin(name: string) {
     return PLUGIN_PROVIDED.includes(name);
   }
+
+  // Surface servers that still need attention (deployed to fewer profiles than exist) first;
+  // fully-deployed next; plugin-provided (not deployable) last.
+  function rank(srv: { name: string; deployedIn: string[] }): number {
+    if (isPlugin(srv.name)) return 2;
+    return srv.deployedIn.length < ALL_PROFILES.length ? 0 : 1;
+  }
+  const sortedSource = $derived([...source].sort((a, b) => rank(a) - rank(b)));
 </script>
 
 <div class="p-sw-6">
@@ -40,7 +52,7 @@
         title={t('mcp.refreshTitle')}>
         {running === 'mcp' ? t('common.busy') : t('common.refresh')}
       </button>
-      <button class="sw-btn sw-btn-primary" disabled={busy} onclick={onDeploy}
+      <button class="sw-btn sw-btn-primary" disabled={busy} onclick={() => onDeploy()}
         title={t('mcp.deployTitle')}>
         {t('mcp.deployAll')}
       </button>
@@ -49,7 +61,7 @@
 
   {#if source.length}
     <div class="card-grid">
-      {#each source as srv (srv.name)}
+      {#each sortedSource as srv (srv.name)}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
@@ -74,10 +86,12 @@
             <div class="flex flex-wrap gap-sw-2">
               {#each ALL_PROFILES as p (p)}
                 {@const ok = srv.deployedIn.includes(p)}
-                <span class="badge {ok ? 'badge-ok' : 'badge-muted'}"
-                  title={ok
-                    ? t('mcp.profileDeployedTitle', { p })
-                    : t('mcp.profileNotDeployedTitle', { p })}>{p}</span>
+                {#if ok}
+                  <span class="badge badge-ok" title={t('mcp.profileDeployedTitle', { p })}>{p}</span>
+                {:else}
+                  <button class="badge badge-muted" disabled={busy} onclick={() => onDeploy(p)}
+                    title={t('mcp.deployToProfileTip', { p })}>{p}</button>
+                {/if}
               {/each}
             </div>
           {/if}
