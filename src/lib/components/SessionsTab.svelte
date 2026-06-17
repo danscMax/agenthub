@@ -518,7 +518,7 @@
   .divider::after {
     content: '';
     position: absolute;
-    background: transparent;
+    background: var(--sw-border);
     transition: background 0.12s;
   }
   .divider:hover::after {
