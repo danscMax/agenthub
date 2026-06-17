@@ -6,6 +6,7 @@ export default {
   cancel: 'Cancel',
   confirm: 'Confirm',
   close: 'Close',
+  paletteSearch: 'Search commands and tabs…  (Ctrl+K)',
   typeToConfirm: 'Type “{text}” to confirm',
   open: 'Open',
   refresh: 'Refresh',

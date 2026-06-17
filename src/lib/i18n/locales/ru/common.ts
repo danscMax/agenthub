@@ -6,6 +6,7 @@ export default {
   cancel: 'Отмена',
   confirm: 'Подтвердить',
   close: 'Закрыть',
+  paletteSearch: 'Поиск команд и вкладок…  (Ctrl+K)',
   typeToConfirm: 'Для подтверждения введите «{text}»',
   open: 'Открыть',
   refresh: 'Обновить',

@@ -101,6 +101,7 @@
   import SyncTab from '$lib/components/SyncTab.svelte';
   import ProvidersTab from '$lib/components/ProvidersTab.svelte';
   import SessionsTab from '$lib/components/SessionsTab.svelte';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
   import AnalyticsTab from '$lib/components/AnalyticsTab.svelte';
   import PluginsTab from '$lib/components/PluginsTab.svelte';
   import ScheduleTab from '$lib/components/ScheduleTab.svelte';
@@ -1007,6 +1008,29 @@
     }
   }
 
+  // Command palette (Ctrl+K): jump to any tab + a few quick actions.
+  const NAV_IDS = ['updates', 'forks', 'backup', 'profiles', 'mcp', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
+  let paletteOpen = $state(false);
+  const paletteCommands = $derived([
+    ...NAV_IDS.map((id) => ({ id: `tab:${id}`, label: t(`nav.${id}`), run: () => (active = id) })),
+    {
+      id: 'act:density',
+      label: `${t('settings.density')}: ${density === 'compact' ? t('settings.densityComfortable') : t('settings.densityCompact')}`,
+      run: () => setDensity(density === 'compact' ? 'comfortable' : 'compact')
+    },
+    {
+      id: 'act:theme',
+      label: `${t('settings.theme')}: ${theme === 'dark' ? t('settings.themeLight') : t('settings.themeDark')}`,
+      run: () => setTheme(theme === 'dark' ? 'light' : 'dark')
+    }
+  ]);
+  function onGlobalKey(e: KeyboardEvent) {
+    if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      paletteOpen = !paletteOpen;
+    }
+  }
+
   onMount(async () => {
     theme = getTheme();
     try {
@@ -1175,6 +1199,9 @@
   onDestroy(() => unlisten.forEach((u) => u()));
 
 </script>
+
+<svelte:window onkeydown={onGlobalKey} />
+<CommandPalette open={paletteOpen} commands={paletteCommands} placeholder={t('common.paletteSearch')} onClose={() => (paletteOpen = false)} />
 
 <div class="flex h-full overflow-hidden" class:dense={density === 'compact'}>
   <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading} />
