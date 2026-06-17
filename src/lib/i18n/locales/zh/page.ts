@@ -21,25 +21,25 @@ export default {
 
   // Component apply
   confirm_apply_title: '应用更新？',
-  confirm_apply_msg: '组件“{name}”将被实际更新（-Apply）。是否继续？',
+  confirm_apply_msg: '组件「{name}」将被实际更新（-Apply）。是否继续？',
   confirm_apply_btn: '应用',
 
   // Forks
   forks_verb_check: '检查中',
   forks_verb_plan: '计划（预演）',
-  forks_verb_action: '操作“{action}”',
+  forks_verb_action: '操作「{action}」',
   forks_verb_syncwip: '同步 wip-local',
-  forks_log: '▶ 复刻：{verb}{path}…',
+  forks_log: '▶ 分叉：{verb}{path}…',
   forks_starting: '启动中…',
   toast_fork_done: '{name}：已更新',
   toast_fork_error: '{name}：失败（代码 {code}）',
-  forks_recheck: '▶ 复刻：重新检查…',
-  confirm_fork_title: '修改复刻？',
+  forks_recheck: '▶ 分叉：重新检查…',
+  confirm_fork_title: '修改分叉？',
   confirm_fork_msg: '{label}。这将实际更改该仓库。是否继续？',
   confirm_fork_btn: '执行',
   confirm_batchff_title: '拉取所有更新？',
   confirm_batchff_msg:
-    '将对 {n} 个复刻执行安全的快进：{names}。仅快进（不合并、不强制推送）。是否继续？',
+    '将对 {n} 个分叉执行安全的快进：{names}。仅快进（不合并、不强制推送）。是否继续？',
   confirm_batchff_btn: '拉取',
 
   // Backup
@@ -49,7 +49,7 @@ export default {
   backup_log: '▶ 备份：{verb}…',
   backup_snap_last: '最新',
   confirm_restore_title: '恢复配置？',
-  confirm_restore_msg: '快照“{snap}”将覆盖所选配置的当前文件——不可逆。是否继续？',
+  confirm_restore_msg: '快照「{snap}」将覆盖所选配置的当前文件——不可逆。是否继续？',
   confirm_restore_btn: '恢复',
 
   // Profiles
@@ -63,7 +63,7 @@ export default {
   prof_verb_clean: '删除同步冲突',
   prof_verb_repair: '修复链接 {name}',
   prof_verb_reinstall: '重新安装配置',
-  confirm_prof_remove_title: '删除配置“{name}”？',
+  confirm_prof_remove_title: '删除配置「{name}」？',
   confirm_prof_remove_msg:
     '目录 ~/.claude-{name} 将连同该配置已保存的登录信息和设置一并删除。共享内容（skills/projects 等）不受影响。此操作不可逆。',
   confirm_prof_remove_btn: '删除',
@@ -97,7 +97,7 @@ export default {
   engine_verb_start: '启动',
   engine_verb_stop: '停止',
   confirm_engine_stop_title: '停止引擎？',
-  confirm_engine_stop_msg: '将停止监听引擎“{id}”端口的进程。是否继续？',
+  confirm_engine_stop_msg: '将停止监听引擎「{id}」端口的进程。是否继续？',
   confirm_engine_stop_btn: '停止',
   stack_log: '▶ LLM 栈：{verb}…',
   stack_verb_start: '启动',
@@ -107,18 +107,18 @@ export default {
   confirm_stack_stop_btn: '全部停止',
   opencode_log: '▶ opencode ← {engine}（{model}）…',
   confirm_opencode_title: '连接到 opencode？',
-  confirm_opencode_msg: 'opencode 将使用“{engine}”（模型 {model}）。写入 opencode.json（.bak 备份）。',
+  confirm_opencode_msg: 'opencode 将使用「{engine}」（模型 {model}）。写入 opencode.json（.bak 备份）。',
   confirm_opencode_btn: '连接',
   provider_log: '▶ 提供商 {name}：{verb}…',
   provider_verb_set: '绑定',
   provider_verb_clear: '重置',
   confirm_provider_clear_title: '重置提供商？',
-  confirm_provider_clear_msg: '配置“{name}”将恢复为标准 Anthropic 登录（提供商环境变量将被清除）。是否继续？',
+  confirm_provider_clear_msg: '配置「{name}」将恢复为标准 Anthropic 登录（提供商环境变量将被清除）。是否继续？',
   confirm_provider_clear_btn: '重置',
   router_install_log: '▶ 路由器：安装 claude-code-router（npm）…',
   confirm_router_title: '通过路由器连接？',
   confirm_router_msg:
-    '配置“{profile}”将通过 ccr 切换到“{engine}”（模型“{model}”）：我会配置并启动 claude-code-router，并将该配置绑定到 http://127.0.0.1:3456。之后请重启该配置。是否继续？',
+    '配置「{profile}」将通过 ccr 切换到「{engine}」（模型「{model}」）：我会配置并启动 claude-code-router，并将该配置绑定到 http://127.0.0.1:3456。之后请重启该配置。是否继续？',
   confirm_router_btn: '连接',
   router_log: '▶ 路由器：{engine}（{model}）→ 配置 {profile}…',
 
@@ -130,7 +130,7 @@ export default {
   sched_verb_delete: '删除计划任务',
   sched_log: '▶ 计划任务（{id}）：{verb}…',
   confirm_sched_delete_title: '删除任务？',
-  confirm_sched_delete_msg: '任务“{id}”将从 Windows 计划任务程序中删除。是否继续？',
+  confirm_sched_delete_msg: '任务「{id}」将从 Windows 计划任务程序中删除。是否继续？',
   confirm_sched_delete_btn: '删除',
 
   // Plugins
@@ -139,7 +139,7 @@ export default {
   plugin_verb_disable: '禁用',
   plugin_log: '▶ 插件 {id}：{verb}…',
   confirm_plugin_disable_title: '禁用插件？',
-  confirm_plugin_disable_msg: '“{id}”将在所有配置中被禁用。是否继续？',
+  confirm_plugin_disable_msg: '「{id}」将在所有配置中被禁用。是否继续？',
   confirm_plugin_disable_btn: '禁用',
 
   // Operational toasts
@@ -158,14 +158,22 @@ export default {
   out_fork_conflicts: '{n} 个有冲突',
   out_fork_merged: '{n} 个分支待删除',
   out_fork_open: '{n} 个开放 PR',
-  out_forks_need: '复刻：需要处理 — {need}',
-  out_forks_synced: '复刻：已全部同步',
-  out_open_forks: '打开复刻',
+  out_forks_need: '分叉：需要处理 — {need}',
+  out_forks_synced: '分叉：已全部同步',
+  out_open_forks: '打开分叉',
   out_failed_count: '{name}：需要关注 — {failed}',
   out_failed_problems: '{name}：存在问题',
   out_applied: '{name}：已更新',
   out_changes_count: '{name}：有可用更新 — {changed}',
   out_changes_any: '{name}：有可用更新',
-  out_changes_detail: '在卡片上点击“更新”。',
-  out_uptodate: '{name}：已是最新'
+  out_changes_detail: '在卡片上点击「更新」。',
+  out_uptodate: '{name}：已是最新',
+  hkTitle: '键盘快捷键',
+  hkPalette: '命令面板 / 跳转标签页',
+  hkNewSession: '新建会话（在「会话」标签页）',
+  hkColumns: '列数：1 / 2 / 3',
+  hkFocusPane: '聚焦下一个 / 上一个面板',
+  hkFind: '在终端中查找',
+  hkCopyPaste: '在终端中复制 / 粘贴',
+  hkHelp: '本帮助'
 };

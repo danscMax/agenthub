@@ -28,6 +28,8 @@ export default {
   start: 'Запустить',
   stop: 'Остановить',
   back: 'Назад',
+  selectAll: 'Выбрать все',
+  deselectAll: 'Снять все',
 
   // Generic words / statuses
   yes: 'Да',
@@ -66,6 +68,9 @@ export default {
   profile_one: 'профиль',
   profile_few: 'профиля',
   profile_many: 'профилей',
+  repo_one: 'репозиторий',
+  repo_few: 'репозитория',
+  repo_many: 'репозиториев',
   skill_one: 'скилл',
   skill_few: 'скилла',
   skill_many: 'скиллов',

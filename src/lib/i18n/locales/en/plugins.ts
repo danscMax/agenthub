@@ -42,6 +42,13 @@ export default {
   enableBtn: 'Enable',
   enableBtnTip: 'Enable across all profiles',
   noPlugins: 'No plugins found (or the claude CLI is unavailable).',
+  searchPlaceholder: 'Filter by name…',
+  noMatch: 'Nothing matches the filter.',
+  filterUpdates: 'Has update',
+  filterEnabled: 'Enabled only',
+  sortName: 'Sort: name',
+  sortStatus: 'Sort: status',
+  sortUpdate: 'Sort: updates',
 
   // Skills section
   skillsHeading: 'Skills ({count})',

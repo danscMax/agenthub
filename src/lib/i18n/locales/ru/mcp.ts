@@ -17,6 +17,7 @@ export default {
   pluginNote: 'Глобально через плагин-маркетплейс — не разворачивается в профили (это нормально).',
   profileDeployedTitle: 'Развёрнут в профиле {p}',
   profileNotDeployedTitle: 'НЕ развёрнут в {p} — нажми «Развернуть во все профили», чтобы добавить',
+  deployToProfileTip: 'Развернуть все MCP-серверы в профиль {p}',
 
   // Empty state
   emptyTitle: 'Нет данных',

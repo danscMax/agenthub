@@ -56,6 +56,9 @@ export default {
   loginPassword: 'пароль',
   loginTokenOpt: 'или токен сессии (необязательно)',
   loginSaved: 'Данные входа freellmapi сохранены в Credential Manager.',
+  statusEmail: 'почта задана',
+  statusToken: 'токен задан',
+  statusNone: 'не задано',
   confirmDeleteTitle: 'Удалить провайдера?',
   confirmDeleteMsg:
     'Запись и её API-ключ будут удалены из реестра и Credential Manager. Уже подключённые цели (freellmapi/профиль) не изменятся.',

@@ -33,6 +33,9 @@ export default {
   kpiConflicts: 'конфликтов',
   kpiConflictsTip: 'Веток с конфликтами слияния',
   kpiNeedHands: 'требуют действий',
+  needHands_one: 'требует действия',
+  needHands_few: 'требуют действия',
+  needHands_many: 'требуют действий',
   kpiNeedHandsTip:
     'Репозиториев/веток, где нужно ваше вмешательство: разрешить конфликты, разобрать незакоммиченные изменения, подтянуть обновления. Конкретное действие — на карточке репозитория ниже.',
   updatedAt: 'обновлено: {time}',
@@ -150,7 +153,7 @@ export default {
   // ── ForkRepoCard: wip-local (личная рабочая ветка) ──
   wipBehind: 'wip-local отстал на {n} {commits}',
   wipBehindTip:
-    'Личная рабочая ветка wip-local отстаёт от upstream на {n} коммитов — стоит синхронизировать',
+    'Личная рабочая ветка wip-local отстаёт от upstream на {n} {commits} — стоит синхронизировать',
   wipLabel: 'wip-local',
   wipBehindRow: 'отстаёт на {n} {commits}',
   wipMergedPatches: 'влито патчей: {n}',

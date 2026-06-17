@@ -33,6 +33,9 @@ export default {
   kpiConflicts: 'conflicts',
   kpiConflictsTip: 'Branches with merge conflicts',
   kpiNeedHands: 'need action',
+  needHands_one: 'needs action',
+  needHands_few: 'need action',
+  needHands_many: 'need action',
   kpiNeedHandsTip:
     'Repositories/branches that need your attention: resolve conflicts, sort out uncommitted changes, pull updates. The exact action is on the repository card below.',
   updatedAt: 'updated: {time}',
@@ -150,7 +153,7 @@ export default {
   // ── ForkRepoCard: wip-local (personal integration branch) ──
   wipBehind: 'wip-local behind by {n} {commits}',
   wipBehindTip:
-    'Your personal wip-local branch is {n} commits behind upstream — consider syncing it',
+    'Your personal wip-local branch is {n} {commits} behind upstream — consider syncing it',
   wipLabel: 'wip-local',
   wipBehindRow: 'behind by {n} {commits}',
   wipMergedPatches: 'patches merged: {n}',

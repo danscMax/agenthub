@@ -84,6 +84,9 @@ export default {
 
   // Provider per profile section
   providerPerProfileHeading: 'Провайдер на профиль',
+  openProfiles: 'Открыть профили',
+  openProfilesTip: 'Привязка провайдера к профилю — на вкладке «Профили»',
+  perProfileMovedNote: 'Привязка провайдера к каждому профилю настраивается на вкладке «Профили» (единый источник).',
   defaultProvider: 'по умолчанию (Anthropic-логин)',
   customProviderTitle: 'Профиль использует кастомный провайдер',
   custom: 'custom',

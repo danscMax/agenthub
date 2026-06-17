@@ -22,6 +22,10 @@ export default {
   themeLight: 'Светлая',
   themeDarkTip: 'Тёмная тема',
   themeLightTip: 'Светлая тема',
+  themeSystem: 'Система',
+  themeSystemTip: 'Следовать теме ОС',
+  resetView: 'Сбросить вид',
+  resetViewTip: 'Вернуть плотность и ширину к значениям по умолчанию',
 
   // Language
   language: 'Язык',

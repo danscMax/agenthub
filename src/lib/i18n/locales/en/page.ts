@@ -172,5 +172,13 @@ export default {
   out_changes_count: '{name}: updates available — {changed}',
   out_changes_any: '{name}: updates available',
   out_changes_detail: 'Press “Update” on the card.',
-  out_uptodate: '{name}: up to date'
+  out_uptodate: '{name}: up to date',
+  hkTitle: 'Keyboard shortcuts',
+  hkPalette: 'Command palette / jump to tab',
+  hkNewSession: 'New session (on the Sessions tab)',
+  hkColumns: 'Columns: 1 / 2 / 3',
+  hkFocusPane: 'Focus next / previous pane',
+  hkFind: 'Find in terminal',
+  hkCopyPaste: 'Copy / paste in terminal',
+  hkHelp: 'This help'
 };

@@ -56,6 +56,9 @@ export default {
   loginPassword: 'password',
   loginTokenOpt: 'or session token (optional)',
   loginSaved: 'freellmapi login saved to Credential Manager.',
+  statusEmail: 'email set',
+  statusToken: 'token set',
+  statusNone: 'not set',
   confirmDeleteTitle: 'Delete provider?',
   confirmDeleteMsg:
     'The record and its API key will be removed from the registry and Credential Manager. Already-connected targets (freellmapi/profile) are left unchanged.',

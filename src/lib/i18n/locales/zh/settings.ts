@@ -22,6 +22,10 @@ export default {
   themeLight: '浅色',
   themeDarkTip: '深色主题',
   themeLightTip: '浅色主题',
+  themeSystem: '系统',
+  themeSystemTip: '跟随系统主题',
+  resetView: '重置视图',
+  resetViewTip: '将密度和宽度恢复为默认值',
 
   // Language
   language: '语言',
@@ -49,7 +53,7 @@ export default {
   closeToTrayTip: '窗口关闭按钮的行为',
 
   // Timeouts
-  timeouts: '超时（复刻）',
+  timeouts: '超时（分叉）',
   timeoutsDesc: '用于慢速网络。留空 = 脚本默认值。',
   fetchTimeout: 'git fetch，秒',
   fetchTimeoutTip: 'git fetch 超时',

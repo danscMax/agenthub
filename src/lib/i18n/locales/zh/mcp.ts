@@ -16,7 +16,8 @@ export default {
   deployedCountTitle: '已部署到 {total} 个配置中的 {n} 个',
   pluginNote: '通过插件市场全局提供——不部署到配置中（这是正常的）。',
   profileDeployedTitle: '已部署到配置 {p}',
-  profileNotDeployedTitle: '未部署到 {p}——点击“部署到所有配置”以添加',
+  profileNotDeployedTitle: '未部署到 {p}——点击「部署到所有配置」以添加',
+  deployToProfileTip: '将所有 MCP 服务器部署到配置 {p}',
 
   // Empty state
   emptyTitle: '无数据',

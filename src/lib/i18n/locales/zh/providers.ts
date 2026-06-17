@@ -8,7 +8,7 @@ export default {
 
   // Engines section
   enginesHeading: '引擎',
-  enginesDesc: '对上方“LLM 栈”中相同服务的进程控制：逐个启动/停止并绑定到配置。',
+  enginesDesc: '对上方「LLM 栈」中相同服务的进程控制：逐个启动/停止并绑定到配置。',
   running: '运行中',
   stopped: '已停止',
   portListening: '端口正在监听',
@@ -18,7 +18,7 @@ export default {
   installed: '已安装',
   notInstalled: '未安装',
   ccrInstalledTitle: 'ccr 已安装（npm）',
-  ccrNotInstalledTitle: 'ccr 未安装 — 点击"安装"',
+  ccrNotInstalledTitle: 'ccr 未安装 — 点击「安装」',
 
   // Inline endpoint editor
   endpointEditorTitle: '地址和端口（如被其他服务占用）',
@@ -54,7 +54,7 @@ export default {
   openAllDashboardsTitle: '打开所有正在运行的引擎的仪表板（{n}）',
   openAllDashboardsNoneTitle: '没有带仪表板的运行中引擎 — 请先启动引擎',
   stackHeading: 'LLM 栈',
-  stackSub: '来自 stack.json 的服务：网关 + 复刻后端 + 付费 GLM 路由。单一真源。',
+  stackSub: '来自 stack.json 的服务：网关 + 分叉后端 + 付费 GLM 路由。单一真源。',
   stackStartAll: '全部启动',
   stackStartTip: 'start-stack.ps1 -Router — 启动整个栈（含付费 GLM 路由 :4000）',
   stackStopAll: '全部停止',
@@ -68,7 +68,7 @@ export default {
   stackPaid: '付费（Z.AI）',
   stackPaidTip: 'GLM 路由 :4000 — 付费 Z.AI 密钥，用于 Claude Code 编码（ANTHROPIC_BASE_URL）。非必要请关闭。',
   rcOpencodeTarget: 'opencode（智能体）',
-  rcOpencodeTitle: '将“{name}”连接到 opencode',
+  rcOpencodeTitle: '将「{name}」连接到 opencode',
   rcOpencodeSub: 'opencode 将直接访问 {url}（OpenAI 兼容，无需路由）。',
   rcOpencodeKeyLabel: 'API 密钥（可选）',
   rcOpencodeKeyPlaceholder: '留空 → 保留当前或 {env:FREELLMAPI_KEY}',
@@ -81,6 +81,9 @@ export default {
 
   // Provider per profile section
   providerPerProfileHeading: '每个配置的提供商',
+  openProfiles: '打开配置',
+  openProfilesTip: '提供商与配置的绑定在「配置」标签页',
+  perProfileMovedNote: '为每个配置绑定提供商请在「配置」标签页设置（唯一来源）。',
   defaultProvider: '默认（Anthropic 登录）',
   customProviderTitle: '配置使用自定义提供商',
   custom: 'custom',
@@ -92,23 +95,23 @@ export default {
   edit: '修改',
   resetProviderTitle: '重置为标准 Anthropic 登录',
   reset: '重置',
-  noProviderData: '无数据。点击"刷新"。',
+  noProviderData: '无数据。点击「刷新」。',
   footnote:
     '提供商写入配置的环境变量（~/.claude-<名称>/settings.json），在下次启动配置时生效。令牌存储在 settings.json 中（与 Claude Code 一样），不会在机器间同步。',
 
   // ProviderEditDialog
   dialogClose: '关闭',
-  dialogTitle: '配置"{name}"的提供商',
+  dialogTitle: '配置「{name}」的提供商',
   presetLabel: '预设（仅 Anthropic 兼容）',
   presetSelectTip: '填入正在运行的引擎的 Base URL，无需手动输入地址',
   presetPlaceholder: '— 选择预设 —',
   presetCustom: 'Custom: {url}',
   presetHint:
-    'Anthropic 原生引擎（LM Studio、GLM 路由器）直接绑定到配置。纯 OpenAI 引擎（FreeLLMAPI、DeepSeek、Qwen）— 只能通过"通过路由器连接"。',
+    'Anthropic 原生引擎（LM Studio、GLM 路由器）直接绑定到配置。纯 OpenAI 引擎（FreeLLMAPI、DeepSeek、Qwen）— 只能通过「通过路由器连接」。',
   baseUrlLabel: 'Base URL',
   baseUrlInputTip: 'Anthropic 兼容端点地址 — 写入配置的 ANTHROPIC_BASE_URL',
   openaiWarn:
-    '⚠ 这是 OpenAI 兼容引擎 — Claude Code 不会直接接受它，需要 Anthropic 路由器（见"提供商"标签页）。',
+    '⚠ 这是 OpenAI 兼容引擎 — Claude Code 不会直接接受它，需要 Anthropic 路由器（见「提供商」标签页）。',
   tokenLabel: '令牌（Bearer）',
   tokenInputTip: '端点的 Bearer 令牌 — 存储在配置的 settings.json 中',
   tokenSavedPlaceholder: '•••••• （已保存）',
@@ -129,8 +132,8 @@ export default {
   apply: '应用',
 
   // RouterConnectDialog
-  rcBindTitle: '将"{name}"绑定到配置',
-  rcConnectTitle: '通过路由器连接"{name}"',
+  rcBindTitle: '将「{name}」绑定到配置',
+  rcConnectTitle: '通过路由器连接「{name}」',
   rcDirectSub:
     '引擎直接使用 Anthropic 协议 — 所选配置将绑定到 {url}。重启配置以使更改生效。',
   rcRouterSub:

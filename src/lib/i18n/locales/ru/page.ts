@@ -172,5 +172,13 @@ export default {
   out_changes_count: '{name}: доступно обновлений — {changed}',
   out_changes_any: '{name}: есть обновления',
   out_changes_detail: 'Нажми «Обновить» на карточке.',
-  out_uptodate: '{name}: актуально'
+  out_uptodate: '{name}: актуально',
+  hkTitle: 'Горячие клавиши',
+  hkPalette: 'Палитра команд / переход по вкладкам',
+  hkNewSession: 'Новая сессия (на вкладке «Сессии»)',
+  hkColumns: 'Колонок: 1 / 2 / 3',
+  hkFocusPane: 'Фокус на следующую / предыдущую панель',
+  hkFind: 'Поиск в терминале',
+  hkCopyPaste: 'Копировать / вставить в терминале',
+  hkHelp: 'Эта справка'
 };

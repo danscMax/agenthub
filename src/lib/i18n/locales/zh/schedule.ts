@@ -19,5 +19,5 @@ export default {
   enableHint: '启用按计划运行',
   deleteHint: '从计划任务程序中删除该任务',
   emptyTitle: '暂无数据',
-  emptyHint: '点击“刷新”以读取计划任务程序中的任务。'
+  emptyHint: '点击「刷新」以读取计划任务程序中的任务。'
 };

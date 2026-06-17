@@ -17,6 +17,7 @@ export default {
   pluginNote: 'Global via the plugin marketplace — not deployed into profiles (this is normal).',
   profileDeployedTitle: 'Deployed in profile {p}',
   profileNotDeployedTitle: 'NOT deployed in {p} — click “Deploy to all profiles” to add it',
+  deployToProfileTip: 'Deploy all MCP servers to profile {p}',
 
   // Empty state
   emptyTitle: 'No data',

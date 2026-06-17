@@ -84,6 +84,9 @@ export default {
 
   // Provider per profile section
   providerPerProfileHeading: 'Provider per profile',
+  openProfiles: 'Open Profiles',
+  openProfilesTip: 'Provider-to-profile binding lives on the Profiles tab',
+  perProfileMovedNote: 'Binding a provider to each profile is configured on the Profiles tab (single source of truth).',
   defaultProvider: 'default (Anthropic login)',
   customProviderTitle: 'Profile uses a custom provider',
   custom: 'custom',

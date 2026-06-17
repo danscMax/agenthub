@@ -35,11 +35,11 @@ export default {
 
   // Drift warning
   needsApplyBadge: '需要应用',
-  driftWarning: '已部署的 .stignore 与下面的设置不一致——请点击“应用”。',
+  driftWarning: '已部署的 .stignore 与下面的设置不一致——请点击「应用」。',
 
   // Item toggles
   whatToSync: '同步哪些内容',
-  itemTitle: '将“{path}”一行加入 .stignore 白名单',
+  itemTitle: '将「{path}」一行加入 .stignore 白名单',
   itemToggleTip: '开启/关闭此项目在设备间的同步；本地文件不受影响',
   applyTitle: '将选择保存到 sync-config.json，重新生成 .stignore 并请求 Syncthing 重新扫描',
   apply: '应用',
@@ -64,5 +64,5 @@ export default {
 
   // Empty state
   emptyTitle: '无数据',
-  emptyHint: '点击“刷新”以收集同步状态。'
+  emptyHint: '点击「刷新」以收集同步状态。'
 };

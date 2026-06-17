@@ -1,7 +1,7 @@
 export default {
   brand: 'AgentHub',
   updates: '更新',
-  forks: '复刻',
+  forks: '分叉',
   backup: '备份',
   profiles: '配置',
   mcp: 'MCP',
@@ -20,7 +20,7 @@ export default {
 
   // Section tooltips
   updatesTip: '检查并安装整个 Claude Code 技术栈的更新',
-  forksTip: '你的 GitHub 复刻状态及其与上游的同步情况',
+  forksTip: '你的 GitHub 分叉状态及其与上游的同步情况',
   backupTip: '配置的快照备份以及从中恢复',
   profilesTip: 'Claude Code 配置：安装、启动、提供商、共享文件夹',
   mcpTip: 'MCP 服务器：来源真相（.mcp.json）及按配置部署',

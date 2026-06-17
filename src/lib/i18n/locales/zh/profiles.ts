@@ -14,7 +14,7 @@ export default {
   recommendations: '建议',
   brokenLinks: '有 {n} 个{profiles}的共享链接已损坏。',
   repairName: '修复 {name}',
-  repairNameTip: '修复配置“{name}”的链接，无需完全重新安装',
+  repairNameTip: '修复配置「{name}」的链接，无需完全重新安装',
   missingDirs: '缺少配置目录：{names}。',
   create: '创建',
   createTip: '重新安装配置——将创建缺少的目录',
@@ -44,7 +44,7 @@ export default {
   providerDefault: 'Anthropic（默认）',
   providerStdTip: '标准 Anthropic 登录',
   providerEdit: '更改',
-  providerOpenTip: '打开「提供方」标签页 — 在那里配置该提供方及其密钥',
+  providerOpenTip: '打开「提供商」标签页 — 在那里配置该提供商及其密钥',
   providerEditTip: '为此配置指定/更改 LLM 提供商（LM Studio、路由器、自定义）',
   providerClear: '重置',
   providerClearTip: '重置为标准 Anthropic 登录',
@@ -55,9 +55,9 @@ export default {
   linkHardlink: 'hardlink',
   linkNotLink: '非链接',
   linkNone: '无',
-  linkTipOk: '“{folder}”通过 {kind} 在所有配置间共享——这是正常的',
-  linkTipNone: '“{folder}”存在但未链接（副本）——共享内容不会同步',
-  linkTipMissing: '“{folder}”缺失——共享内容不可用；“重新安装配置”可解决',
+  linkTipOk: '「{folder}」通过 {kind} 在所有配置间共享——这是正常的',
+  linkTipNone: '「{folder}」存在但未链接（副本）——共享内容不会同步',
+  linkTipMissing: '「{folder}」缺失——共享内容不可用；「重新安装配置」可解决',
 
   // Shared-folders editor
   sharedFolders: '配置共享文件夹',
@@ -75,7 +75,7 @@ export default {
 
   // Empty state
   noData: '无数据',
-  noDataHint: '点击“检查”以收集配置状态。',
+  noDataHint: '点击「检查」以收集配置状态。',
 
   // Overflow menu
   menuTitle: '配置操作',
@@ -83,8 +83,8 @@ export default {
   menuToolsTip: '精简模式、MCP/CLAUDE.md 选择以及系统提示大小测量',
   menuRepair: '修复链接',
   menuRepairTip: '重建损坏/缺失的 junction/符号链接，无需完全重新安装',
-  menuResetProvider: '重置提供方',
-  menuResetProviderTip: '将此配置恢复为 Anthropic 默认（移除自定义提供方）',
+  menuResetProvider: '重置提供商',
+  menuResetProviderTip: '将此配置恢复为 Anthropic 默认（移除自定义提供商）',
   menuSharedFolders: '共享文件夹…',
   menuSharedFoldersTip: '选择此配置要链接哪些共享文件夹',
   menuColor: '颜色…',
@@ -99,9 +99,9 @@ export default {
   // ProfileEditDialog
   dlgClose: '关闭',
   dlgAddTitle: '添加配置',
-  dlgRenameTitle: '重命名“{name}”',
-  dlgRecolorTitle: '配置“{name}”的颜色',
-  dlgRedescribeTitle: '配置“{name}”的描述',
+  dlgRenameTitle: '重命名「{name}」',
+  dlgRecolorTitle: '配置「{name}」的颜色',
+  dlgRedescribeTitle: '配置「{name}」的描述',
   dlgNewName: '新名称',
   dlgName: '配置名称',
   dlgNamePlaceholder: '例如 cc6',
@@ -120,7 +120,7 @@ export default {
 
   // LaunchConfigDialog
   lcClose: '关闭',
-  lcTitle: '工具与大小 · 配置“{name}”',
+  lcTitle: '工具与大小 · 配置「{name}」',
   lcLeanToggle: '精简模式',
   lcLeanHeading: '精简模式（更少上下文）',
   lcLeanDesc:

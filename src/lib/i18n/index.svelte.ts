@@ -155,6 +155,7 @@ export const pAction = pluralOf('action');
 export const pBranch = pluralOf('branch');
 export const pSnapshot = pluralOf('snapshot');
 export const pProfile = pluralOf('profile');
+export const pRepo = pluralOf('repo');
 export const pSkill = pluralOf('skill');
 export const pCommand = pluralOf('command');
 export const pAgent = pluralOf('agent');

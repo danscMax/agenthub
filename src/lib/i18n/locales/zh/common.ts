@@ -7,7 +7,7 @@ export default {
   confirm: '确认',
   close: '关闭',
   paletteSearch: '搜索命令和标签页…  (Ctrl+K)',
-  typeToConfirm: '输入“{text}”以确认',
+  typeToConfirm: '输入「{text}」以确认',
   open: '打开',
   refresh: '刷新',
   delete: '删除',
@@ -28,6 +28,8 @@ export default {
   start: '启动',
   stop: '停止',
   back: '返回',
+  selectAll: '全选',
+  deselectAll: '取消全选',
 
   // Generic words / statuses
   yes: '是',
@@ -66,6 +68,9 @@ export default {
   profile_one: '配置',
   profile_few: '配置',
   profile_many: '配置',
+  repo_one: '仓库',
+  repo_few: '仓库',
+  repo_many: '仓库',
   skill_one: '技能',
   skill_few: '技能',
   skill_many: '技能',

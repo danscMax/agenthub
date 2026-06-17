@@ -25,7 +25,7 @@ export default {
   restoreItemTitle: '从此快照恢复配置（会先显示预览）',
   restore: '恢复',
   emptyTitle: '暂无快照',
-  emptyHint: '点击“创建备份”以创建第一个。',
+  emptyHint: '点击「创建备份」以创建第一个。',
 
   // Restore dialog
   dialogTitle: '从快照恢复',
@@ -38,5 +38,5 @@ export default {
   previewTitle: '预览 (-WhatIf)：显示将被覆盖的内容——不做任何更改',
   showPlan: '显示方案',
   restoreTitle: '从快照恢复所选配置文件（不可逆）',
-  restoreNeedsPreview: '请先点击“显示方案”'
+  restoreNeedsPreview: '请先点击「显示方案」'
 };

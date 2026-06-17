@@ -1,11 +1,13 @@
 export default {
   title: '分析',
   subtitle: 'freellmapi 网关用量：请求、令牌、延迟、节省。',
-  range1h: '1时',
-  range24h: '24时',
-  range7d: '7天',
-  range30d: '30天',
+  range1h: '1 小时',
+  range24h: '24 小时',
+  range7d: '7 天',
+  range30d: '30 天',
   refresh: '刷新',
+  exportCsv: '导出 CSV',
+  exportCsvTip: '将按模型的表格导出为 CSV',
   refreshTip: '从网关数据库重新读取分析',
   loading: '加载中…',
   empty: '暂无数据。启动 freellmapi 网关并发起几次请求。',
@@ -15,6 +17,7 @@ export default {
   in: '入',
   out: '出',
   avgLatency: '平均延迟',
+  unitMs: '毫秒',
   savings: '已节省',
   savingsHint: '相较付费 API',
   perModel: '按模型',
@@ -35,5 +38,5 @@ export default {
   clearFilter: '清除',
   rowTip: '点击按此模型筛选',
   sortTip: '点击按列排序',
-  footnote: '以只读方式读取 freeapi.db；“已节省”为相较付费定价的估算。'
+  footnote: '以只读方式读取 freeapi.db；「已节省」为相较付费定价的估算。'
 };

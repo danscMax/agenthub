@@ -28,13 +28,13 @@ export default {
   checkTip: '检查是否有更新（只读，不会安装任何内容）',
   checking: '处理中…',
   checkBtn: '检查',
-  openForksBtn: '打开复刻',
-  openForksTip: '前往“复刻”标签页 — 各仓库的操作在那里',
+  openForksBtn: '打开分叉',
+  openForksTip: '前往「分叉」标签页 — 各仓库的操作在那里',
   updateBtn: '更新',
   updateBtnCount: '更新 ({count})',
   updateTip: '安装此组件的可用更新（需确认）',
   applyBtn: '应用',
-  applyTip: '运行更新（尚未检查状态 — 点击“检查”以了解是否有可更新内容）',
+  applyTip: '运行更新（尚未检查状态 — 点击「检查」以了解是否有可更新内容）',
   upToDate: '最新',
   upToDateTip: '没有更新 — 一切都是最新的'
 };

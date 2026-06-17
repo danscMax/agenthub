@@ -42,6 +42,13 @@ export default {
   enableBtn: '启用',
   enableBtnTip: '在所有配置中启用',
   noPlugins: '未找到插件（或 claude CLI 不可用）。',
+  searchPlaceholder: '按名称筛选…',
+  noMatch: '没有符合筛选条件的项。',
+  filterUpdates: '有更新',
+  filterEnabled: '仅已启用',
+  sortName: '排序：名称',
+  sortStatus: '排序：状态',
+  sortUpdate: '排序：更新',
 
   // Skills section
   skillsHeading: '技能 ({count})',

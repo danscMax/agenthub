@@ -17,6 +17,7 @@ export {
   pBranch,
   pSnapshot,
   pProfile,
+  pRepo,
   pSkill,
   pCommand,
   pAgent,

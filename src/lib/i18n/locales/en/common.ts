@@ -28,6 +28,8 @@ export default {
   start: 'Start',
   stop: 'Stop',
   back: 'Back',
+  selectAll: 'Select all',
+  deselectAll: 'Deselect all',
 
   // Generic words / statuses
   yes: 'Yes',
@@ -66,6 +68,9 @@ export default {
   profile_one: 'profile',
   profile_few: 'profiles',
   profile_many: 'profiles',
+  repo_one: 'repository',
+  repo_few: 'repositories',
+  repo_many: 'repositories',
   skill_one: 'skill',
   skill_few: 'skills',
   skill_many: 'skills',

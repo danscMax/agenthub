@@ -42,6 +42,13 @@ export default {
   enableBtn: 'Включить',
   enableBtnTip: 'Включить во всех профилях',
   noPlugins: 'Плагины не найдены (или claude CLI недоступен).',
+  searchPlaceholder: 'Фильтр по названию…',
+  noMatch: 'Ничего не найдено по фильтру.',
+  filterUpdates: 'С обновлением',
+  filterEnabled: 'Только включённые',
+  sortName: 'Сортировка: имя',
+  sortStatus: 'Сортировка: статус',
+  sortUpdate: 'Сортировка: обновления',
 
   // Skills section
   skillsHeading: 'Скиллы ({count})',

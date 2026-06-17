@@ -22,6 +22,10 @@ export default {
   themeLight: 'Light',
   themeDarkTip: 'Dark theme',
   themeLightTip: 'Light theme',
+  themeSystem: 'System',
+  themeSystemTip: 'Follow the OS theme',
+  resetView: 'Reset view',
+  resetViewTip: 'Restore density and width to defaults',
 
   // Language
   language: 'Language',
