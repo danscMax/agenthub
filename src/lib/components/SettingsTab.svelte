@@ -146,7 +146,7 @@
     </div>
   </header>
 
-  <div class="flex max-w-2xl flex-col gap-sw-4">
+  <div class="flex flex-col gap-sw-4 {fullWidth ? '' : 'max-w-2xl'}">
     <!-- Theme -->
     {#if show(t('settings.theme'), t('settings.themeDesc'))}
     <div class="sw-card flex items-center justify-between">
