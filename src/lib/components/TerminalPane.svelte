@@ -12,19 +12,29 @@
     tool = 'claude',
     args = '',
     cwd = undefined,
+    paneKey = '',
     visible = true,
     maximized = false,
     onClose,
-    onToggleMax
+    onToggleMax,
+    onDuplicate,
+    onDragStart,
+    onDragEnter,
+    onDrop
   }: {
     profile: string;
     tool?: SessionTool;
     args?: string;
     cwd?: string;
+    paneKey?: string;
     visible?: boolean;
     maximized?: boolean;
     onClose: () => void;
     onToggleMax?: () => void;
+    onDuplicate?: () => void;
+    onDragStart?: (key: string) => void;
+    onDragEnter?: (key: string) => void;
+    onDrop?: () => void;
   } = $props();
 
   // Pane title: tool + the profile (claude) or the folder it's running in (opencode/shell).
@@ -50,22 +60,40 @@
     return bytes;
   }
 
-  onMount(async () => {
-    term = new Terminal({
-      fontFamily: "'Cascadia Code', 'Consolas', monospace",
-      fontSize: 12,
-      cursorBlink: true,
-      scrollback: 5000,
-      theme: { background: '#0b0e14', foreground: '#cdd6f4' }
-    });
-    fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(host);
+  const FONT_KEY = 'cmh-sessions-fontsize';
+  let fontSize = $state(13);
+
+  function refit() {
+    if (!term || !fit) return;
     try {
       fit.fit();
+      if (id) sessionResize(id, term.cols, term.rows);
     } catch {
-      /* host not laid out yet — resize observer fits shortly */
+      /* layout not settled yet — the next observation retries */
     }
+  }
+  function zoom(delta: number) {
+    fontSize = Math.min(28, Math.max(8, fontSize + delta));
+    if (term) term.options.fontSize = fontSize;
+    try {
+      localStorage.setItem(FONT_KEY, String(fontSize));
+    } catch {
+      /* ignore */
+    }
+    refit();
+  }
+  function onWheel(e: WheelEvent) {
+    if (!e.ctrlKey) return; // plain wheel → xterm scrollback
+    e.preventDefault();
+    zoom(e.deltaY < 0 ? 1 : -1);
+  }
+
+  // Spawn the session and wire its streams. Re-runnable so a finished pane can relaunch in place.
+  async function start() {
+    if (!term) return;
+    exited = false;
+    error = '';
+    refit();
     try {
       id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows);
     } catch (e) {
@@ -82,19 +110,43 @@
         term?.writeln(`\r\n\x1b[90m${t('sessions.ended')}\x1b[0m`);
       })
     );
+  }
+
+  async function relaunch() {
+    unlisteners.forEach((u) => u());
+    unlisteners = [];
+    if (id) {
+      sessionKill(id);
+      id = null;
+    }
+    term?.reset();
+    await start();
+  }
+
+  onMount(async () => {
+    try {
+      const f = Number(localStorage.getItem(FONT_KEY));
+      if (f >= 8 && f <= 28) fontSize = f;
+    } catch {
+      /* ignore */
+    }
+    term = new Terminal({
+      fontFamily: "'Cascadia Code', 'Consolas', monospace",
+      fontSize,
+      cursorBlink: true,
+      scrollback: 5000,
+      theme: { background: '#0b0e14', foreground: '#cdd6f4' }
+    });
+    fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(host);
+    // Keystrokes read `id`/`exited` live, so this single handler survives a relaunch.
     term.onData((d) => {
       if (id && !exited) sessionWrite(id, d);
     });
-    ro = new ResizeObserver(() => {
-      if (!term || !fit) return;
-      try {
-        fit.fit();
-        if (id) sessionResize(id, term.cols, term.rows);
-      } catch {
-        /* fit can throw mid-layout; the next observation retries */
-      }
-    });
+    ro = new ResizeObserver(() => refit());
     ro.observe(host);
+    await start();
   });
 
   onDestroy(() => {
@@ -104,29 +156,43 @@
     term?.dispose();
   });
 
-  // A hidden pane (other tab active, or another pane maximized) has zero size; when it becomes
-  // visible again, re-fit and push the real dimensions to the PTY so the TUI reflows correctly.
+  // A hidden pane (other tab active, or another pane maximized) has zero size; re-fit when shown.
   $effect(() => {
     visible;
     maximized;
-    if (term && fit && visible) {
-      requestAnimationFrame(() => {
-        try {
-          fit!.fit();
-          if (id) sessionResize(id, term!.cols, term!.rows);
-        } catch {
-          /* layout not settled yet */
-        }
-      });
-    }
+    if (term && fit && visible) requestAnimationFrame(() => refit());
   });
 </script>
 
-<div class="pane">
-  <div class="bar">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="pane"
+  ondragover={(e) => onDragEnter && e.preventDefault()}
+  ondragenter={() => onDragEnter?.(paneKey)}
+  ondrop={(e) => {
+    if (!onDrop) return;
+    e.preventDefault();
+    onDrop();
+  }}
+>
+  <!-- The bar doubles as the drag handle (xterm keeps the terminal area for selection). -->
+  <div
+    class="bar"
+    draggable={!!onDragStart}
+    ondragstart={() => onDragStart?.(paneKey)}
+    title={onDragStart ? t('sessions.dragHint') : undefined}
+  >
     <span class="dot" class:dead={exited} class:err={!!error}></span>
     <span class="name" title={cwd || t('sessions.paneTitle', { profile: label })}>{label}</span>
     <span class="spacer"></span>
+    {#if exited}
+      <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
+    {/if}
+    <button class="x" onclick={() => zoom(-1)} title={t('sessions.zoomOut')} aria-label={t('sessions.zoomOut')}>A−</button>
+    <button class="x" onclick={() => zoom(1)} title={t('sessions.zoomIn')} aria-label={t('sessions.zoomIn')}>A+</button>
+    {#if onDuplicate}
+      <button class="x" onclick={onDuplicate} title={t('sessions.duplicate')} aria-label={t('sessions.duplicate')}>⧉</button>
+    {/if}
     {#if onToggleMax}
       <button class="x" onclick={onToggleMax}
         title={maximized ? t('sessions.restore') : t('sessions.maximize')}
@@ -134,7 +200,8 @@
     {/if}
     <button class="x" onclick={onClose} title={t('sessions.closePane')} aria-label={t('sessions.closePane')}>✕</button>
   </div>
-  <div class="term" bind:this={host}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="term" bind:this={host} onwheel={onWheel}></div>
 </div>
 
 <style>
@@ -155,6 +222,18 @@
     padding: 4px 8px;
     background: var(--sw-bg-secondary);
     border-bottom: 1px solid var(--sw-border);
+  }
+  .bar[draggable='true'] {
+    cursor: grab;
+  }
+  .bar[draggable='true']:active {
+    cursor: grabbing;
+  }
+  .relaunch {
+    width: auto;
+    padding: 0 6px;
+    color: var(--sw-accent-text);
+    font-size: 11px;
   }
   .dot {
     width: 8px;

@@ -82,6 +82,30 @@
     dlgOpen = false;
     addPane(v);
   }
+
+  function duplicate(key: string) {
+    const p = panes.find((x) => x.key === key);
+    if (p) addPane({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args });
+  }
+
+  // Drag a pane's title bar over another to reorder (live, as you hover).
+  let dragKey = $state<string | null>(null);
+  function onDragStart(key: string) {
+    dragKey = key;
+  }
+  function onDragEnter(targetKey: string) {
+    if (!dragKey || dragKey === targetKey || maximized) return;
+    const from = panes.findIndex((p) => p.key === dragKey);
+    const to = panes.findIndex((p) => p.key === targetKey);
+    if (from < 0 || to < 0) return;
+    const next = [...panes];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    panes = next;
+  }
+  function onDrop() {
+    dragKey = null;
+  }
 </script>
 
 <div class="wrap">
@@ -135,10 +159,15 @@
           tool={pane.tool}
           args={pane.args}
           cwd={pane.cwd || undefined}
+          paneKey={pane.key}
           {visible}
           maximized={maximized === pane.key}
           onClose={() => closePane(pane.key)}
           onToggleMax={() => toggleMax(pane.key)}
+          onDuplicate={() => duplicate(pane.key)}
+          {onDragStart}
+          {onDragEnter}
+          {onDrop}
         />
       {/each}
     </div>
