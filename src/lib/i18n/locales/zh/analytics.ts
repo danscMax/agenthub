@@ -1,6 +1,6 @@
 export default {
   title: '分析',
-  subtitle: 'freellmapi 网关用量：请求、令牌、延迟、节省。',
+  subtitle: '通过本地 freellmapi 网关的全部请求汇总（opencode 等客户端）——涵盖所有云端提供商与模型。来源：freeapi.db，只读。',
   range1h: '1 小时',
   range24h: '24 小时',
   range7d: '7 天',
@@ -14,7 +14,7 @@ export default {
   emptyTitle: '暂无分析数据',
   emptyHint: '启动 freellmapi 网关并发起几次请求，指标将显示在此。',
   emptyCta: '打开提供商',
-  help: 'freellmapi 网关使用情况：请求数、令牌、延迟以及相对付费 API 的预估节省。',
+  help: '数据来自 freellmapi 网关数据库（freeapi.db）——经网关的所有请求，涵盖连接的全部云端提供商/模型。「提供商/模型」形式的名称即网关上报的方式。「已节省」为相对付费 API 的估算。',
   topRequests: '最常用',
   topCost: '最贵',
   costByModel: '各模型成本',

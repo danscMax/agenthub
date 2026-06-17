@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
+  import { opName } from '$lib/running.svelte';
 
   let {
     log,
@@ -103,7 +104,7 @@
     <button class="toggle" onclick={toggle} title={collapsed ? t('console.expand') : t('console.collapse')}>
       <span class="chev">{collapsed ? '▸' : '▾'}</span>
       <span class="title">{t('console.title')}</span>
-      {#if running}<span class="live">{t('console.live', { id: running })}</span>{/if}
+      {#if running}<span class="live">{t('console.live', { id: opName(running) })}</span>{/if}
       {#if collapsed && log.length}<span class="count">{t('console.lines', { n: log.length })}</span>{/if}
     </button>
     <div class="actions">

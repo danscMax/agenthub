@@ -75,5 +75,6 @@ export default {
   snippets: 'Insert template',
   zoomAllIn: 'Larger in all panes',
   zoomAllOut: 'Smaller in all panes',
-  focusModeTip: 'Focus mode: dim the other panes (hover the one you want)'
+  focusModeTip: 'Focus mode: dim the other panes (hover the one you want)',
+  launcherToggleTip: 'Default folder & launch args'
 };

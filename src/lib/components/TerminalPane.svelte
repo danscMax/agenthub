@@ -101,11 +101,12 @@
     term?.focus();
   }
   // Search this pane for an externally-supplied query (the tab's "search all panes" box, #52).
-  export function runExternalSearch(q: string) {
+  export function runExternalSearch(q: string, next = true) {
     query = q;
     if (!q) return;
     searchOpen = true;
-    search?.findNext(q);
+    if (next) search?.findNext(q);
+    else search?.findPrevious(q);
   }
   // Set an absolute font size pushed from the tab's synced-zoom control (#60).
   export function setFontSize(px: number) {

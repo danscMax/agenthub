@@ -1,6 +1,6 @@
 export default {
   title: 'Analytics',
-  subtitle: 'freellmapi gateway usage: requests, tokens, latency, savings.',
+  subtitle: 'Summary of ALL requests through the local freellmapi gateway (opencode & other clients) — across every cloud provider and model. Source: freeapi.db, read-only.',
   range1h: '1h',
   range24h: '24h',
   range7d: '7d',
@@ -14,7 +14,7 @@ export default {
   emptyTitle: 'No analytics yet',
   emptyHint: 'Start the freellmapi gateway and make a few requests — metrics will show up here.',
   emptyCta: 'Open providers',
-  help: 'freellmapi gateway usage: requests, tokens, latency and estimated savings vs paid APIs.',
+  help: 'Data comes from the freellmapi gateway DB (freeapi.db) — every request that went through the gateway, across all cloud providers/models connected to it. Model names like "provider/model" are how the gateway reports them. "Savings" is an estimate vs paid APIs.',
   topRequests: 'Most used',
   topCost: 'Most expensive',
   costByModel: 'Cost by model',

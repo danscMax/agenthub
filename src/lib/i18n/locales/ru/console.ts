@@ -4,7 +4,7 @@ export default {
   collapse: 'Свернуть лог',
   resize: 'Потяни, чтобы изменить высоту',
   live: '● идёт: {id}',
-  lines: '{n} стр.',
+  lines: '{n} строк',
   cancelRun: 'Прервать текущий прогон',
   copyHint: 'Скопировать весь лог в буфер обмена',
   copiedShort: '✓ Скопировано',

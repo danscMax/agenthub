@@ -41,7 +41,7 @@ export default {
   // Scripts root
   scriptsRoot: 'Путь к скриптам (SCRIPTS_ROOT)',
   scriptsRootDesc:
-    'Где лежат скрипты обслуживания. Пусто = по умолчанию E:\\Scripts (или переменная окружения SCRIPTS_ROOT).',
+    'Папка с обслуживающими PowerShell-скриптами, которые запускает AgentHub (обновления, форки, бэкап и т.п.). Это НЕ рабочая папка сессий — «Папка по умолчанию» в Сессиях задаётся отдельно. Пусто = E:\\Scripts (или переменная окружения SCRIPTS_ROOT).',
   scriptsRootInputTip: 'Абсолютный путь к корню скриптов',
   savePathTip: 'Сохранить путь',
   currentlyUsed: 'Сейчас используется: {path}',

@@ -75,5 +75,6 @@ export default {
   snippets: '插入模板',
   zoomAllIn: '放大所有面板',
   zoomAllOut: '缩小所有面板',
-  focusModeTip: '专注模式：淡化其他面板（悬停所需面板）'
+  focusModeTip: '专注模式：淡化其他面板（悬停所需面板）',
+  launcherToggleTip: '默认文件夹与启动参数'
 };

@@ -41,7 +41,7 @@ export default {
   // Scripts root
   scriptsRoot: 'Scripts path (SCRIPTS_ROOT)',
   scriptsRootDesc:
-    'Where the maintenance scripts live. Empty = default E:\\Scripts (or the SCRIPTS_ROOT environment variable).',
+    'Folder holding the maintenance PowerShell scripts AgentHub runs (updates, forks, backup, etc.). This is NOT the sessions working folder — the Sessions "Default folder" is set separately. Empty = E:\\Scripts (or the SCRIPTS_ROOT environment variable).',
   scriptsRootInputTip: 'Absolute path to the scripts root',
   savePathTip: 'Save path',
   currentlyUsed: 'Currently used: {path}',

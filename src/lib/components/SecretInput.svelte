@@ -36,12 +36,16 @@
     autocomplete="off"
     spellcheck="false"
   />
-  <button type="button" class="sbtn" onclick={() => (show = !show)}
-    title={show ? t('common.hide') : t('common.show')} aria-label={show ? t('common.hide') : t('common.show')}>
-    {show ? '🙈' : '👁'}
-  </button>
-  <button type="button" class="sbtn" disabled={!value} onclick={copy}
-    title={t('common.copy')} aria-label={t('common.copy')}>{copied ? '✓' : '⧉'}</button>
+  <!-- Buttons only matter for a value being typed: a saved key isn't sent to the UI (it lives in
+       Credential Manager), so the field shows a masked placeholder with nothing to reveal/copy. -->
+  {#if value}
+    <button type="button" class="sbtn" onclick={() => (show = !show)}
+      title={show ? t('common.hide') : t('common.show')} aria-label={show ? t('common.hide') : t('common.show')}>
+      {show ? '🙈' : '👁'}
+    </button>
+    <button type="button" class="sbtn" onclick={copy}
+      title={t('common.copy')} aria-label={t('common.copy')}>{copied ? '✓' : '⧉'}</button>
+  {/if}
 </div>
 
 <style>

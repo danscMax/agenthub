@@ -41,7 +41,7 @@ export default {
   // Scripts root
   scriptsRoot: '脚本路径（SCRIPTS_ROOT）',
   scriptsRootDesc:
-    '维护脚本所在位置。留空 = 默认 E:\\Scripts（或环境变量 SCRIPTS_ROOT）。',
+    'AgentHub 运行的维护 PowerShell 脚本所在文件夹（更新、分叉、备份等）。这不是会话工作目录——会话的「默认文件夹」单独设置。留空 = E:\\Scripts（或环境变量 SCRIPTS_ROOT）。',
   scriptsRootInputTip: '脚本根目录的绝对路径',
   savePathTip: '保存路径',
   currentlyUsed: '当前使用：{path}',

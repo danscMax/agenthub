@@ -36,6 +36,9 @@
   let defaultArgs = $state('');
   // When ON, a quick profile launch opens the folder picker first (ask every time).
   let askFolder = $state(false);
+  // Collapsible launcher settings (default folder + default args) — collapsed by default so the
+  // header stays compact; the profile launch buttons are always visible.
+  let launcherOpen = $state(false);
   // A workspace is a named set of session configs you can re-launch with one click.
   type WsConfig = { tool: SessionTool; profile: string; cwd: string; args: string };
   let workspaces = $state<Record<string, WsConfig[]>>({});
@@ -49,6 +52,7 @@
       if (c >= 1 && c <= 3) columns = c;
       const fz = Number(localStorage.getItem('cmh-sessions-fontsize'));
       if (fz >= 8 && fz <= 28) globalFont = fz;
+      launcherOpen = localStorage.getItem('cmh-sessions-launcher') === '1';
     } catch {
       /* first run / private mode */
     }
@@ -117,6 +121,13 @@
   $effect(() => {
     try {
       localStorage.setItem(AKEY, askFolder ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  });
+  $effect(() => {
+    try {
+      localStorage.setItem('cmh-sessions-launcher', launcherOpen ? '1' : '0');
     } catch {
       /* ignore */
     }
@@ -321,16 +332,17 @@
   // search/zoom across every pane at once).
   type PaneApi = {
     focusTerminal: () => void;
-    runExternalSearch: (q: string) => void;
+    runExternalSearch: (q: string, next?: boolean) => void;
     setFontSize: (px: number) => void;
   };
   const paneRefs: Record<string, PaneApi | undefined> = {};
   let focusIdx = 0;
 
-  // Search every pane at once (#52). Each pane runs the query through its own SearchAddon.
+  // Search every pane at once (#52). Each pane runs the query through its own SearchAddon;
+  // next=false steps to the previous match.
   let searchAllText = $state('');
-  function searchAll() {
-    for (const k in paneRefs) paneRefs[k]?.runExternalSearch(searchAllText);
+  function searchAll(next = true) {
+    for (const k in paneRefs) paneRefs[k]?.runExternalSearch(searchAllText, next);
   }
 
   // Synced zoom: push one font size to every pane (#60). Persisted in the shared font key so new
@@ -407,9 +419,11 @@
     </div>
     <div class="flex shrink-0 items-center gap-sw-2">
       {#if panes.length > 1}
-        <input class="sw-input text-sw-xs" style="width:130px" bind:value={searchAllText}
+        <input class="sw-input text-sw-xs" style="width:120px" bind:value={searchAllText}
           placeholder={t('sessions.searchAllPlaceholder')} title={t('sessions.searchAllTip')} spellcheck="false"
-          oninput={searchAll} onkeydown={(e) => e.key === 'Enter' && searchAll()} />
+          oninput={() => searchAll(true)} onkeydown={(e) => e.key === 'Enter' && searchAll(!e.shiftKey)} />
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => searchAll(false)} title={t('sessions.findPrev')} aria-label={t('sessions.findPrev')}>↑</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => searchAll(true)} title={t('sessions.findNext')} aria-label={t('sessions.findNext')}>↓</button>
         <input class="sw-input text-sw-xs" style="width:130px" bind:value={sendAllText}
           placeholder={t('sessions.sendAllPlaceholder')} title={t('sessions.sendAllTip')} spellcheck="false"
           onkeydown={(e) => e.key === 'Enter' && sendToAll()} />
@@ -442,17 +456,21 @@
 
   <!-- Launcher: quick-launch a profile (Claude), or open the dialog for tool/folder/args -->
   <div class="launcher">
-    <div class="cwd">
-      <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwdDefault')}</span>
-      <div class="flex items-center gap-sw-3">
-        <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
-        <label class="ask shrink-0" title={t('sessions.askFolderTip')}>
-          <Toggle bind:checked={askFolder} />
-          <span class="whitespace-nowrap text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
-        </label>
+    {#if launcherOpen}
+      <div class="cwd">
+        <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwdDefault')}</span>
+        <div class="flex items-center gap-sw-3">
+          <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
+          <label class="ask shrink-0" title={t('sessions.askFolderTip')}>
+            <Toggle bind:checked={askFolder} />
+            <span class="whitespace-nowrap text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
+          </label>
+        </div>
       </div>
-    </div>
+    {/if}
     <div class="profiles">
+      <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={launcherOpen}
+        onclick={() => (launcherOpen = !launcherOpen)} title={t('sessions.launcherToggleTip')} aria-pressed={launcherOpen}>⚙</button>
       <button class="sw-btn sw-btn-primary text-sw-xs" onclick={() => openDlg()} title={t('sessions.newSessionTip')}>
         + {t('sessions.newSession')}
       </button>
@@ -483,6 +501,7 @@
 
   <!-- Default launch args: applied to Claude quick-launches (profile buttons + "launch all") and
        pre-filled into the "+ new session" dialog. Chips toggle the common Claude flags. -->
+  {#if launcherOpen}
   <div class="defargs">
     <span class="shrink-0 text-sw-xs text-sw-text-muted" title={t('sessions.defaultArgsHint')}>{t('sessions.defaultArgs')}</span>
     <input class="sw-input grow font-mono text-sw-xs" style="min-width:220px" bind:value={defaultArgs}
@@ -492,6 +511,7 @@
         onclick={() => (defaultArgs = toggleFlag(defaultArgs, flag))}>{flag}</button>
     {/each}
   </div>
+  {/if}
 
   {#if atLimit}
     <p class="mb-sw-2 text-sw-xs" style="color:var(--sw-warn)">{t('sessions.limitNote', { n: MAX_PANES })}</p>
