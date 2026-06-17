@@ -2451,13 +2451,24 @@ async fn run_schedule(
 
 /// Run an MCP-tab action: deploy shared MCP servers into all profiles (Deploy-Mcp.ps1).
 #[tauri::command]
-async fn run_mcp(app: AppHandle, state: State<'_, RunState>, action: String) -> Result<i32, String> {
+async fn run_mcp(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    action: String,
+    only: Option<Vec<String>>,
+) -> Result<i32, String> {
     let script_rel = match action.as_str() {
         "deploy" => MCP_DEPLOY_SCRIPT_REL,
         _ => return Err(format!("неизвестное действие mcp: {action}")),
     };
     let script = abs(script_rel);
-    spawn_streamed(app, state, "mcp".to_string(), script, Vec::new()).await
+    // Optional `-Only a,b` limits deployment to specific profiles (Deploy-Mcp.ps1 supports it);
+    // empty/None deploys to all.
+    let args = match only {
+        Some(p) if !p.is_empty() => vec!["-Only".to_string(), p.join(",")],
+        _ => Vec::new(),
+    };
+    spawn_streamed(app, state, "mcp".to_string(), script, args).await
 }
 
 const PLUGIN_MGR_SCRIPT_REL: &str = "claude-plugin-updater\\Manage-Plugin.ps1";

@@ -470,7 +470,8 @@ export type McpExtra = { name: string; presentIn: string[] };
 export type McpStatus = { source: McpServer[]; extras: McpExtra[]; profiles: string[] };
 
 export const readMcp = () => invoke<McpStatus>('read_mcp');
-export const runMcp = (action: 'deploy') => invoke<number>('run_mcp', { action });
+export const runMcp = (action: 'deploy', only?: string[]) =>
+  invoke<number>('run_mcp', { action, only: only && only.length ? only : null });
 
 // --- Schedule tab ---
 export type ScheduleTask = {
