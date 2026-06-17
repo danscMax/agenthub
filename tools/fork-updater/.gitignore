@@ -1,0 +1,4 @@
+# fork-sync runtime outputs (per-repo last-status + logs) — generated when AgentHub runs the
+# fork tool from the Forks tab; not source.
+*.last.json
+logs/
