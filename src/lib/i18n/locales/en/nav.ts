@@ -13,6 +13,8 @@ export default {
   schedule: 'Schedule',
   settings: 'Settings',
   soon: 'soon',
+  collapseSidebar: 'Collapse sidebar',
+  expandSidebar: 'Expand sidebar',
   attention: 'Needs attention',
   attentionCount: 'Needs attention: {count}',
 

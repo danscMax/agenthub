@@ -13,6 +13,8 @@ export default {
   schedule: '计划任务',
   settings: '设置',
   soon: '即将推出',
+  collapseSidebar: '收起侧栏',
+  expandSidebar: '展开侧栏',
   attention: '需要关注',
   attentionCount: '需要关注：{count}',
 

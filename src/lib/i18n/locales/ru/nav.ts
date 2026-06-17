@@ -13,6 +13,8 @@ export default {
   schedule: 'Расписание',
   settings: 'Настройки',
   soon: 'скоро',
+  collapseSidebar: 'Свернуть панель',
+  expandSidebar: 'Развернуть панель',
   attention: 'Требует внимания',
   attentionCount: 'Требует внимания: {count}',
 

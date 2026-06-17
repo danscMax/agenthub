@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { Attention } from '$lib/attention';
   import { t } from '$lib/i18n';
   import Spinner from './Spinner.svelte';
@@ -30,19 +31,83 @@
     { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },
     { id: 'settings', labelKey: 'nav.settings', tipKey: 'nav.settingsTip', icon: '⚙', enabled: true }
   ];
+
+  // Collapsed rail + user tab order, both persisted.
+  const COLL_KEY = 'cmh-sidebar-collapsed';
+  const ORD_KEY = 'cmh-sidebar-order';
+  let collapsed = $state(false);
+  let order = $state<string[]>(items.map((i) => i.id));
+  const orderedItems = $derived(
+    order.map((id) => items.find((i) => i.id === id)).filter((i): i is (typeof items)[number] => !!i)
+  );
+  onMount(() => {
+    try {
+      collapsed = localStorage.getItem(COLL_KEY) === '1';
+      const saved = JSON.parse(localStorage.getItem(ORD_KEY) ?? '[]');
+      if (Array.isArray(saved) && saved.length) {
+        const valid = saved.filter((id: string) => items.some((i) => i.id === id));
+        const missing = items.map((i) => i.id).filter((id) => !valid.includes(id));
+        order = [...valid, ...missing];
+      }
+    } catch {
+      /* first run */
+    }
+  });
+  function toggleCollapse() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem(COLL_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Drag a nav item over another to reorder (live), persisted on drop.
+  let dragId = $state<string | null>(null);
+  function onDragStart(e: DragEvent, id: string) {
+    dragId = id;
+    e.dataTransfer?.setData('text/plain', id);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+  function onDragOver(e: DragEvent, targetId: string) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (!dragId || dragId === targetId) return;
+    const cur = [...order];
+    const from = cur.indexOf(dragId);
+    const to = cur.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    cur.splice(to, 0, cur.splice(from, 1)[0]);
+    order = cur;
+  }
+  function onDrop() {
+    try {
+      localStorage.setItem(ORD_KEY, JSON.stringify(order));
+    } catch {
+      /* ignore */
+    }
+    dragId = null;
+  }
 </script>
 
-<nav class="sidebar">
+<nav class="sidebar" class:collapsed>
   <div class="brand">
     <div class="brand-dot"></div>
-    <span>{t('nav.brand')}</span>
+    <span class="brand-name">{t('nav.brand')}</span>
+    <button class="collapse-btn" onclick={toggleCollapse} title={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
+      aria-label={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{collapsed ? '»' : '«'}</button>
   </div>
-  {#each items as it (it.id)}
+  {#each orderedItems as it (it.id)}
     <button
       class="nav-item"
       class:active={active === it.id}
+      class:dragging={dragId === it.id}
       disabled={!it.enabled}
-      title={t(it.tipKey)}
+      title={collapsed ? t(it.labelKey) : t(it.tipKey)}
+      draggable="true"
+      ondragstart={(e) => onDragStart(e, it.id)}
+      ondragover={(e) => onDragOver(e, it.id)}
+      ondrop={onDrop}
       onclick={() => it.enabled && onSelect(it.id)}
     >
       <span class="nav-icon">{it.icon}</span>
@@ -72,6 +137,28 @@
     flex-direction: column;
     gap: 2px;
     padding: var(--sw-space-3);
+    transition: width 0.15s ease;
+  }
+  .sidebar.collapsed {
+    width: 60px;
+  }
+  .collapsed .nav-label,
+  .collapsed .brand-name,
+  .collapsed .soon {
+    display: none;
+  }
+  .collapsed .nav-item {
+    justify-content: center;
+    padding: 11px 0;
+    gap: 0;
+  }
+  .collapsed .att {
+    /* count badge → a dot in the rail */
+    min-width: 8px;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    font-size: 0;
   }
   .brand {
     display: flex;
@@ -81,6 +168,31 @@
     margin-bottom: var(--sw-space-3);
     font-weight: 600;
     color: var(--sw-text-primary);
+  }
+  .collapsed .brand {
+    padding: var(--sw-space-2) 0;
+    justify-content: center;
+    gap: 0;
+  }
+  .brand-name {
+    flex: 1;
+  }
+  .collapse-btn {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 2px 6px;
+    border-radius: var(--sw-radius-sm, 6px);
+    line-height: 1;
+  }
+  .collapse-btn:hover {
+    color: var(--sw-text-primary);
+    background: var(--sw-sidebar-item-hover);
+  }
+  .nav-item.dragging {
+    opacity: 0.5;
   }
   .brand-dot {
     width: 10px;
