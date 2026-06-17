@@ -32,5 +32,11 @@ export default {
   dlgArgs: 'Launch arguments',
   dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
   dlgArgsHint: 'Passed to the command verbatim (this is your machine).',
-  dlgLaunch: 'Launch'
+  dlgLaunch: 'Launch',
+  wsSave: 'Save workspace',
+  wsSaveTip: 'Save the current sessions as a workspace to re-launch later',
+  wsNamePlaceholder: 'workspace name',
+  wsLabel: 'Workspaces:',
+  wsLaunchTip: 'Launch workspace “{name}”',
+  wsDeleteTip: 'Delete workspace “{name}”'
 };

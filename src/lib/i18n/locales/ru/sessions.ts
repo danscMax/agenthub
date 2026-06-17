@@ -32,5 +32,11 @@ export default {
   dlgArgs: 'Аргументы запуска',
   dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
   dlgArgsHint: 'Передаются команде как есть (это твоя машина).',
-  dlgLaunch: 'Запустить'
+  dlgLaunch: 'Запустить',
+  wsSave: 'Сохранить набор',
+  wsSaveTip: 'Сохранить текущие сессии как набор для повторного запуска',
+  wsNamePlaceholder: 'имя набора',
+  wsLabel: 'Наборы:',
+  wsLaunchTip: 'Запустить набор «{name}»',
+  wsDeleteTip: 'Удалить набор «{name}»'
 };

@@ -19,10 +19,15 @@
   // in the same place).
   const FKEY = 'cmh-sessions-folders';
   const CKEY = 'cmh-sessions-cols';
+  const WKEY = 'cmh-sessions-workspaces';
   let lastFolders = $state<Record<string, string>>({});
+  // A workspace is a named set of session configs you can re-launch with one click.
+  type WsConfig = { tool: SessionTool; profile: string; cwd: string; args: string };
+  let workspaces = $state<Record<string, WsConfig[]>>({});
   onMount(() => {
     try {
       lastFolders = JSON.parse(localStorage.getItem(FKEY) ?? '{}');
+      workspaces = JSON.parse(localStorage.getItem(WKEY) ?? '{}');
       const c = Number(localStorage.getItem(CKEY));
       if (c >= 1 && c <= 3) columns = c;
     } catch {
@@ -106,6 +111,37 @@
   function onDrop() {
     dragKey = null;
   }
+
+  // ── Workspaces: save the current set of panes under a name, re-launch it later ──
+  let savingWs = $state(false);
+  let wsName = $state('');
+  const wsNames = $derived(Object.keys(workspaces));
+  function persistWs() {
+    try {
+      localStorage.setItem(WKEY, JSON.stringify(workspaces));
+    } catch {
+      /* ignore */
+    }
+  }
+  function saveWorkspace() {
+    const name = wsName.trim();
+    if (!name || !panes.length) return;
+    workspaces = {
+      ...workspaces,
+      [name]: panes.map((p) => ({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args }))
+    };
+    persistWs();
+    savingWs = false;
+    wsName = '';
+  }
+  function launchWorkspace(name: string) {
+    for (const c of workspaces[name] ?? []) addPane(c);
+  }
+  function deleteWorkspace(name: string) {
+    const { [name]: _drop, ...rest } = workspaces;
+    workspaces = rest;
+    persistWs();
+  }
 </script>
 
 <div class="wrap">
@@ -148,8 +184,32 @@
           {t('sessions.launchAll')}
         </button>
       {/if}
+      {#if savingWs}
+        <input class="sw-input text-sw-xs" style="width:160px" bind:value={wsName} placeholder={t('sessions.wsNamePlaceholder')}
+          onkeydown={(e) => e.key === 'Enter' && saveWorkspace()} />
+        <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!wsName.trim() || !panes.length} onclick={saveWorkspace}>{t('common.save')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (savingWs = false)}>{t('common.cancel')}</button>
+      {:else}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!panes.length} onclick={() => (savingWs = true)}
+          title={t('sessions.wsSaveTip')}>{t('sessions.wsSave')}</button>
+      {/if}
     </div>
   </div>
+
+  <!-- Saved workspaces: one click re-opens the whole set of sessions -->
+  {#if wsNames.length}
+    <div class="workspaces">
+      <span class="text-sw-xs text-sw-text-muted">{t('sessions.wsLabel')}</span>
+      {#each wsNames as name (name)}
+        <span class="ws-chip">
+          <button class="ws-go" onclick={() => launchWorkspace(name)} title={t('sessions.wsLaunchTip', { name })}>
+            ▶ {name} ({workspaces[name].length})
+          </button>
+          <button class="ws-del" onclick={() => deleteWorkspace(name)} title={t('sessions.wsDeleteTip', { name })} aria-label="✕">✕</button>
+        </span>
+      {/each}
+    </div>
+  {/if}
 
   {#if panes.length}
     <div class="grid" style="grid-template-columns: repeat({maximized ? 1 : columns}, minmax(0, 1fr));">
@@ -205,6 +265,44 @@
     margin-bottom: var(--sw-space-4);
     padding-bottom: var(--sw-space-3);
     border-bottom: 1px solid var(--sw-border);
+  }
+  .workspaces {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sw-space-2);
+    margin-bottom: var(--sw-space-3);
+  }
+  .ws-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--sw-border);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .ws-go {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-secondary);
+    cursor: pointer;
+    padding: 3px 8px;
+    font-size: var(--sw-text-xs);
+  }
+  .ws-go:hover {
+    color: var(--sw-text-primary);
+    background: var(--sw-accent-glow);
+  }
+  .ws-del {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-muted);
+    cursor: pointer;
+    padding: 3px 6px;
+    font-size: 10px;
+    border-left: 1px solid var(--sw-border);
+  }
+  .ws-del:hover {
+    color: #f87171;
   }
   .cwd {
     display: flex;

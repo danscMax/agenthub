@@ -32,5 +32,11 @@ export default {
   dlgArgs: '启动参数',
   dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
   dlgArgsHint: '原样传给命令（这是你的机器）。',
-  dlgLaunch: '启动'
+  dlgLaunch: '启动',
+  wsSave: '保存工作区',
+  wsSaveTip: '将当前会话保存为工作区，以便稍后重新启动',
+  wsNamePlaceholder: '工作区名称',
+  wsLabel: '工作区：',
+  wsLaunchTip: '启动工作区「{name}」',
+  wsDeleteTip: '删除工作区「{name}」'
 };
