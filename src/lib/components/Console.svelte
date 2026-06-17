@@ -40,8 +40,9 @@
     const h = Number(localStorage.getItem(HKEY));
     if (h > 0) height = Math.min(Math.max(h, 120), Math.round(window.innerHeight * 0.6));
     const c = localStorage.getItem(CKEY);
-    // Default: collapsed when there's nothing to show.
-    collapsed = c != null ? c === '1' : log.length === 0 && !running;
+    // Default collapsed (it's a detail panel, not the main view); the user's explicit choice is
+    // remembered in CKEY. A toast's "Open log" can still reveal it on demand via revealSignal.
+    collapsed = c != null ? c === '1' : true;
   });
 
   // A run does NOT force the console open — the collapsed/expanded choice is the user's

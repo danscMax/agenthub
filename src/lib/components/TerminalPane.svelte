@@ -63,14 +63,23 @@
   const FONT_KEY = 'cmh-sessions-fontsize';
   let fontSize = $state(13);
 
+  // Coalesce fits into one per frame. Fitting synchronously right after a font-size change (zoom)
+  // measures stale glyph metrics and oscillates — especially under a full-screen TUI like opencode.
+  // Deferring to the next frame lets metrics settle and collapses ResizeObserver bursts into one fit.
+  let refitPending = false;
   function refit() {
-    if (!term || !fit) return;
-    try {
-      fit.fit();
-      if (id) sessionResize(id, term.cols, term.rows);
-    } catch {
-      /* layout not settled yet — the next observation retries */
-    }
+    if (refitPending) return;
+    refitPending = true;
+    requestAnimationFrame(() => {
+      refitPending = false;
+      if (!term || !fit) return;
+      try {
+        fit.fit();
+        if (id) sessionResize(id, term.cols, term.rows);
+      } catch {
+        /* layout not settled yet — the next observation retries */
+      }
+    });
   }
   function zoom(delta: number) {
     fontSize = Math.min(28, Math.max(8, fontSize + delta));
@@ -167,7 +176,11 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="pane"
-  ondragover={(e) => onDragEnter && e.preventDefault()}
+  ondragover={(e) => {
+    if (!onDragEnter) return;
+    e.preventDefault(); // REQUIRED for the drop to be valid (else the cursor shows "not allowed")
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  }}
   ondragenter={() => onDragEnter?.(paneKey)}
   ondrop={(e) => {
     if (!onDrop) return;
@@ -179,7 +192,13 @@
   <div
     class="bar"
     draggable={!!onDragStart}
-    ondragstart={() => onDragStart?.(paneKey)}
+    ondragstart={(e) => {
+      if (!onDragStart) return;
+      // Chromium/WebView2 only starts a real drag once dataTransfer carries something.
+      e.dataTransfer?.setData('text/plain', paneKey);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      onDragStart(paneKey);
+    }}
     title={onDragStart ? t('sessions.dragHint') : undefined}
   >
     <span class="dot" class:dead={exited} class:err={!!error}></span>
