@@ -13,6 +13,7 @@
   } from '$lib/ipc';
   import type { Theme } from '$lib/theme';
   import { t, locale, getLocaleName, type Locale } from '$lib/i18n';
+  import { copyText } from '$lib/clipboard';
   import Toggle from './Toggle.svelte';
 
   let {
@@ -63,6 +64,10 @@
   function flash(m: string) {
     savedMsg = m;
     setTimeout(() => (savedMsg = ''), 2000);
+  }
+  async function copyPath(p?: string | null) {
+    if (!p) return;
+    if (await copyText(p)) flash(t('common.copied'));
   }
   function resetView() {
     onSetDensity?.('comfortable');
@@ -234,9 +239,12 @@
       <div class="font-medium">{t('settings.about')}</div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-sw-4 gap-y-1 text-sw-sm">
         <dt class="text-sw-text-muted">{t('settings.version')}</dt><dd class="text-sw-text">{version || t('common.dash')}</dd>
-        <dt class="text-sw-text-muted">{t('settings.scripts')}</dt><dd class="truncate text-sw-text">{paths?.scriptsRoot ?? t('common.dash')}</dd>
-        <dt class="text-sw-text-muted">{t('settings.config')}</dt><dd class="truncate text-sw-text">{paths?.configPath ?? t('common.dash')}</dd>
-        <dt class="text-sw-text-muted">{t('settings.app')}</dt><dd class="truncate text-sw-text">{paths?.exe ?? t('common.dash')}</dd>
+        <dt class="text-sw-text-muted">{t('settings.scripts')}</dt>
+        <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.scriptsRoot)} title={t('common.copyPath')}>{paths?.scriptsRoot ?? t('common.dash')}</button></dd>
+        <dt class="text-sw-text-muted">{t('settings.config')}</dt>
+        <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.configPath)} title={t('common.copyPath')}>{paths?.configPath ?? t('common.dash')}</button></dd>
+        <dt class="text-sw-text-muted">{t('settings.app')}</dt>
+        <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.exe)} title={t('common.copyPath')}>{paths?.exe ?? t('common.dash')}</button></dd>
       </dl>
       <div class="flex gap-sw-2 pt-sw-1">
         {#if paths?.scriptsRoot}
@@ -247,3 +255,26 @@
     </div>
   </div>
 </div>
+
+<style>
+  /* A path/value that copies to the clipboard on click — looks like text, hints on hover. */
+  .copyable {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: var(--sw-text);
+    cursor: pointer;
+  }
+  .copyable:hover {
+    color: var(--sw-accent-text);
+    text-decoration: underline;
+  }
+</style>

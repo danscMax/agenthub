@@ -110,6 +110,7 @@
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import ToastHost from '$lib/components/ToastHost.svelte';
   import { pushToast } from '$lib/toast.svelte';
+  import { runningStore, opName } from '$lib/running.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t } from '$lib/i18n';
 
@@ -183,19 +184,18 @@
     }
   }
 
-  // Friendly names for operational (non-component) runs, used in result toasts.
-  // Resolved through t() at call time so toasts follow the current language.
-  const OP_KEYS: Record<string, string> = {
-    backup: 'op_backup',
-    profiles: 'op_profiles',
-    mcp: 'op_mcp',
-    sync: 'op_sync',
-    engine: 'op_engine',
-    provider: 'op_provider',
-    schedule: 'op_schedule',
-    'plugin-mgr': 'op_plugins'
-  };
-  const opName = (id: string) => (OP_KEYS[id] ? t(`page.${OP_KEYS[id]}`) : id);
+  // Mirror the run lock into a tiny store so the title bar (a sibling in +layout) can show
+  // "what's running now" without prop-drilling. opName lives alongside the store now.
+  $effect(() => {
+    runningStore.op = running;
+  });
+
+  // Surface an invoke/IPC failure both in the log and as a glanceable error toast (#150).
+  function toastErr(e: unknown, title?: string) {
+    const msg = String((e as { message?: string })?.message ?? e);
+    log = [...log, t('page.log_error', { e: msg })].slice(-MAX_LOG);
+    pushToast({ kind: 'error', title: title ?? t('page.toast_generic_error'), detail: msg });
+  }
 
   // Bumped to force-expand the console (toast "Open log" action).
   let consoleReveal = $state(0);
@@ -408,7 +408,7 @@
       await setLaunchConfig(name, mode, mcp, claudeMd);
       await reloadProfiles();
     } catch (e) {
-      log = [...log, t('page.log_error', { e: String(e) })].slice(-MAX_LOG);
+      toastErr(e);
     }
   }
 
@@ -488,15 +488,11 @@
   }
 
   function onProfileOpen(name: string) {
-    openProfileDir(name).catch((e) => {
-      log = [...log, t('page.log_warn', { e })];
-    });
+    openProfileDir(name).catch(toastErr);
   }
 
   function onProfileLaunch(name: string, mode: 'terminal' | 'vscode') {
-    launchProfile(name, mode).catch((e) => {
-      log = [...log, t('page.log_warn', { e })];
-    });
+    launchProfile(name, mode).catch(toastErr);
   }
 
   // --- MCP tab ---
@@ -710,14 +706,14 @@
   }
 
   function onOpenUrl(url: string) {
-    openPath(url).catch((e) => (log = [...log, t('page.log_warn', { e })]));
+    openPath(url).catch(toastErr);
   }
 
   // --- Custom provider registry handlers ---
   function onMyProviderSave(p: MyProviderInput, apiKey: string) {
     saveMyProvider(p, apiKey || undefined)
       .then(() => reloadProviders())
-      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+      .catch(toastErr);
   }
   function onMyProviderDelete(id: string) {
     askConfirm(
@@ -727,7 +723,7 @@
       () =>
         deleteMyProvider(id)
           .then(() => reloadProviders())
-          .catch((e) => (log = [...log, t('page.log_error', { e })]))
+          .catch(toastErr)
     );
   }
   function onMyProviderConnect(id: string) {
@@ -742,12 +738,12 @@
   function onMyProviderAddKey(id: string, apiKey: string) {
     addProviderKey(id, apiKey)
       .then(() => reloadProviders())
-      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+      .catch(toastErr);
   }
   function onMyProviderRemoveKey(id: string, index: number) {
     removeProviderKey(id, index)
       .then(() => reloadProviders())
-      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+      .catch(toastErr);
   }
   function onMyProviderNextKey(id: string) {
     if (running) return;
@@ -761,7 +757,7 @@
   function onSetFreellmapiAuth(email: string, password: string, token: string) {
     setFreellmapiAuth(email || undefined, password || undefined, token || undefined)
       .then(() => (log = [...log, t('myProviders.loginSaved')]))
-      .catch((e) => (log = [...log, t('page.log_error', { e })]));
+      .catch(toastErr);
   }
 
   function onRouterInstall() {
@@ -979,7 +975,7 @@
     const d = skillsData?.[0]?.dir;
     if (!d) return;
     const parent = d.slice(0, Math.max(d.lastIndexOf('\\'), d.lastIndexOf('/')));
-    if (parent) openPath(parent).catch((e) => (log = [...log, t('page.log_warn', { e })]));
+    if (parent) openPath(parent).catch(toastErr);
   }
 
   async function cancel() {

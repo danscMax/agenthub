@@ -19,6 +19,7 @@ export default {
   check: 'Проверить',
   copy: 'Копировать',
   copied: 'Скопировано',
+  copyPath: 'Скопировать путь',
   clear: 'Очистить',
   cancelAction: 'Отменить',
   enable: 'Включить',

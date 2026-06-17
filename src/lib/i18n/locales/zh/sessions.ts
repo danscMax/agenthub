@@ -67,5 +67,7 @@ export default {
   wsNamePlaceholder: '工作区名称',
   wsLabel: '工作区：',
   wsLaunchTip: '启动工作区「{name}」',
-  wsDeleteTip: '删除工作区「{name}」'
+  wsDeleteTip: '删除工作区「{name}」',
+  paneClosed: '已关闭：{name}',
+  reopen: '重新打开'
 };

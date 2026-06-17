@@ -67,5 +67,7 @@ export default {
   wsNamePlaceholder: 'имя набора',
   wsLabel: 'Наборы:',
   wsLaunchTip: 'Запустить набор «{name}»',
-  wsDeleteTip: 'Удалить набор «{name}»'
+  wsDeleteTip: 'Удалить набор «{name}»',
+  paneClosed: 'Панель закрыта: {name}',
+  reopen: 'Открыть снова'
 };

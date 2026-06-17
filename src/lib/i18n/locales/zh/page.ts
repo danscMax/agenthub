@@ -10,6 +10,7 @@ export default {
   op_provider: '提供商',
   op_schedule: '计划任务',
   op_plugins: '插件',
+  op_forks: '分叉',
 
   // Generic run-log lines
   log_component: '▶ {name}：{verb}…',
@@ -147,6 +148,7 @@ export default {
   toast_op_error: '{name}：错误（代码 {code}）',
   toast_op_error_detail: '详情见运行日志。',
   toast_open_log: '打开日志',
+  toast_generic_error: '出错了',
 
   // Misc
   load_error: '加载错误：{e}',

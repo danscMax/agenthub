@@ -194,6 +194,17 @@
         />
       {/each}
     </div>
+  {:else if running === 'forks'}
+    <!-- First load: show skeleton cards instead of a blank pane until the check completes. -->
+    <div class="card-grid">
+      {#each Array(6) as _, i (i)}
+        <div class="sw-card flex flex-col gap-sw-3">
+          <div class="skeleton" style="height:1.1rem;width:55%"></div>
+          <div class="skeleton" style="height:0.7rem;width:80%"></div>
+          <div class="skeleton" style="height:1.8rem;width:100%"></div>
+        </div>
+      {/each}
+    </div>
   {:else}
     <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
       <div>

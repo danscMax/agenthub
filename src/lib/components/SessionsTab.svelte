@@ -7,6 +7,7 @@
   import { t } from '$lib/i18n';
   import { pickFolder, sessionWrite, type SessionTool } from '$lib/ipc';
   import { ARG_PRESETS, toggleFlag } from '$lib/sessionPresets';
+  import { pushToast } from '$lib/toast.svelte';
 
   const MAX_PANES = 12; // each pane is a pwsh+tool process — cap to keep the machine responsive
 
@@ -156,11 +157,25 @@
     addPane({ tool, profile: '', cwd: dir, args: '' });
   }
   function closePane(key: string) {
+    const closed = panes.find((p) => p.key === key);
     panes = panes.filter((p) => p.key !== key);
     if (maximized === key) maximized = null;
     // Broadcast is meaningless with one pane and its toggle is hidden — reset so input doesn't
     // keep getting mirrored invisibly.
     if (panes.length <= 1) broadcast = false;
+    // Offer a one-click reopen (same tool/profile/folder/args). The old PTY is gone, so this
+    // relaunches a fresh session rather than restoring scrollback.
+    if (closed) {
+      pushToast({
+        kind: 'info',
+        title: t('sessions.paneClosed', { name: paneLabel(closed) }),
+        action: {
+          label: t('sessions.reopen'),
+          onClick: () =>
+            addPane({ tool: closed.tool, profile: closed.profile, cwd: closed.cwd, args: closed.args })
+        }
+      });
+    }
   }
   function closeAll() {
     panes = [];

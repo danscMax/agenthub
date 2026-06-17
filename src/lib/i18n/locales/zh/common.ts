@@ -19,6 +19,7 @@ export default {
   check: '检查',
   copy: '复制',
   copied: '已复制',
+  copyPath: '复制路径',
   clear: '清除',
   cancelAction: '取消',
   enable: '启用',

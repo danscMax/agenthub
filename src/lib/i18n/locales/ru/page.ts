@@ -10,6 +10,7 @@ export default {
   op_provider: 'Провайдер',
   op_schedule: 'Расписание',
   op_plugins: 'Плагины',
+  op_forks: 'Форки',
 
   // Generic run-log lines
   log_component: '▶ {name}: {verb}…',
@@ -152,6 +153,7 @@ export default {
   toast_op_error: '{name}: ошибка (код {code})',
   toast_op_error_detail: 'Подробности — в логе выполнения.',
   toast_open_log: 'Открыть лог',
+  toast_generic_error: 'Что-то пошло не так',
 
   // Misc
   load_error: 'Ошибка загрузки: {e}',

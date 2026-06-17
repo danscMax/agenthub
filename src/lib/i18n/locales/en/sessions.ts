@@ -67,5 +67,7 @@ export default {
   wsNamePlaceholder: 'workspace name',
   wsLabel: 'Workspaces:',
   wsLaunchTip: 'Launch workspace “{name}”',
-  wsDeleteTip: 'Delete workspace “{name}”'
+  wsDeleteTip: 'Delete workspace “{name}”',
+  paneClosed: 'Closed: {name}',
+  reopen: 'Reopen'
 };

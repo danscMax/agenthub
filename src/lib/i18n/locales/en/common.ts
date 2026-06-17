@@ -19,6 +19,7 @@ export default {
   check: 'Check',
   copy: 'Copy',
   copied: 'Copied',
+  copyPath: 'Copy path',
   clear: 'Clear',
   cancelAction: 'Cancel',
   enable: 'Enable',

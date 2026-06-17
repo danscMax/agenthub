@@ -72,10 +72,11 @@
     {disabled}
     onclick={toggle}
     {title}
+    aria-label={label ? undefined : title}
     aria-haspopup="menu"
     aria-expanded={open}
   >
-    {#if label}{label} <span class="caret">▾</span>{:else}<span class="dots">⋯</span>{/if}
+    {#if label}{label} <span class="caret">▾</span>{:else}<span class="dots" aria-hidden="true">⋯</span>{/if}
   </button>
   {#if open}
     <div class="menu {resolved}" role="menu">

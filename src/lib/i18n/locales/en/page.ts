@@ -10,6 +10,7 @@ export default {
   op_provider: 'Provider',
   op_schedule: 'Schedule',
   op_plugins: 'Plugins',
+  op_forks: 'Forks',
 
   // Generic run-log lines
   log_component: '▶ {name}: {verb}…',
@@ -152,6 +153,7 @@ export default {
   toast_op_error: '{name}: error (code {code})',
   toast_op_error_detail: 'See the run log for details.',
   toast_open_log: 'Open log',
+  toast_generic_error: 'Something went wrong',
 
   // Misc
   load_error: 'Load error: {e}',

@@ -2,6 +2,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
+  import { runningStore, opName } from '$lib/running.svelte';
 
   const appWin = getCurrentWindow();
 
@@ -38,6 +39,12 @@
   <div class="brand" data-tauri-drag-region>
     <span class="dot" data-tauri-drag-region></span>
     <span class="title" data-tauri-drag-region>{t('titlebar.title')}</span>
+    {#if runningStore.op}
+      <span class="running" title={opName(runningStore.op)}>
+        <span class="running-dot"></span>
+        <span class="running-label">{opName(runningStore.op)}</span>
+      </span>
+    {/if}
   </div>
 
   <div class="controls">
@@ -98,6 +105,43 @@
     font-weight: 600;
     color: var(--sw-text-secondary);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* "What's running now" indicator — a pulsing dot + the operation name next to the title. */
+  .running {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: var(--sw-accent-glow);
+    font-size: var(--sw-text-xs);
+    color: var(--sw-accent-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+  }
+  .running-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--sw-accent);
+    flex-shrink: 0;
+    animation: tb-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes tb-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .running-label {
     overflow: hidden;
     text-overflow: ellipsis;
   }
