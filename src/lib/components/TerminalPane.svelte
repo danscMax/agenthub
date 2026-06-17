@@ -50,6 +50,10 @@
   const label = $derived(
     tool === 'claude' ? `${tool} · ${profile}` : folderName ? `${tool} · ${folderName}` : tool
   );
+  // Full hover detail: tool/profile + folder + launch args.
+  const fullTitle = $derived(
+    [label, cwd, args].filter(Boolean).join(' · ') || t('sessions.paneTitle', { profile: label })
+  );
 
   let host: HTMLDivElement;
   let term: Terminal | undefined;
@@ -279,7 +283,9 @@
     title={onDragStart ? t('sessions.dragHint') : undefined}
   >
     <span class="dot" class:dead={exited} class:err={!!error}></span>
-    <span class="name" title={cwd || t('sessions.paneTitle', { profile: label })}>{label}</span>
+    <span class="name" title={fullTitle}>{label}</span>
+    {#if tool === 'claude' && folderName}<span class="folder" title={cwd}>{folderName}</span>{/if}
+    {#if args}<span class="argbadge" title={args}>⚑</span>{/if}
     <span class="spacer"></span>
     {#if exited}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
@@ -389,6 +395,21 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex-shrink: 0;
+    max-width: 50%;
+  }
+  .folder {
+    font-size: 11px;
+    color: var(--sw-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .argbadge {
+    font-size: 11px;
+    color: var(--sw-accent-text);
+    flex-shrink: 0;
   }
   .spacer {
     flex: 1;
