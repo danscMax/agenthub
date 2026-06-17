@@ -91,6 +91,8 @@ export default {
   menuColorTip: '更改配置颜色',
   menuRename: '重命名…',
   menuRenameTip: '重命名配置及其目录',
+  menuDescribe: '编辑描述',
+  menuDescribeTip: '为配置设置有意义的标签（如「工作」「实验」）',
   menuDelete: '删除',
   menuDeleteTip: '删除配置及目录 ~/.claude-{name}',
 
@@ -99,6 +101,7 @@ export default {
   dlgAddTitle: '添加配置',
   dlgRenameTitle: '重命名“{name}”',
   dlgRecolorTitle: '配置“{name}”的颜色',
+  dlgRedescribeTitle: '配置“{name}”的描述',
   dlgNewName: '新名称',
   dlgName: '配置名称',
   dlgNamePlaceholder: '例如 cc6',

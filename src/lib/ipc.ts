@@ -150,7 +150,7 @@ export const launchProfile = (name: string, mode: 'terminal' | 'vscode') =>
   invoke('launch_profile', { name, mode });
 
 // Profile lifecycle (Manage-Profiles.ps1).
-export type ProfileMgmtAction = 'add' | 'remove' | 'rename' | 'recolor' | 'set-links';
+export type ProfileMgmtAction = 'add' | 'remove' | 'rename' | 'recolor' | 'redescribe' | 'set-links';
 export type ProfileConfig = {
   name: string;
   color: string;

@@ -96,6 +96,8 @@ export default {
   menuColorTip: 'Change the profile color',
   menuRename: 'Rename…',
   menuRenameTip: 'Rename the profile and its directory',
+  menuDescribe: 'Edit description',
+  menuDescribeTip: 'Give the profile a meaningful label (e.g. “work”, “experiments”)',
   menuDelete: 'Delete',
   menuDeleteTip: 'Delete the profile and the ~/.claude-{name} directory',
 
@@ -104,6 +106,7 @@ export default {
   dlgAddTitle: 'Add profile',
   dlgRenameTitle: 'Rename “{name}”',
   dlgRecolorTitle: 'Color of “{name}”',
+  dlgRedescribeTitle: 'Description of “{name}”',
   dlgNewName: 'New name',
   dlgName: 'Profile name',
   dlgNamePlaceholder: 'e.g. cc6',

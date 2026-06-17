@@ -1,13 +1,14 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
 
-  type Mode = 'add' | 'rename' | 'recolor';
+  type Mode = 'add' | 'rename' | 'recolor' | 'redescribe';
 
   let {
     open,
     mode,
     current = '',
     currentColor = 'White',
+    currentDescription = '',
     onSubmit,
     onCancel
   }: {
@@ -15,6 +16,7 @@
     mode: Mode;
     current?: string;
     currentColor?: string;
+    currentDescription?: string;
     onSubmit: (v: { name: string; color: string; description: string }) => void;
     onCancel: () => void;
   } = $props();
@@ -62,7 +64,7 @@
     if (open && key !== seeded) {
       name = mode === 'rename' ? current : '';
       color = mode === 'recolor' ? currentColor : 'White';
-      description = '';
+      description = mode === 'redescribe' ? currentDescription : '';
       seeded = key;
     }
   });
@@ -72,10 +74,13 @@
       ? t('profiles.dlgAddTitle')
       : mode === 'rename'
         ? t('profiles.dlgRenameTitle', { name: current })
-        : t('profiles.dlgRecolorTitle', { name: current })
+        : mode === 'redescribe'
+          ? t('profiles.dlgRedescribeTitle', { name: current })
+          : t('profiles.dlgRecolorTitle', { name: current })
   );
   const nameValid = $derived(/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(name));
-  const canSubmit = $derived(mode === 'recolor' ? true : nameValid);
+  // recolor/redescribe don't touch the name, so they don't need a valid name to submit.
+  const canSubmit = $derived(mode === 'recolor' || mode === 'redescribe' ? true : nameValid);
 
   function submit() {
     if (!canSubmit) return;
@@ -127,7 +132,7 @@
         </label>
       {/if}
 
-      {#if mode === 'add'}
+      {#if mode === 'add' || mode === 'redescribe'}
         <label class="fld">
           <span>{t('profiles.dlgDescription')}</span>
           <input class="sw-input" bind:value={description} placeholder={t('profiles.dlgDescriptionPlaceholder')} title={t('profiles.dlgDescriptionTip')} spellcheck="false" />

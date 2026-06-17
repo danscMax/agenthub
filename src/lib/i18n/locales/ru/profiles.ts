@@ -98,6 +98,8 @@ export default {
   menuColorTip: 'Изменить цвет профиля',
   menuRename: 'Переименовать…',
   menuRenameTip: 'Переименовать профиль и его каталог',
+  menuDescribe: 'Изменить описание',
+  menuDescribeTip: 'Задать понятную подпись профиля (например, «рабочий», «эксперименты»)',
   menuDelete: 'Удалить',
   menuDeleteTip: 'Удалить профиль и каталог ~/.claude-{name}',
 
@@ -106,6 +108,7 @@ export default {
   dlgAddTitle: 'Добавить профиль',
   dlgRenameTitle: 'Переименовать «{name}»',
   dlgRecolorTitle: 'Цвет профиля «{name}»',
+  dlgRedescribeTitle: 'Описание профиля «{name}»',
   dlgNewName: 'Новое имя',
   dlgName: 'Имя профиля',
   dlgNamePlaceholder: 'например, cc6',

@@ -81,19 +81,22 @@
 
   // Lifecycle dialog state.
   let dlgOpen = $state(false);
-  let dlgMode = $state<'add' | 'rename' | 'recolor'>('add');
+  let dlgMode = $state<'add' | 'rename' | 'recolor' | 'redescribe'>('add');
   let dlgCurrent = $state('');
   let dlgColor = $state('White');
-  function openDlg(mode: 'add' | 'rename' | 'recolor', name = '', color = 'White') {
+  let dlgDescription = $state('');
+  function openDlg(mode: 'add' | 'rename' | 'recolor' | 'redescribe', name = '', color = 'White', description = '') {
     dlgMode = mode;
     dlgCurrent = name;
     dlgColor = color;
+    dlgDescription = description;
     dlgOpen = true;
   }
   function onDlgSubmit(v: { name: string; color: string; description: string }) {
     dlgOpen = false;
     if (dlgMode === 'add') onMgmt({ action: 'add', name: v.name, color: v.color, description: v.description });
     else if (dlgMode === 'rename') onMgmt({ action: 'rename', name: dlgCurrent, newName: v.name });
+    else if (dlgMode === 'redescribe') onMgmt({ action: 'redescribe', name: dlgCurrent, description: v.description });
     else onMgmt({ action: 'recolor', name: dlgCurrent, color: v.color });
   }
 
@@ -238,6 +241,12 @@
         disabled: busy
       },
       {
+        label: t('profiles.menuDescribe'),
+        title: t('profiles.menuDescribeTip'),
+        onClick: () => openDlg('redescribe', p.name, p.color, p.description ?? ''),
+        disabled: busy
+      },
+      {
         label: t('profiles.menuDelete'),
         title: t('profiles.menuDeleteTip', { name: p.name }),
         onClick: () => onMgmt({ action: 'remove', name: p.name }),
@@ -276,6 +285,7 @@
     mode={dlgMode}
     current={dlgCurrent}
     currentColor={dlgColor}
+    currentDescription={dlgDescription}
     onSubmit={onDlgSubmit}
     onCancel={() => (dlgOpen = false)}
   />

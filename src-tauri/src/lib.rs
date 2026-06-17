@@ -680,7 +680,7 @@ fn valid_profile_name(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-/// Profile lifecycle: add / remove / rename / recolor / set-links via Manage-Profiles.ps1.
+/// Profile lifecycle: add / remove / rename / recolor / redescribe / set-links via Manage-Profiles.ps1.
 #[tauri::command]
 async fn run_profile_mgmt(
     app: AppHandle,
@@ -715,6 +715,11 @@ async fn run_profile_mgmt(
         "recolor" => {
             args.push("-Color".into());
             args.push(color.ok_or("не указан цвет")?);
+        }
+        // Description may be empty (clearing) — pass whatever the dialog sent, as a separate argv.
+        "redescribe" => {
+            args.push("-Description".into());
+            args.push(description.unwrap_or_default());
         }
         "set-links" => {
             args.push("-Enabled".into());
