@@ -27,13 +27,18 @@
     onDrop,
     onInput,
     onIdChange,
-    onNewSession
+    onNewSession,
+    onActivity,
+    displayName = '',
+    onRename
   }: {
     profile: string;
     tool?: SessionTool;
     args?: string;
     cwd?: string;
     paneKey?: string;
+    displayName?: string;
+    onRename?: (key: string, name: string) => void;
     visible?: boolean;
     maximized?: boolean;
     broadcast?: boolean;
@@ -46,7 +51,24 @@
     onInput?: (data: string) => void;
     onIdChange?: (key: string, id: string | null) => void;
     onNewSession?: () => void;
+    onActivity?: (key: string) => void;
   } = $props();
+
+  // Inline pane rename (double-click the title). Empty name → falls back to the derived label.
+  let renaming = $state(false);
+  let editName = $state('');
+  let renameInput: HTMLInputElement | undefined = $state();
+  function startRename() {
+    if (!onRename) return;
+    editName = displayName;
+    renaming = true;
+    queueMicrotask(() => renameInput?.focus());
+  }
+  function commitRename() {
+    if (!renaming) return;
+    renaming = false;
+    onRename?.(paneKey, editName.trim());
+  }
 
   // Pane title: tool + the profile (claude) or the folder it's running in (opencode/shell).
   const folderName = $derived(cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '');
@@ -73,6 +95,11 @@
   let searchInput: HTMLInputElement | undefined = $state();
   let query = $state('');
 
+  // Exposed to the parent (SessionsTab) so a keyboard shortcut can cycle focus between panes.
+  export function focusTerminal() {
+    term?.focus();
+  }
+
   async function copySelection() {
     const sel = term?.getSelection();
     if (sel) {
@@ -95,6 +122,24 @@
     searchOpen = true;
     queueMicrotask(() => searchInput?.focus());
   }
+  // Dump the full scrollback to a .log file (client-side download, no backend).
+  function exportLog() {
+    if (!term) return;
+    const buf = term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    const text = lines.join('\n').replace(/\s+$/, '') + '\n';
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${label.replace(/[^\w.-]+/g, '_') || 'session'}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
   function runSearch(next: boolean) {
     if (!query) return;
     if (next) search?.findNext(query);
@@ -107,6 +152,7 @@
   // Coalesce fits into one per frame. Fitting synchronously right after a font-size change (zoom)
   // measures stale glyph metrics and oscillates — especially under a full-screen TUI like opencode.
   // Deferring to the next frame lets metrics settle and collapses ResizeObserver bursts into one fit.
+  const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   let refitPending = false;
   function refit() {
     if (refitPending) return;
@@ -140,13 +186,29 @@
 
   // Spawn the session and wire its streams. Re-runnable so a finished pane can relaunch in place.
   async function start() {
-    if (!term) return;
+    if (!term || !fit) return;
     exited = false;
     error = '';
-    refit();
+    // Spawn the PTY at the FINAL fitted size. The PTY — and the full-screen TUI it runs (e.g.
+    // Claude Code on the alternate screen) — inherit cols/rows at launch. If we spawned at
+    // xterm's default 80×24 and only fitted a frame later, the TUI would paint at 80 cols and
+    // then a resize would arrive mid-paint, landing the redraw scrambled. Wait one frame so the
+    // freshly-added grid cell has laid out, then fit synchronously before reading cols/rows.
+    // A single frame can be too early if the grid is still settling, so wait (bounded) for the
+    // cell to report a real size.
+    for (let i = 0; i < 5 && (!host?.clientWidth || !host?.clientHeight); i++) await nextFrame();
+    try {
+      fit.fit();
+    } catch {
+      /* cell not laid out yet — the ResizeObserver will fit once it is */
+    }
     // Binary output channel: raw PTY bytes arrive as ArrayBuffers (no base64/JSON per chunk).
     const chan = new Channel<ArrayBuffer>();
-    chan.onmessage = (buf) => term?.write(new Uint8Array(buf));
+    chan.onmessage = (buf) => {
+      term?.write(new Uint8Array(buf));
+      // Mark unread when output lands in a pane that isn't currently on screen.
+      if (!visible) onActivity?.(paneKey);
+    };
     try {
       id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows, chan);
     } catch (e) {
@@ -282,7 +344,13 @@
     title={onDragStart ? t('sessions.dragHint') : undefined}
   >
     <span class="dot" class:dead={exited} class:err={!!error}></span>
-    <span class="name" title={fullTitle}>{label}</span>
+    {#if renaming}
+      <input class="rename-input" bind:this={renameInput} bind:value={editName}
+        onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
+        onblur={commitRename} placeholder={label} spellcheck="false" />
+    {:else}
+      <span class="name" title={onRename ? t('sessions.renameHint') : fullTitle} ondblclick={startRename}>{displayName || label}</span>
+    {/if}
     {#if tool === 'claude' && folderName}<span class="folder" title={cwd}>{folderName}</span>{/if}
     {#if args}<span class="argbadge" title={args}>⚑</span>{/if}
     <span class="spacer"></span>
@@ -290,6 +358,8 @@
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
     <button class="x" onclick={openSearch} title={t('sessions.find')} aria-label={t('sessions.find')}>🔍</button>
+    <button class="x" onclick={() => term?.clear()} title={t('sessions.clearOutput')} aria-label={t('sessions.clearOutput')}>⌫</button>
+    <button class="x" onclick={exportLog} title={t('sessions.exportLog')} aria-label={t('sessions.exportLog')}>⭳</button>
     <button class="x" onclick={() => zoom(-1)} title={t('sessions.zoomOut')} aria-label={t('sessions.zoomOut')}>A−</button>
     <button class="x" onclick={() => zoom(1)} title={t('sessions.zoomIn')} aria-label={t('sessions.zoomIn')}>A+</button>
     {#if onDuplicate}
@@ -330,7 +400,13 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    /* Fill the flex cell: without flex-grow a flex child sizes to its content width
+       (the xterm grid ≈ cols × cell-width), so the pane never filled wide columns and
+       maximize only grew it vertically. */
+    flex: 1;
+    width: 100%;
     height: 100%;
+    min-width: 0;
     min-height: 0;
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-md);
@@ -378,14 +454,14 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #10b981;
+    background: var(--sw-status-up);
     flex-shrink: 0;
   }
   .dot.dead {
-    background: #6b7280;
+    background: var(--sw-status-off);
   }
   .dot.err {
-    background: #ef4444;
+    background: var(--sw-status-down);
   }
   .name {
     font-size: var(--sw-text-xs);
@@ -396,6 +472,18 @@
     text-overflow: ellipsis;
     flex-shrink: 0;
     max-width: 50%;
+    cursor: text;
+  }
+  .rename-input {
+    font-size: var(--sw-text-xs);
+    font-weight: 600;
+    color: var(--sw-text-primary);
+    background: var(--sw-input-bg);
+    border: 1px solid var(--sw-border-focus);
+    border-radius: var(--sw-radius-sm, 6px);
+    padding: 1px 4px;
+    max-width: 50%;
+    outline: none;
   }
   .folder {
     font-size: 11px;

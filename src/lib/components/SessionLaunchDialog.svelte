@@ -1,14 +1,17 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
   import { type SessionTool } from '$lib/ipc';
+  import { ARG_PRESETS, toggleFlag } from '$lib/sessionPresets';
   import Select from './Select.svelte';
   import FolderField from './FolderField.svelte';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     open,
     profiles = [],
     defaultProfile = '',
     defaultCwd = '',
+    defaultArgs = '',
     onSubmit,
     onCancel
   }: {
@@ -16,6 +19,7 @@
     profiles?: string[];
     defaultProfile?: string;
     defaultCwd?: string;
+    defaultArgs?: string;
     onSubmit: (v: { tool: SessionTool; profile: string; cwd: string; args: string }) => void;
     onCancel: () => void;
   } = $props();
@@ -33,12 +37,12 @@
   let seeded = '';
 
   $effect(() => {
-    const key = `${open}:${defaultProfile}:${defaultCwd}`;
+    const key = `${open}:${defaultProfile}:${defaultCwd}:${defaultArgs}`;
     if (open && key !== seeded) {
       tool = 'claude';
       profile = defaultProfile || profiles[0] || '';
       cwd = defaultCwd;
-      args = '';
+      args = defaultArgs;
       seeded = key;
     }
   });
@@ -46,18 +50,12 @@
   const canSubmit = $derived(tool !== 'claude' || !!profile);
 
   // Common launch flags as one-click chips; clicking toggles the exact flag in the args string.
-  const PRESETS: Record<string, string[]> = {
-    claude: ['--dangerously-skip-permissions', '--effort max', '--effort high', '--continue', '--resume'],
-    opencode: ['--continue']
-  };
-  const presets = $derived(PRESETS[tool] ?? []);
+  const presets = $derived(ARG_PRESETS[tool] ?? []);
   function hasArg(flag: string) {
     return args.includes(flag);
   }
   function toggleArg(flag: string) {
-    args = hasArg(flag)
-      ? args.replace(flag, '').replace(/\s+/g, ' ').trim()
-      : `${args.trim()} ${flag}`.trim();
+    args = toggleFlag(args, flag);
   }
 
   function submit() {
@@ -66,12 +64,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
-
-{#if open}
-  <div class="overlay">
-    <button type="button" class="backdrop" aria-label={t('common.cancel')} onclick={onCancel}></button>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
+<ModalShell {open} onClose={onCancel} size="md">
       <h3>{t('sessions.dlgTitle')}</h3>
 
       <label class="fld">
@@ -117,37 +110,9 @@
         <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}>{t('sessions.dlgLaunch')}</button>
       </div>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    cursor: default;
-  }
-  .dialog {
-    position: relative;
-    width: min(560px, 94vw);
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-lg);
-    padding: var(--sw-space-6);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  }
   .lbl {
     display: block;
     margin-bottom: 6px;
