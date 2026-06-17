@@ -24,6 +24,7 @@
     { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: '⧉', enabled: true },
     { id: 'sync', labelKey: 'nav.sync', tipKey: 'nav.syncTip', icon: '⇄', enabled: true },
     { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: '⚡', enabled: true },
+    { id: 'sessions', labelKey: 'nav.sessions', tipKey: 'nav.sessionsTip', icon: '▦', enabled: true },
     { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: '📊', enabled: true },
     { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: '🧩', enabled: true },
     { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },

@@ -247,6 +247,16 @@ export const readStackHealth = () => invoke<StackHealth[]>('read_stack_health');
 export type StackProc = { port: number; pid: number; uptimeSec: number };
 export const readStackProcs = () => invoke<StackProc[]>('read_stack_procs');
 
+// --- Parallel terminal sessions (real PTY running each profile's `claude`) ---
+// session_spawn returns a session id; output arrives on event `pty:data:<id>` (base64),
+// termination on `pty:exit:<id>`. Input/resize/kill go back through these commands.
+export const sessionSpawn = (profile: string, cwd: string | undefined, cols: number, rows: number) =>
+  invoke<string>('session_spawn', { profile, cwd, cols, rows });
+export const sessionWrite = (id: string, data: string) => invoke('session_write', { id, data });
+export const sessionResize = (id: string, cols: number, rows: number) =>
+  invoke('session_resize', { id, cols, rows });
+export const sessionKill = (id: string) => invoke('session_kill', { id });
+
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {
   totalRequests: number;

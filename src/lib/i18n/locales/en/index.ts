@@ -11,6 +11,7 @@ import forks from './forks';
 import backup from './backup';
 import profiles from './profiles';
 import providers from './providers';
+import sessions from './sessions';
 import myProviders from './myProviders';
 import analytics from './analytics';
 import health from './health';
@@ -32,6 +33,7 @@ const en: TranslationDict = {
   backup,
   profiles,
   providers,
+  sessions,
   myProviders,
   analytics,
   health,

@@ -1,0 +1,19 @@
+export default {
+  title: 'Parallel sessions',
+  subtitle: 'Run Claude across several profiles at once — each in its own terminal.',
+  layout: 'Columns:',
+  layoutCols: '{n} per row',
+  closeAll: 'Close all',
+  closeAllTip: 'Terminate every terminal',
+  cwd: 'Working folder',
+  cwdPlaceholder: '(default — home)',
+  launchTip: 'Open a terminal running claude under profile “{profile}”',
+  launchAll: 'Launch all profiles',
+  launchAllTip: 'Open one terminal per profile',
+  emptyTitle: 'No terminals yet',
+  emptyHint: 'Pick a profile above — a terminal opens with claude already running.',
+  paneTitle: 'Terminal for profile “{profile}”',
+  closePane: 'Close terminal',
+  spawnError: 'Launch error: {e}',
+  ended: '[session ended]'
+};

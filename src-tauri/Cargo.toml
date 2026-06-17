@@ -27,4 +27,8 @@ tokio = { version = "1", features = ["process", "io-util", "rt-multi-thread", "m
 # Secrets (provider API keys + freellmapi dashboard token) live in the Windows Credential
 # Manager, never in plaintext JSON. windows-native backend = no extra runtime deps.
 keyring = { version = "3", features = ["windows-native"] }
+# Real PTYs for the parallel-sessions tab: run each profile's `claude` in a true terminal so
+# its TUI renders (xterm.js on the frontend). base64 frames PTY bytes for the data events.
+portable-pty = "0.8"
+base64 = "0.22"
 

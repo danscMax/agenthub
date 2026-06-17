@@ -3232,6 +3232,128 @@ fn reveal(app: &AppHandle) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// ===================== Parallel terminal sessions (real PTYs) =====================
+// Each session runs a profile's `claude` in a true PTY (portable-pty) so its TUI renders in an
+// xterm.js pane. Output streams to the frontend as base64 frames on a per-session event; input and
+// resize flow back via commands. The live sessions live in Tauri-managed state.
+
+struct PtySession {
+    master: Box<dyn portable_pty::MasterPty + Send>,
+    writer: Box<dyn std::io::Write + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+}
+
+#[derive(Default)]
+struct SessionState(Mutex<std::collections::HashMap<String, PtySession>>);
+
+fn gen_session_id() -> String {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("s{:015x}", (n as u64) & 0x000f_ffff_ffff_ffff)
+}
+
+/// Spawn a profile's `claude` inside a real PTY and stream its output. Returns the session id.
+/// Output → event `pty:data:<id>` (base64 string); termination → `pty:exit:<id>` (exit code i32).
+#[tauri::command]
+fn session_spawn(
+    app: AppHandle,
+    state: State<'_, SessionState>,
+    profile: String,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> Result<String, String> {
+    use portable_pty::{CommandBuilder, PtySize};
+    if !valid_profile_name(&profile) {
+        return Err(format!("недопустимый профиль: {profile}"));
+    }
+    let size = PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 };
+    let pair = portable_pty::native_pty_system()
+        .openpty(size)
+        .map_err(|e| format!("openpty: {e}"))?;
+
+    // `claude` is a .cmd shim → launch it inside pwsh; -NoExit keeps the pane usable after it exits.
+    // CLAUDE_CONFIG_DIR selects which profile (~/.claude-<name>) the session runs under.
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let config_dir = format!("{home}\\.claude-{profile}");
+    let mut cmd = CommandBuilder::new("pwsh");
+    cmd.arg("-NoLogo");
+    cmd.arg("-NoExit");
+    cmd.arg("-Command");
+    cmd.arg("claude");
+    cmd.env("CLAUDE_CONFIG_DIR", &config_dir);
+    let dir = cwd.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| home.clone());
+    if !dir.is_empty() {
+        cmd.cwd(dir);
+    }
+
+    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
+    drop(pair.slave); // close the slave in the parent so EOF arrives when the child exits
+    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
+    let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
+
+    let id = gen_session_id();
+    let data_event = format!("pty:data:{id}");
+    let exit_event = format!("pty:exit:{id}");
+
+    // Reader thread: pump PTY output → base64 → per-session event until EOF.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        use base64::Engine;
+        use std::io::Read;
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let _ = app2.emit(data_event.as_str(), b64);
+                }
+            }
+        }
+        let _ = app2.emit(exit_event.as_str(), 0i32);
+    });
+
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(id.clone(), PtySession { master: pair.master, writer, child });
+    Ok(id)
+}
+
+/// Forward keystrokes (UTF-8) from an xterm pane into the PTY.
+#[tauri::command]
+fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Result<(), String> {
+    use std::io::Write;
+    let mut map = state.0.lock().unwrap();
+    let s = map.get_mut(&id).ok_or("сессия не найдена")?;
+    s.writer.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
+    s.writer.flush().map_err(|e| format!("flush: {e}"))
+}
+
+/// Resize the PTY when its pane changes size (xterm fit addon).
+#[tauri::command]
+fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    use portable_pty::PtySize;
+    let map = state.0.lock().unwrap();
+    let s = map.get(&id).ok_or("сессия не найдена")?;
+    s.master
+        .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("resize: {e}"))
+}
+
+/// Kill a session's child process and drop it (its reader thread then ends on EOF).
+#[tauri::command]
+fn session_kill(state: State<'_, SessionState>, id: String) -> Result<(), String> {
+    if let Some(mut s) = state.0.lock().unwrap().remove(&id) {
+        let _ = s.child.kill();
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -3239,6 +3361,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(RunState::default())
         .manage(ForkRuns::default())
+        .manage(SessionState::default())
         .invoke_handler(tauri::generate_handler![
             list_components,
             read_status,
@@ -3271,6 +3394,10 @@ pub fn run() {
             run_stack,
             read_stack_health,
             read_stack_procs,
+            session_spawn,
+            session_write,
+            session_resize,
+            session_kill,
             read_freellmapi_analytics,
             read_providers,
             run_provider,
