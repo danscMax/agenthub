@@ -115,7 +115,6 @@
   function toggleMax(key: string) {
     maximized = maximized === key ? null : key;
   }
-  const shown = $derived(maximized ? panes.filter((p) => p.key === maximized) : panes);
 
   // Launch dialog (tool / profile / folder / args).
   let dlgOpen = $state(false);
@@ -276,25 +275,29 @@
 
   {#if panes.length}
     <div class="grid" style="grid-template-columns: repeat({maximized ? 1 : columns}, minmax(0, 1fr));">
-      {#each shown as pane (pane.key)}
-        <TerminalPane
-          profile={pane.profile}
-          tool={pane.tool}
-          args={pane.args}
-          cwd={pane.cwd || undefined}
-          paneKey={pane.key}
-          {visible}
-          maximized={maximized === pane.key}
-          {broadcast}
-          onInput={broadcastInput}
-          {onIdChange}
-          onClose={() => closePane(pane.key)}
-          onToggleMax={() => toggleMax(pane.key)}
-          onDuplicate={() => duplicate(pane.key)}
-          {onDragStart}
-          {onDragEnter}
-          {onDrop}
-        />
+      <!-- Every pane stays MOUNTED (sessions must survive maximize); non-maximized ones are just
+           hidden, so the maximized pane fills the single column. -->
+      {#each panes as pane (pane.key)}
+        <div class="cell" class:hidden={maximized != null && maximized !== pane.key}>
+          <TerminalPane
+            profile={pane.profile}
+            tool={pane.tool}
+            args={pane.args}
+            cwd={pane.cwd || undefined}
+            paneKey={pane.key}
+            visible={visible && (maximized == null || maximized === pane.key)}
+            maximized={maximized === pane.key}
+            {broadcast}
+            onInput={broadcastInput}
+            {onIdChange}
+            onClose={() => closePane(pane.key)}
+            onToggleMax={() => toggleMax(pane.key)}
+            onDuplicate={() => duplicate(pane.key)}
+            {onDragStart}
+            {onDragEnter}
+            {onDrop}
+          />
+        </div>
       {/each}
     </div>
   {:else}
@@ -388,6 +391,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--sw-space-2);
+  }
+  .cell {
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+  }
+  .cell.hidden {
+    display: none;
   }
   .grid {
     display: grid;
