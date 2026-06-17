@@ -149,10 +149,10 @@
 </script>
 
 <div class="wrap">
-  <header class="mb-sw-4 flex items-start justify-between gap-sw-4">
-    <div>
+  <header class="mb-sw-3 flex items-center justify-between gap-sw-4">
+    <div class="flex items-baseline gap-sw-3 min-w-0">
       <h1 class="text-lg font-semibold">{t('sessions.title')}</h1>
-      <p class="text-sw-sm text-sw-text-secondary">{t('sessions.subtitle')}</p>
+      <p class="truncate text-sw-xs text-sw-text-muted">{t('sessions.subtitle')}</p>
     </div>
     <div class="flex shrink-0 items-center gap-sw-2">
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.layout')}</span>
@@ -258,7 +258,7 @@
 
 <style>
   .wrap {
-    padding: var(--sw-space-6);
+    padding: var(--sw-space-4) var(--sw-space-6) var(--sw-space-3);
     display: flex;
     flex-direction: column;
     height: 100%;

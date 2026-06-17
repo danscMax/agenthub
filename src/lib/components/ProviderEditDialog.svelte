@@ -3,6 +3,7 @@
   import { readEngineModels } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
+  import Select from './Select.svelte';
 
   let {
     open,
@@ -57,6 +58,12 @@
     if (eng?.id === 'lmstudio' && !keepToken && !token.trim()) token = 'lmstudio';
   }
   const isCustomUrl = $derived(!!baseUrl && !engines.some((e) => e.baseUrl === baseUrl));
+  const presetOptions = $derived([
+    ...engines
+      .filter((e) => e.protocol === 'anthropic' && e.baseUrl)
+      .map((e) => ({ value: e.baseUrl, label: `${e.name} (${e.baseUrl})` })),
+    ...(isCustomUrl ? [{ value: baseUrl, label: t('providers.presetCustom', { url: baseUrl }) }] : [])
+  ]);
   // Soft URL check (same pattern as ProfilesTab's host parsing): block obviously malformed
   // baseUrls from reaching the backend, not just empty ones.
   function isValidUrl(s: string): boolean {
@@ -102,18 +109,10 @@
     <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
       <h3>{t('providers.dialogTitle', { name: profileName })}</h3>
 
-      <label class="fld">
+      <div class="fld">
         <span>{t('providers.presetLabel')}</span>
-        <select class="sw-input" bind:value={baseUrl} onchange={onPresetChange} title={t('providers.presetSelectTip')}>
-          <option value="" disabled>{t('providers.presetPlaceholder')}</option>
-          {#each engines.filter((e) => e.protocol === 'anthropic') as e (e.id)}
-            <option value={e.baseUrl}>{e.name} ({e.baseUrl})</option>
-          {/each}
-          {#if isCustomUrl}
-            <option value={baseUrl}>{t('providers.presetCustom', { url: baseUrl })}</option>
-          {/if}
-        </select>
-      </label>
+        <Select bind:value={baseUrl} options={presetOptions} placeholder={t('providers.presetPlaceholder')} onChange={onPresetChange} />
+      </div>
       <p class="-mt-2 mb-sw-3 text-sw-xs text-sw-text-muted">
         {t('providers.presetHint')}
       </p>

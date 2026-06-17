@@ -2,6 +2,7 @@
   import type { EngineStatus } from '$lib/ipc';
   import { readEngineModels } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import Select from './Select.svelte';
 
   let {
     open,
@@ -58,6 +59,10 @@
   // opencode is OpenAI-native → offered as a target only for openai-compatible engines.
   const allowOpencode = $derived(!!engine && engine.protocol === 'openai');
   const isOpencode = $derived(profile === OPENCODE);
+  const profileOptions = $derived([
+    ...(allowOpencode ? [{ value: OPENCODE, label: t('providers.rcOpencodeTarget') }] : []),
+    ...profiles.map((p) => ({ value: p, label: p }))
+  ]);
 </script>
 
 <svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
@@ -89,13 +94,10 @@
         </datalist>
       </label>
 
-      <label class="fld">
+      <div class="fld">
         <span>{t('providers.rcProfileLabel')}</span>
-        <select class="sw-input" bind:value={profile} title={t('providers.rcProfileSelectTip')}>
-          {#if allowOpencode}<option value={OPENCODE}>{t('providers.rcOpencodeTarget')}</option>{/if}
-          {#each profiles as p (p)}<option value={p}>{p}</option>{/each}
-        </select>
-      </label>
+        <Select bind:value={profile} options={profileOptions} placeholder={t('providers.rcProfileLabel')} />
+      </div>
 
       {#if isOpencode}
         <label class="fld">
