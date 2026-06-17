@@ -8,6 +8,13 @@ export default {
   autostartOff: 'Autostart disabled',
   saved: 'Saved',
 
+  // View
+  view: 'View',
+  density: 'Density',
+  densityComfortable: 'Comfortable',
+  densityCompact: 'Compact',
+  fullWidth: 'Full-width content',
+  fullWidthDesc: 'Don’t cap content at 1600px (for wide screens)',
   // Theme
   theme: 'Theme',
   themeDesc: 'Interface appearance',

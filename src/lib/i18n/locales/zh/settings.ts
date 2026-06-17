@@ -8,6 +8,13 @@ export default {
   autostartOff: '已禁用开机自启',
   saved: '已保存',
 
+  // View
+  view: '视图',
+  density: '密度',
+  densityComfortable: '宽松',
+  densityCompact: '紧凑',
+  fullWidth: '内容全宽',
+  fullWidthDesc: '不限制 1600px 宽度（适合宽屏）',
   // Theme
   theme: '主题',
   themeDesc: '界面外观',

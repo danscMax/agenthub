@@ -14,7 +14,21 @@
   import type { Theme } from '$lib/theme';
   import { t, locale, getLocaleName, type Locale } from '$lib/i18n';
 
-  let { theme, onSetTheme }: { theme: Theme; onSetTheme: (th: Theme) => void } = $props();
+  let {
+    theme,
+    onSetTheme,
+    density = 'comfortable',
+    fullWidth = false,
+    onSetDensity,
+    onSetFullWidth
+  }: {
+    theme: Theme;
+    onSetTheme: (th: Theme) => void;
+    density?: 'comfortable' | 'compact';
+    fullWidth?: boolean;
+    onSetDensity?: (d: 'comfortable' | 'compact') => void;
+    onSetFullWidth?: (v: boolean) => void;
+  } = $props();
 
   let cfg = $state<HubConfig>({});
   let scriptsRoot = $state('');
@@ -103,6 +117,26 @@
         <button class="sw-btn {theme === 'light' ? 'sw-btn-primary' : 'sw-btn-ghost'}"
           onclick={() => onSetTheme('light')} title={t('settings.themeLightTip')}>{t('settings.themeLight')}</button>
       </div>
+    </div>
+
+    <!-- View: density + content width -->
+    <div class="sw-card flex flex-col gap-sw-3">
+      <div class="font-medium">{t('settings.view')}</div>
+      <div class="flex items-center justify-between gap-sw-4">
+        <div class="text-sw-sm text-sw-text-secondary">{t('settings.density')}</div>
+        <div class="flex gap-sw-2">
+          <button class="sw-btn {density === 'comfortable' ? 'sw-btn-primary' : 'sw-btn-ghost'}"
+            onclick={() => onSetDensity?.('comfortable')}>{t('settings.densityComfortable')}</button>
+          <button class="sw-btn {density === 'compact' ? 'sw-btn-primary' : 'sw-btn-ghost'}"
+            onclick={() => onSetDensity?.('compact')}>{t('settings.densityCompact')}</button>
+        </div>
+      </div>
+      <label class="flex items-center justify-between gap-sw-4">
+        <span class="text-sw-sm">{t('settings.fullWidth')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.fullWidthDesc')}</span>
+        </span>
+        <input type="checkbox" checked={fullWidth} onchange={(e) => onSetFullWidth?.(e.currentTarget.checked)} />
+      </label>
     </div>
 
     <!-- Language -->

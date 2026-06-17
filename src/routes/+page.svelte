@@ -987,8 +987,34 @@
     applyTheme(th);
   }
 
+  // View prefs (UI-only, persisted in localStorage): compact density + full-width content.
+  let density = $state<'comfortable' | 'compact'>('comfortable');
+  let fullWidth = $state(false);
+  function setDensity(d: 'comfortable' | 'compact') {
+    density = d;
+    try {
+      localStorage.setItem('cmh-density', d);
+    } catch {
+      /* ignore */
+    }
+  }
+  function setFullWidth(v: boolean) {
+    fullWidth = v;
+    try {
+      localStorage.setItem('cmh-fullwidth', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
   onMount(async () => {
     theme = getTheme();
+    try {
+      if (localStorage.getItem('cmh-density') === 'compact') density = 'compact';
+      fullWidth = localStorage.getItem('cmh-fullwidth') === '1';
+    } catch {
+      /* ignore */
+    }
     try {
       components = await listComponents();
       await Promise.all(components.map(loadStatus));
@@ -1150,12 +1176,12 @@
 
 </script>
 
-<div class="flex h-full overflow-hidden">
+<div class="flex h-full overflow-hidden" class:dense={density === 'compact'}>
   <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading} />
 
   <div class="flex min-w-0 flex-1 flex-col">
     <main class="relative min-h-0 flex-1 overflow-auto">
-      <div class="relative mx-auto w-full max-w-[1600px]">
+      <div class="relative mx-auto w-full {fullWidth ? '' : 'max-w-[1600px]'}">
       {#if loadError}
         <div class="m-sw-6 sw-card text-red-400">{t('page.load_error', { e: loadError })}</div>
       {/if}
@@ -1246,7 +1272,7 @@
       {:else if active === 'schedule'}
         <ScheduleTab data={schedulesData} {running} onAction={onScheduleAction} onRefresh={reloadSchedules} />
       {:else if active === 'settings'}
-        <SettingsTab {theme} onSetTheme={setTheme} />
+        <SettingsTab {theme} onSetTheme={setTheme} {density} {fullWidth} onSetDensity={setDensity} onSetFullWidth={setFullWidth} />
       {:else if active !== 'sessions'}
         <div class="grid h-full place-items-center p-sw-6 text-center text-sw-text-muted">
           <div>

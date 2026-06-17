@@ -43,6 +43,14 @@
   --sw-radius-lg: 0.75rem;
 }
 
+/* Compact density: shrink the spacing scale → tighter padding/margins/gaps everywhere at once. */
+.dense {
+  --sw-space-3: 0.5rem;
+  --sw-space-4: 0.625rem;
+  --sw-space-6: 0.875rem;
+  --sw-space-8: 1.25rem;
+}
+
 .light {
   color-scheme: light;
   --sw-bg-primary: #f8fafc;

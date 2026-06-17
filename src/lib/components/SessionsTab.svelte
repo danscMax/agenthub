@@ -217,17 +217,17 @@
 
   <!-- Launcher: quick-launch a profile (Claude), or open the dialog for tool/folder/args -->
   <div class="launcher">
-    <label class="cwd">
+    <div class="cwd">
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwdDefault')}</span>
-      <div class="flex items-center gap-sw-2">
+      <div class="flex items-center gap-sw-3">
         <input class="sw-input text-sw-xs" style="flex:1;min-width:0" bind:value={cwd} placeholder={t('sessions.cwdShort')} spellcheck="false" />
         <button class="sw-btn shrink-0" onclick={browseMain} title={t('sessions.browse')}>📁 {t('sessions.browse')}</button>
+        <label class="ask shrink-0" title={t('sessions.askFolderTip')}>
+          <Toggle bind:checked={askFolder} />
+          <span class="whitespace-nowrap text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
+        </label>
       </div>
-      <label class="ask">
-        <Toggle bind:checked={askFolder} title={t('sessions.askFolderTip')} />
-        <span class="text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
-      </label>
-    </label>
+    </div>
     <div class="profiles">
       <button class="sw-btn sw-btn-primary text-sw-xs" onclick={() => openDlg()} title={t('sessions.newSessionTip')}>
         + {t('sessions.newSession')}
@@ -377,7 +377,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 6px;
     cursor: pointer;
   }
   .cwd {

@@ -8,6 +8,13 @@ export default {
   autostartOff: 'Автозапуск выключен',
   saved: 'Сохранено',
 
+  // View
+  view: 'Вид',
+  density: 'Плотность',
+  densityComfortable: 'Просторно',
+  densityCompact: 'Компактно',
+  fullWidth: 'Контент на всю ширину',
+  fullWidthDesc: 'Не ограничивать ширину 1600px (для широких экранов)',
   // Theme
   theme: 'Тема',
   themeDesc: 'Оформление интерфейса',
