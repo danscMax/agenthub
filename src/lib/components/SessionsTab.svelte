@@ -11,7 +11,18 @@
 
   const MAX_PANES = 12; // each pane is a pwsh+tool process — cap to keep the machine responsive
 
-  let { profiles = [], visible = true }: { profiles?: string[]; visible?: boolean } = $props();
+  let {
+    profiles = [],
+    visible = true,
+    folderReq = null,
+    onFolderReqConsumed
+  }: {
+    profiles?: string[];
+    visible?: boolean;
+    // Deep-link from another tab: when set, open the launch dialog prefilled with this folder.
+    folderReq?: string | null;
+    onFolderReqConsumed?: () => void;
+  } = $props();
 
   type Pane = { key: string; profile: string; tool: SessionTool; cwd: string; args: string; name?: string };
   function renamePane(key: string, name: string) {
@@ -294,10 +305,20 @@
   // Launch dialog (tool / profile / folder / args).
   let dlgOpen = $state(false);
   let dlgProfile = $state('');
-  function openDlg(profile = '') {
+  let dlgCwd = $state(''); // folder seeded into the dialog (a deep-link folder, else the default)
+  function openDlg(profile = '', folder?: string) {
     dlgProfile = profile;
+    dlgCwd = folder ?? cwd;
     dlgOpen = true;
   }
+  // Deep-link (e.g. from a fork card's "Terminal"): open the launcher prefilled with that repo folder.
+  $effect(() => {
+    const f = folderReq;
+    if (f != null) {
+      openDlg('', f);
+      onFolderReqConsumed?.();
+    }
+  });
   function onDlgSubmit(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
     dlgOpen = false;
     addPane(v);
@@ -611,7 +632,7 @@
     open={dlgOpen}
     {profiles}
     defaultProfile={dlgProfile}
-    defaultCwd={cwd}
+    defaultCwd={dlgCwd}
     {defaultArgs}
     onSubmit={onDlgSubmit}
     onCancel={() => (dlgOpen = false)}

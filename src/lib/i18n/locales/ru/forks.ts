@@ -165,8 +165,10 @@ export default {
   recommended: 'Рекомендуется:',
   terminal: 'Терминал',
   terminalTip:
-    'Открыть терминал в каталоге репозитория (там можно запустить claude и работать вручную)',
-  moreActionsTip: 'Ещё действия с форком',
+    'Открыть сессию в папке репозитория: выбор инструмента (Claude / opencode / shell) и профиля (= провайдера)',
+  externalTerminal: 'Внешний терминал (cmd)',
+  externalTerminalTip: 'Открыть обычный системный cmd в папке репозитория (для ручных git-операций)',
+  moreActionsTip: 'Ещё действия',
   actionFf: 'Подтянуть из upstream',
   actionDelete: 'Удалить влитые ветки',
   actionRebase: 'Перебазировать на upstream',

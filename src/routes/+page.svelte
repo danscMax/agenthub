@@ -304,6 +304,13 @@
     });
   }
 
+  // Deep-link a folder (e.g. a fork repo) into the Sessions launcher: switch tabs, seed the dialog.
+  let sessionFolderReq = $state<string | null>(null);
+  function openSessionFor(path: string) {
+    active = 'sessions';
+    sessionFolderReq = path;
+  }
+
   function onForkAction(action: ForkAction, path?: string, label?: string) {
     if (path) {
       // Per-repo mutation -> confirm, then run CONCURRENTLY (each repo independent).
@@ -1275,7 +1282,7 @@
       {#if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} {onBatchFf} {onOpenUrl} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
       {:else if active === 'profiles'}
@@ -1361,7 +1368,7 @@
       <!-- Sessions tab is full-bleed and stays MOUNTED (display-toggled), so running
            terminals survive switching to another tab. -->
       <div class="absolute inset-0 {active === 'sessions' ? '' : 'hidden'}">
-        <SessionsTab visible={active === 'sessions'} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
+        <SessionsTab visible={active === 'sessions'} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} folderReq={sessionFolderReq} onFolderReqConsumed={() => (sessionFolderReq = null)} />
       </div>
     </main>
 

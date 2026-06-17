@@ -12,7 +12,8 @@
     onAction,
     onCancelFork,
     onBatchFf,
-    onOpenUrl
+    onOpenUrl,
+    onOpenSession
   }: {
     status: ForkStatus | null | undefined;
     githubRepos?: GithubRepo[];
@@ -22,6 +23,7 @@
     onCancelFork?: (path: string) => void;
     onBatchFf: (names: string[]) => void;
     onOpenUrl?: (url: string) => void;
+    onOpenSession?: (path: string) => void;
   } = $props();
 
   const anyRunning = $derived(!!running);
@@ -205,6 +207,7 @@
           run={forkRuns[repo.Path]}
           onAction={(a, p, l) => onAction(a, p, l)}
           onCancel={() => onCancelFork?.(repo.Path)}
+          {onOpenSession}
         />
       {/each}
     </div>

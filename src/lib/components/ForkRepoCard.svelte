@@ -9,13 +9,15 @@
     anyRunning,
     run,
     onAction,
-    onCancel
+    onCancel,
+    onOpenSession
   }: {
     repo: ForkRepo;
     anyRunning: boolean;
     run?: { line: string; running: boolean; code: number | null };
     onAction: (action: ForkAction, path: string, label: string) => void;
     onCancel?: () => void;
+    onOpenSession?: (path: string) => void;
   } = $props();
 
   let open = $state(false);
@@ -108,7 +110,7 @@
   // Single recommended next action for this repo (the "what do I do now" answer).
   const rec = $derived.by(() => {
     if (repo.midOp || repo.detached)
-      return { key: 'manual', plain: t('forks.recManualPlain'), label: t('forks.recManualLabel'), tip: t('forks.recManualTip'), run: () => openTerminal(repo.Path), disabled: false };
+      return { key: 'manual', plain: t('forks.recManualPlain'), label: t('forks.recManualLabel'), tip: t('forks.recManualTip'), run: () => onOpenSession?.(repo.Path), disabled: false };
     if (conflictBranches.length)
       return { key: 'conflict', plain: t('forks.recConflictPlain'), label: copied ? t('forks.recConflictCopied') : t('forks.recConflictLabel'), tip: t('forks.recConflictTip'), run: copyPrompt, disabled: false };
     if (!repo.isOwn && canFf)
@@ -254,23 +256,26 @@
           </button>
         {/if}
         {#if rec?.key !== 'manual'}
-          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openTerminal(repo.Path)}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenSession?.(repo.Path)}
             title={t('forks.terminalTip')}>
             {t('forks.terminal')}
           </button>
         {/if}
-        {#if !repo.isOwn}
-          <DropdownMenu
-            title={t('forks.moreActionsTip')}
-            items={[
-              { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || busy || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
-              { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || busy || !canDelete, danger: true, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
-              { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || busy || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
-              { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || busy || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
-              { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || busy || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }
-            ]}
-          />
-        {/if}
+        <DropdownMenu
+          title={t('forks.moreActionsTip')}
+          items={[
+            { label: t('forks.externalTerminal'), title: t('forks.externalTerminalTip'), onClick: () => openTerminal(repo.Path) },
+            ...(repo.isOwn
+              ? []
+              : [
+                  { label: t('forks.actionFf'), title: ffTip(), disabled: anyRunning || busy || !canFf, onClick: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })) },
+                  { label: t('forks.actionDelete'), title: delTip, disabled: anyRunning || busy || !canDelete, danger: true, onClick: () => onAction('delete', repo.Path, t('forks.labelDelete', { name: repo.Name })) },
+                  { label: t('forks.actionRebase'), title: rebaseTip, disabled: anyRunning || busy || !canRebase, onClick: () => onAction('rebase', repo.Path, t('forks.labelRebase', { name: repo.Name })) },
+                  { label: t('forks.actionSyncWip'), title: syncWipTip, disabled: anyRunning || busy || !canSyncWip, onClick: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })) },
+                  { label: t('forks.actionNormalize'), title: normTip, disabled: anyRunning || busy || !canNormalize, onClick: () => onAction('normalize', repo.Path, t('forks.labelNormalize', { name: repo.Name })) }
+                ])
+          ]}
+        />
       </div>
       {#if run}
         <div class="flex items-center gap-sw-2 text-sw-xs">

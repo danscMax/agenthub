@@ -157,8 +157,10 @@ export default {
   // ── ForkRepoCard: action row ──
   recommended: '建议：',
   terminal: '终端',
-  terminalTip: '在仓库目录中打开终端（可在那里运行 claude 并手动操作）',
-  moreActionsTip: '更多分叉操作',
+  terminalTip: '在仓库目录中打开会话：选择工具（Claude / opencode / shell）和配置（= 提供商）',
+  externalTerminal: '外部终端 (cmd)',
+  externalTerminalTip: '在仓库目录中打开普通系统 cmd（用于手动 git 操作）',
+  moreActionsTip: '更多操作',
   actionFf: '从上游拉取',
   actionDelete: '删除已合入的分支',
   actionRebase: '变基到上游',

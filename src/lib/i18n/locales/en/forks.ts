@@ -164,8 +164,11 @@ export default {
   // ── ForkRepoCard: action row ──
   recommended: 'Recommended:',
   terminal: 'Terminal',
-  terminalTip: 'Open a terminal in the repository directory (run claude there and work manually)',
-  moreActionsTip: 'More fork actions',
+  terminalTip:
+    'Open a session in the repo folder: pick the tool (Claude / opencode / shell) and profile (= provider)',
+  externalTerminal: 'External terminal (cmd)',
+  externalTerminalTip: 'Open a plain system cmd in the repo folder (for manual git operations)',
+  moreActionsTip: 'More actions',
   actionFf: 'Pull from upstream',
   actionDelete: 'Delete merged branches',
   actionRebase: 'Rebase onto upstream',
