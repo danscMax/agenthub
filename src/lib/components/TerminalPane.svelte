@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
+  import { SearchAddon } from '@xterm/addon-search';
+  import { WebglAddon } from '@xterm/addon-webgl';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import '@xterm/xterm/css/xterm.css';
   import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
@@ -46,11 +48,45 @@
   let host: HTMLDivElement;
   let term: Terminal | undefined;
   let fit: FitAddon | undefined;
+  let search: SearchAddon | undefined;
   let id = $state<string | null>(null);
   let exited = $state(false);
   let error = $state('');
   let unlisteners: UnlistenFn[] = [];
   let ro: ResizeObserver | undefined;
+
+  // In-terminal find (Ctrl+F).
+  let searchOpen = $state(false);
+  let searchInput: HTMLInputElement | undefined = $state();
+  let query = $state('');
+
+  async function copySelection() {
+    const sel = term?.getSelection();
+    if (sel) {
+      try {
+        await navigator.clipboard.writeText(sel);
+      } catch {
+        /* clipboard blocked */
+      }
+    }
+  }
+  async function paste() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && id && !exited) sessionWrite(id, text);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+  function openSearch() {
+    searchOpen = true;
+    queueMicrotask(() => searchInput?.focus());
+  }
+  function runSearch(next: boolean) {
+    if (!query) return;
+    if (next) search?.findNext(query);
+    else search?.findPrevious(query);
+  }
 
   // The PTY frames are base64 (binary-safe across multibyte/ANSI). Decode to bytes for xterm.
   function b64ToBytes(b64: string): Uint8Array {
@@ -149,9 +185,37 @@
     fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    // GPU renderer for smooth output across many panes; fall back to canvas if the context drops.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      /* WebGL unavailable → xterm uses its default renderer */
+    }
+    search = new SearchAddon();
+    term.loadAddon(search);
     // Keystrokes read `id`/`exited` live, so this single handler survives a relaunch.
     term.onData((d) => {
       if (id && !exited) sessionWrite(id, d);
+    });
+    // Copy (Ctrl+Shift+C), paste (Ctrl+Shift+V), find (Ctrl+F) — return false so xterm/PTY don't
+    // also receive the chord (plain Ctrl+C stays SIGINT).
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+        copySelection();
+        return false;
+      }
+      if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+        paste();
+        return false;
+      }
+      if (e.ctrlKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+        openSearch();
+        return false;
+      }
+      return true;
     });
     ro = new ResizeObserver(() => refit());
     ro.observe(host);
@@ -207,6 +271,7 @@
     {#if exited}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
+    <button class="x" onclick={openSearch} title={t('sessions.find')} aria-label={t('sessions.find')}>🔍</button>
     <button class="x" onclick={() => zoom(-1)} title={t('sessions.zoomOut')} aria-label={t('sessions.zoomOut')}>A−</button>
     <button class="x" onclick={() => zoom(1)} title={t('sessions.zoomIn')} aria-label={t('sessions.zoomIn')}>A+</button>
     {#if onDuplicate}
@@ -219,12 +284,32 @@
     {/if}
     <button class="x" onclick={onClose} title={t('sessions.closePane')} aria-label={t('sessions.closePane')}>✕</button>
   </div>
+  {#if searchOpen}
+    <div class="find">
+      <input
+        bind:this={searchInput}
+        bind:value={query}
+        class="sw-input text-sw-xs"
+        placeholder={t('sessions.findPlaceholder')}
+        spellcheck="false"
+        oninput={() => runSearch(true)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') runSearch(!e.shiftKey);
+          else if (e.key === 'Escape') searchOpen = false;
+        }}
+      />
+      <button class="x" onclick={() => runSearch(false)} title={t('sessions.findPrev')} aria-label={t('sessions.findPrev')}>↑</button>
+      <button class="x" onclick={() => runSearch(true)} title={t('sessions.findNext')} aria-label={t('sessions.findNext')}>↓</button>
+      <button class="x" onclick={() => (searchOpen = false)} aria-label={t('sessions.closePane')}>✕</button>
+    </div>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="term" bind:this={host} onwheel={onWheel}></div>
+  <div class="term" bind:this={host} onwheel={onWheel} oncontextmenu={(e) => { e.preventDefault(); paste(); }}></div>
 </div>
 
 <style>
   .pane {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -253,6 +338,23 @@
     padding: 0 6px;
     color: var(--sw-accent-text);
     font-size: 11px;
+  }
+  .find {
+    position: absolute;
+    top: 34px;
+    right: 8px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-md);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+  .find input {
+    width: 160px;
   }
   .dot {
     width: 8px;
