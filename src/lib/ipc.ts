@@ -272,6 +272,8 @@ export const pickFolder = async (defaultPath?: string): Promise<string | null> =
   const res = await openDialog({ directory: true, multiple: false, defaultPath: defaultPath || undefined });
   return typeof res === 'string' ? res : null;
 };
+// Immediate subfolders of a path (for the projects-root quick-pick).
+export const listSubdirs = (path: string) => invoke<string[]>('list_subdirs', { path });
 
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {

@@ -3373,6 +3373,27 @@ fn session_kill(state: State<'_, SessionState>, id: String) -> Result<(), String
     Ok(())
 }
 
+/// Immediate subdirectories of `path` (full paths, sorted, hidden/dot dirs skipped) — powers the
+/// "projects root" quick-pick in the session launcher. Read-only; empty on any error.
+#[tauri::command]
+fn list_subdirs(path: String) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&path) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if let Some(name) = e.file_name().to_str() {
+                    if !name.starts_with('.') {
+                        out.push(p.display().to_string());
+                    }
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -3418,6 +3439,7 @@ pub fn run() {
             session_write,
             session_resize,
             session_kill,
+            list_subdirs,
             read_freellmapi_analytics,
             read_providers,
             run_provider,

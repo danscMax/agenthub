@@ -1,7 +1,8 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
-  import { pickFolder, type SessionTool } from '$lib/ipc';
+  import { type SessionTool } from '$lib/ipc';
   import Select from './Select.svelte';
+  import FolderField from './FolderField.svelte';
 
   let {
     open,
@@ -43,11 +44,6 @@
   });
 
   const canSubmit = $derived(tool !== 'claude' || !!profile);
-
-  async function browse() {
-    const dir = await pickFolder(cwd);
-    if (dir) cwd = dir;
-  }
 
   // Common launch flags as one-click chips; clicking toggles the exact flag in the args string.
   const PRESETS: Record<string, string[]> = {
@@ -99,12 +95,7 @@
 
       <div class="fld">
         <span class="lbl">{t('sessions.cwd')}</span>
-        <div class="row-input">
-          <input class="sw-input grow" bind:value={cwd} placeholder={t('sessions.cwdShort')} spellcheck="false" autocomplete="off" />
-          <button type="button" class="sw-btn shrink-0" onclick={browse} title={t('sessions.browse')}>
-            📁 {t('sessions.browse')}
-          </button>
-        </div>
+        <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
       </div>
 
       {#if tool !== 'shell'}
@@ -162,11 +153,6 @@
     margin-bottom: 6px;
     font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
-  }
-  .row-input {
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
   .grow {
     flex: 1;

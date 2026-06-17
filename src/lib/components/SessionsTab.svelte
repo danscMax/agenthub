@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import TerminalPane from './TerminalPane.svelte';
   import SessionLaunchDialog from './SessionLaunchDialog.svelte';
+  import FolderField from './FolderField.svelte';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
   import { pickFolder, sessionWrite, type SessionTool } from '$lib/ipc';
@@ -70,11 +71,22 @@
   }
 
   const atLimit = $derived(panes.length >= MAX_PANES);
+  function rememberRecent(folder: string) {
+    if (!folder) return;
+    try {
+      const prev: string[] = JSON.parse(localStorage.getItem('cmh-recent-folders') ?? '[]');
+      const next = [folder, ...prev.filter((f) => f !== folder)].slice(0, 12);
+      localStorage.setItem('cmh-recent-folders', JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  }
   function addPane(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
     if (atLimit) return;
     const key = `${v.tool}:${v.profile || 'sh'}#${seq++}`;
     panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args }];
     if (v.tool === 'claude') rememberFolder(v.profile, v.cwd);
+    rememberRecent(v.cwd);
   }
   $effect(() => {
     try {
@@ -195,10 +207,6 @@
     dlgOpen = false;
     addPane(v);
   }
-  async function browseMain() {
-    const dir = await pickFolder(cwd);
-    if (dir) cwd = dir;
-  }
 
   function duplicate(key: string) {
     const p = panes.find((x) => x.key === key);
@@ -302,8 +310,7 @@
     <div class="cwd">
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwdDefault')}</span>
       <div class="flex items-center gap-sw-3">
-        <input class="sw-input text-sw-xs" style="flex:1;min-width:0" bind:value={cwd} placeholder={t('sessions.cwdShort')} spellcheck="false" />
-        <button class="sw-btn shrink-0" onclick={browseMain} title={t('sessions.browse')}>📁 {t('sessions.browse')}</button>
+        <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
         <label class="ask shrink-0" title={t('sessions.askFolderTip')}>
           <Toggle bind:checked={askFolder} />
           <span class="whitespace-nowrap text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
