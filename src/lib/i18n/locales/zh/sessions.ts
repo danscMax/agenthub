@@ -14,6 +14,8 @@ export default {
   emptyHint: '在上方选择一个配置 — 终端会打开并已运行 claude。',
   paneTitle: '配置「{profile}」的终端',
   closePane: '关闭终端',
+  maximize: '最大化到全屏',
+  restore: '还原到网格',
   spawnError: '启动错误：{e}',
   ended: '[会话已结束]'
 };

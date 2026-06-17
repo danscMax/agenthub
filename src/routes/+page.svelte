@@ -1154,7 +1154,7 @@
   <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading} />
 
   <div class="flex min-w-0 flex-1 flex-col">
-    <main class="min-h-0 flex-1 overflow-auto">
+    <main class="relative min-h-0 flex-1 overflow-auto">
       <div class="relative mx-auto w-full max-w-[1600px]">
       {#if loadError}
         <div class="m-sw-6 sw-card text-red-400">{t('page.load_error', { e: loadError })}</div>
@@ -1230,8 +1230,6 @@
           }}
           {onOpenUrl}
         />
-      {:else if active === 'sessions'}
-        <SessionsTab profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       {:else if active === 'analytics'}
         <AnalyticsTab />
       {:else if active === 'extensions'}
@@ -1249,7 +1247,7 @@
         <ScheduleTab data={schedulesData} {running} onAction={onScheduleAction} onRefresh={reloadSchedules} />
       {:else if active === 'settings'}
         <SettingsTab {theme} onSetTheme={setTheme} />
-      {:else}
+      {:else if active !== 'sessions'}
         <div class="grid h-full place-items-center p-sw-6 text-center text-sw-text-muted">
           <div>
             <div class="mb-sw-2 text-2xl">🛠</div>
@@ -1259,6 +1257,12 @@
         </div>
       {/if}
       </div>
+      </div>
+
+      <!-- Sessions tab is full-bleed and stays MOUNTED (display-toggled), so running
+           terminals survive switching to another tab. -->
+      <div class="absolute inset-0 {active === 'sessions' ? '' : 'hidden'}">
+        <SessionsTab visible={active === 'sessions'} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       </div>
     </main>
 

@@ -14,6 +14,8 @@ export default {
   emptyHint: 'Pick a profile above — a terminal opens with claude already running.',
   paneTitle: 'Terminal for profile “{profile}”',
   closePane: 'Close terminal',
+  maximize: 'Maximize to full screen',
+  restore: 'Restore into the grid',
   spawnError: 'Launch error: {e}',
   ended: '[session ended]'
 };

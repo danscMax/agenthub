@@ -2,7 +2,7 @@
   import TerminalPane from './TerminalPane.svelte';
   import { t } from '$lib/i18n';
 
-  let { profiles = [] }: { profiles?: string[] } = $props();
+  let { profiles = [], visible = true }: { profiles?: string[]; visible?: boolean } = $props();
 
   // Each pane is an independent terminal; the key (not the profile) identifies it, so the same
   // profile can run in several panes at once.
@@ -10,6 +10,7 @@
   let seq = 0;
   let columns = $state(2);
   let cwd = $state('');
+  let maximized = $state<string | null>(null); // key of the pane shown full-screen, or null
 
   function launch(profile: string) {
     panes = [...panes, { key: `${profile}#${seq++}`, profile }];
@@ -19,10 +20,17 @@
   }
   function closePane(key: string) {
     panes = panes.filter((p) => p.key !== key);
+    if (maximized === key) maximized = null;
   }
   function closeAll() {
     panes = [];
+    maximized = null;
   }
+  function toggleMax(key: string) {
+    maximized = maximized === key ? null : key;
+  }
+  // When maximized, render only that pane; otherwise the whole grid.
+  const shown = $derived(maximized ? panes.filter((p) => p.key === maximized) : panes);
 </script>
 
 <div class="wrap">
@@ -66,9 +74,16 @@
   </div>
 
   {#if panes.length}
-    <div class="grid" style="grid-template-columns: repeat({columns}, minmax(0, 1fr));">
-      {#each panes as pane (pane.key)}
-        <TerminalPane profile={pane.profile} cwd={cwd || undefined} onClose={() => closePane(pane.key)} />
+    <div class="grid" style="grid-template-columns: repeat({maximized ? 1 : columns}, minmax(0, 1fr));">
+      {#each shown as pane (pane.key)}
+        <TerminalPane
+          profile={pane.profile}
+          cwd={cwd || undefined}
+          {visible}
+          maximized={maximized === pane.key}
+          onClose={() => closePane(pane.key)}
+          onToggleMax={() => toggleMax(pane.key)}
+        />
       {/each}
     </div>
   {:else}
@@ -114,7 +129,9 @@
     gap: var(--sw-space-3);
     flex: 1;
     min-height: 0;
-    align-content: start;
+    /* Rows share the available height (so panes fill the page); they only scroll once
+       there are too many to fit at a sensible minimum height. */
+    grid-auto-rows: minmax(220px, 1fr);
     overflow-y: auto;
     padding-bottom: var(--sw-space-2);
   }

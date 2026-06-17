@@ -10,8 +10,18 @@
   let {
     profile,
     cwd = undefined,
-    onClose
-  }: { profile: string; cwd?: string; onClose: () => void } = $props();
+    visible = true,
+    maximized = false,
+    onClose,
+    onToggleMax
+  }: {
+    profile: string;
+    cwd?: string;
+    visible?: boolean;
+    maximized?: boolean;
+    onClose: () => void;
+    onToggleMax?: () => void;
+  } = $props();
 
   let host: HTMLDivElement;
   let term: Terminal | undefined;
@@ -83,6 +93,23 @@
     if (id) sessionKill(id);
     term?.dispose();
   });
+
+  // A hidden pane (other tab active, or another pane maximized) has zero size; when it becomes
+  // visible again, re-fit and push the real dimensions to the PTY so the TUI reflows correctly.
+  $effect(() => {
+    visible;
+    maximized;
+    if (term && fit && visible) {
+      requestAnimationFrame(() => {
+        try {
+          fit!.fit();
+          if (id) sessionResize(id, term!.cols, term!.rows);
+        } catch {
+          /* layout not settled yet */
+        }
+      });
+    }
+  });
 </script>
 
 <div class="pane">
@@ -90,6 +117,11 @@
     <span class="dot" class:dead={exited} class:err={!!error}></span>
     <span class="name" title={t('sessions.paneTitle', { profile })}>{profile}</span>
     <span class="spacer"></span>
+    {#if onToggleMax}
+      <button class="x" onclick={onToggleMax}
+        title={maximized ? t('sessions.restore') : t('sessions.maximize')}
+        aria-label={maximized ? t('sessions.restore') : t('sessions.maximize')}>{maximized ? '⤡' : '⤢'}</button>
+    {/if}
     <button class="x" onclick={onClose} title={t('sessions.closePane')} aria-label={t('sessions.closePane')}>✕</button>
   </div>
   <div class="term" bind:this={host}></div>
@@ -99,7 +131,8 @@
   .pane {
     display: flex;
     flex-direction: column;
-    min-height: 320px;
+    height: 100%;
+    min-height: 0;
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-md);
     overflow: hidden;
