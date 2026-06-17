@@ -4,7 +4,9 @@
   import SessionLaunchDialog from './SessionLaunchDialog.svelte';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
-  import { pickFolder, type SessionTool } from '$lib/ipc';
+  import { pickFolder, sessionWrite, type SessionTool } from '$lib/ipc';
+
+  const MAX_PANES = 12; // each pane is a pwsh+tool process — cap to keep the machine responsive
 
   let { profiles = [], visible = true }: { profiles?: string[]; visible?: boolean } = $props();
 
@@ -56,7 +58,20 @@
     }
   }
 
+  // Broadcast: mirror keystrokes from any pane to every running session.
+  let broadcast = $state(false);
+  const sessionIds: Record<string, string> = {};
+  function onIdChange(key: string, id: string | null) {
+    if (id) sessionIds[key] = id;
+    else delete sessionIds[key];
+  }
+  function broadcastInput(data: string) {
+    for (const id of Object.values(sessionIds)) sessionWrite(id, data);
+  }
+
+  const atLimit = $derived(panes.length >= MAX_PANES);
   function addPane(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
+    if (atLimit) return;
     const key = `${v.tool}:${v.profile || 'sh'}#${seq++}`;
     panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args }];
     if (v.tool === 'claude') rememberFolder(v.profile, v.cwd);
@@ -181,6 +196,13 @@
       <p class="truncate text-sw-xs text-sw-text-muted">{t('sessions.subtitle')}</p>
     </div>
     <div class="flex shrink-0 items-center gap-sw-2">
+      {#if panes.length > 1}
+        <label class="flex cursor-pointer items-center gap-1" title={t('sessions.broadcastTip')}>
+          <Toggle bind:checked={broadcast} />
+          <span class="text-sw-xs" class:text-sw-text-primary={broadcast} class:text-sw-text-secondary={!broadcast}>{t('sessions.broadcast')}</span>
+        </label>
+        <span class="text-sw-text-muted">·</span>
+      {/if}
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.layout')}</span>
       {#each [1, 2, 3] as c (c)}
         <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={columns === c} onclick={() => (columns = c)}
@@ -233,6 +255,10 @@
     </div>
   </div>
 
+  {#if atLimit}
+    <p class="mb-sw-2 text-sw-xs" style="color:#f59e0b">{t('sessions.limitNote', { n: MAX_PANES })}</p>
+  {/if}
+
   <!-- Saved workspaces: one click re-opens the whole set of sessions -->
   {#if wsNames.length}
     <div class="workspaces">
@@ -259,6 +285,9 @@
           paneKey={pane.key}
           {visible}
           maximized={maximized === pane.key}
+          {broadcast}
+          onInput={broadcastInput}
+          {onIdChange}
           onClose={() => closePane(pane.key)}
           onToggleMax={() => toggleMax(pane.key)}
           onDuplicate={() => duplicate(pane.key)}

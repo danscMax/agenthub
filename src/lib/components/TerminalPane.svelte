@@ -17,12 +17,15 @@
     paneKey = '',
     visible = true,
     maximized = false,
+    broadcast = false,
     onClose,
     onToggleMax,
     onDuplicate,
     onDragStart,
     onDragEnter,
-    onDrop
+    onDrop,
+    onInput,
+    onIdChange
   }: {
     profile: string;
     tool?: SessionTool;
@@ -31,12 +34,15 @@
     paneKey?: string;
     visible?: boolean;
     maximized?: boolean;
+    broadcast?: boolean;
     onClose: () => void;
     onToggleMax?: () => void;
     onDuplicate?: () => void;
     onDragStart?: (key: string) => void;
     onDragEnter?: (key: string) => void;
     onDrop?: () => void;
+    onInput?: (data: string) => void;
+    onIdChange?: (key: string, id: string | null) => void;
   } = $props();
 
   // Pane title: tool + the profile (claude) or the folder it's running in (opencode/shell).
@@ -146,6 +152,7 @@
       term.writeln(`\r\n\x1b[31m${t('sessions.spawnError', { e: String(e) })}\x1b[0m`);
       return;
     }
+    onIdChange?.(paneKey, id);
     unlisteners.push(
       await listen<string>(`pty:data:${id}`, (ev) => term?.write(b64ToBytes(ev.payload)))
     );
@@ -195,8 +202,13 @@
     }
     search = new SearchAddon();
     term.loadAddon(search);
-    // Keystrokes read `id`/`exited` live, so this single handler survives a relaunch.
+    // Keystrokes read `id`/`exited` live, so this single handler survives a relaunch. With broadcast
+    // on, route input up to the tab so it's mirrored to every pane.
     term.onData((d) => {
+      if (broadcast && onInput) {
+        onInput(d);
+        return;
+      }
       if (id && !exited) sessionWrite(id, d);
     });
     // Copy (Ctrl+Shift+C), paste (Ctrl+Shift+V), find (Ctrl+F) — return false so xterm/PTY don't
@@ -226,6 +238,7 @@
     ro?.disconnect();
     unlisteners.forEach((u) => u());
     if (id) sessionKill(id);
+    onIdChange?.(paneKey, null);
     term?.dispose();
   });
 
