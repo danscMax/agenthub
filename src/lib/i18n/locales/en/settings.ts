@@ -74,5 +74,17 @@ export default {
   config: 'Config',
   app: 'Application',
   openScriptsFolder: 'Open scripts folder',
-  openScriptsFolderTip: 'Open the scripts folder in Explorer'
+  openScriptsFolderTip: 'Open the scripts folder in Explorer',
+  openConfigFile: 'Open config.json',
+  openConfigFileTip: 'Open the AgentHub settings file',
+  openStackFile: 'Open stack.json',
+  openStackFileTip: 'Open the LLM stack config',
+  backupSection: 'Settings backup',
+  backupSectionDesc: 'Export/import AgentHub settings (config.json) — to move to another PC',
+  exportConfig: 'Export settings',
+  exportTip: 'Save the current settings to a file',
+  importConfig: 'Import settings',
+  importTip: 'Load settings from a file (applied immediately)',
+  configExported: 'Settings exported',
+  configImported: 'Settings imported'
 };

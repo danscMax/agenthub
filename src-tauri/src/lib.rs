@@ -2835,11 +2835,29 @@ fn write_config(config: HubConfig) -> Result<(), String> {
 /// Resolved paths for the About section.
 #[tauri::command]
 fn app_paths() -> serde_json::Value {
+    let stack = abs(STACK_CONFIG_REL);
     serde_json::json!({
         "scriptsRoot": scripts_root(),
         "configPath": config_path(),
         "exe": std::env::current_exe().ok().map(|p| p.display().to_string()),
+        "stackPath": if std::path::Path::new(&stack).exists() { Some(stack) } else { None },
     })
+}
+
+/// Export the current AgentHub config to a user-chosen path (#117). Serializes HubConfig so the
+/// file is always valid even if config.json was never written.
+#[tauri::command]
+fn export_config(dest: String) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&read_config_file()).map_err(|e| e.to_string())?;
+    std::fs::write(&dest, json).map_err(|e| format!("запись: {e}"))
+}
+
+/// Read + validate a config file (#117); returns the parsed HubConfig (the frontend persists it
+/// via write_config). Invalid JSON / wrong shape → Err.
+#[tauri::command]
+fn import_config(src: String) -> Result<HubConfig, String> {
+    let text = std::fs::read_to_string(&src).map_err(|e| format!("чтение: {e}"))?;
+    serde_json::from_str::<HubConfig>(&text).map_err(|e| format!("неверный файл настроек: {e}"))
 }
 
 /// A profile's settings.json `env` block as (key, value) pairs. Claude Code (2.1+) applies its
@@ -3517,6 +3535,8 @@ pub fn run() {
             run_schedule,
             read_config,
             write_config,
+            export_config,
+            import_config,
             app_paths,
             open_path,
             open_terminal,

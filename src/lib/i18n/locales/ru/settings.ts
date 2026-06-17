@@ -74,5 +74,17 @@ export default {
   config: 'Конфиг',
   app: 'Приложение',
   openScriptsFolder: 'Открыть папку скриптов',
-  openScriptsFolderTip: 'Открыть папку скриптов в Проводнике'
+  openScriptsFolderTip: 'Открыть папку скриптов в Проводнике',
+  openConfigFile: 'Открыть config.json',
+  openConfigFileTip: 'Открыть файл настроек AgentHub',
+  openStackFile: 'Открыть stack.json',
+  openStackFileTip: 'Открыть конфиг LLM-стека',
+  backupSection: 'Резервная копия настроек',
+  backupSectionDesc: 'Экспорт/импорт настроек AgentHub (config.json) — для переноса на другой ПК',
+  exportConfig: 'Экспорт настроек',
+  exportTip: 'Сохранить текущие настройки в файл',
+  importConfig: 'Импорт настроек',
+  importTip: 'Загрузить настройки из файла (применятся сразу)',
+  configExported: 'Настройки экспортированы',
+  configImported: 'Настройки импортированы'
 };

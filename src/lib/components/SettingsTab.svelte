@@ -8,6 +8,10 @@
     openPath,
     getAutostart,
     setAutostart,
+    pickSaveFile,
+    pickOpenFile,
+    exportConfig,
+    importConfig,
     type HubConfig,
     type AppPaths
   } from '$lib/ipc';
@@ -57,14 +61,19 @@
   // Terminal scrollback cap (UI-only, localStorage; read per-pane by TerminalPane on open).
   let termScrollback = $state<number | ''>('');
 
+  // Apply config fields into the form state (reused on mount + after an import).
+  function loadConfigFields(c: HubConfig) {
+    cfg = c;
+    scriptsRoot = c.scriptsRoot ?? '';
+    fetchTimeout = c.fetchTimeoutSec ?? '';
+    ghTimeout = c.ghTimeoutSec ?? '';
+    startHidden = !!c.startHidden;
+    closeToTray = c.closeToTray ?? true;
+  }
+
   onMount(async () => {
     try {
-      cfg = await readConfig();
-      scriptsRoot = cfg.scriptsRoot ?? '';
-      fetchTimeout = cfg.fetchTimeoutSec ?? '';
-      ghTimeout = cfg.ghTimeoutSec ?? '';
-      startHidden = !!cfg.startHidden;
-      closeToTray = cfg.closeToTray ?? true;
+      loadConfigFields(await readConfig());
       autostart = await getAutostart();
       paths = await appPaths();
       version = await getVersion();
@@ -75,6 +84,31 @@
       errMsg = `${t('common.error')}: ${e}`;
     }
   });
+
+  // #117: export current config to a file / import a config file back.
+  async function doExport() {
+    try {
+      const dest = await pickSaveFile('agenthub-config.json');
+      if (!dest) return;
+      await exportConfig(dest);
+      flash(t('settings.configExported'));
+    } catch (e) {
+      errMsg = `${t('common.error')}: ${e}`;
+    }
+  }
+  async function doImport() {
+    try {
+      const src = await pickOpenFile();
+      if (!src) return;
+      const c = await importConfig(src);
+      await writeConfig(c);
+      loadConfigFields(c);
+      paths = await appPaths(); // scriptsRoot may have changed → refresh the About "currently used" path
+      flash(t('settings.configImported'));
+    } catch (e) {
+      errMsg = `${t('common.error')}: ${e}`;
+    }
+  }
 
   function flash(m: string) {
     savedMsg = m;
@@ -290,6 +324,18 @@
     </div>
     {/if}
 
+    <!-- Settings backup (export/import config.json) -->
+    {#if show(t('settings.backupSection'), t('settings.exportConfig'), t('settings.importConfig'))}
+    <div class="sw-card flex flex-col gap-sw-2">
+      <div class="font-medium">{t('settings.backupSection')}</div>
+      <div class="text-sw-sm text-sw-text-secondary">{t('settings.backupSectionDesc')}</div>
+      <div class="flex flex-wrap gap-sw-2 pt-sw-1">
+        <button class="sw-btn sw-btn-ghost" onclick={doExport} title={t('settings.exportTip')}>{t('settings.exportConfig')}</button>
+        <button class="sw-btn sw-btn-ghost" onclick={doImport} title={t('settings.importTip')}>{t('settings.importConfig')}</button>
+      </div>
+    </div>
+    {/if}
+
     <!-- About -->
     {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'))}
     <div class="sw-card flex flex-col gap-sw-2">
@@ -303,10 +349,18 @@
         <dt class="text-sw-text-muted">{t('settings.app')}</dt>
         <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.exe)} title={t('common.copyPath')}>{paths?.exe ?? t('common.dash')}</button></dd>
       </dl>
-      <div class="flex gap-sw-2 pt-sw-1">
+      <div class="flex flex-wrap gap-sw-2 pt-sw-1">
         {#if paths?.scriptsRoot}
           <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath(paths!.scriptsRoot)}
             title={t('settings.openScriptsFolderTip')}>{t('settings.openScriptsFolder')}</button>
+        {/if}
+        {#if paths?.configPath}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath(paths!.configPath!)}
+            title={t('settings.openConfigFileTip')}>{t('settings.openConfigFile')}</button>
+        {/if}
+        {#if paths?.stackPath}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath(paths!.stackPath!)}
+            title={t('settings.openStackFileTip')}>{t('settings.openStackFile')}</button>
         {/if}
       </div>
     </div>

@@ -269,7 +269,7 @@ export const sessionResize = (id: string, cols: number, rows: number) =>
 export const sessionKill = (id: string) => invoke('session_kill', { id });
 
 // --- Native folder picker (Windows Explorer) ---
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 export const pickFolder = async (defaultPath?: string): Promise<string | null> => {
   const res = await openDialog({ directory: true, multiple: false, defaultPath: defaultPath || undefined });
   return typeof res === 'string' ? res : null;
@@ -537,11 +537,25 @@ export type HubConfig = {
   fetchTimeoutSec?: number | null;
   ghTimeoutSec?: number | null;
 };
-export type AppPaths = { scriptsRoot: string; configPath: string | null; exe: string | null };
+export type AppPaths = {
+  scriptsRoot: string;
+  configPath: string | null;
+  exe: string | null;
+  stackPath?: string | null;
+};
 
 export const readConfig = () => invoke<HubConfig>('read_config');
 export const writeConfig = (config: HubConfig) => invoke('write_config', { config });
 export const appPaths = () => invoke<AppPaths>('app_paths');
 export const openPath = (path: string) => invoke('open_path', { path });
+// Export/import all settings (#117) — file dialogs from the dialog plugin; backend (de)serializes.
+export const pickSaveFile = (name: string) =>
+  saveDialog({ defaultPath: name, filters: [{ name: 'JSON', extensions: ['json'] }] });
+export const pickOpenFile = async (): Promise<string | null> => {
+  const r = await openDialog({ directory: false, multiple: false, filters: [{ name: 'JSON', extensions: ['json'] }] });
+  return typeof r === 'string' ? r : null;
+};
+export const exportConfig = (dest: string) => invoke('export_config', { dest });
+export const importConfig = (src: string) => invoke<HubConfig>('import_config', { src });
 export const getAutostart = () => invoke<boolean>('get_autostart');
 export const setAutostart = (enabled: boolean) => invoke('set_autostart', { enabled });

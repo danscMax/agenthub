@@ -74,5 +74,17 @@ export default {
   config: '配置文件',
   app: '应用程序',
   openScriptsFolder: '打开脚本文件夹',
-  openScriptsFolderTip: '在资源管理器中打开脚本文件夹'
+  openScriptsFolderTip: '在资源管理器中打开脚本文件夹',
+  openConfigFile: '打开 config.json',
+  openConfigFileTip: '打开 AgentHub 设置文件',
+  openStackFile: '打开 stack.json',
+  openStackFileTip: '打开 LLM 技术栈配置',
+  backupSection: '设置备份',
+  backupSectionDesc: '导出/导入 AgentHub 设置（config.json）——用于迁移到其他电脑',
+  exportConfig: '导出设置',
+  exportTip: '将当前设置保存到文件',
+  importConfig: '导入设置',
+  importTip: '从文件加载设置（立即应用）',
+  configExported: '设置已导出',
+  configImported: '设置已导入'
 };
