@@ -19,6 +19,20 @@
     onOpenTab?: (id: string) => void;
   } = $props();
 
+  // #110: split into "has update" vs "up to date" (mirrors ComponentCard.updateInfo).
+  function hasUpdate(c: Component): boolean {
+    const s = statuses[c.id];
+    if (!s || c.lastJson === null) return false;
+    const changed =
+      typeof s?.counts?.changed === 'number'
+        ? s.counts.changed
+        : Array.isArray(s?.changed)
+          ? s.changed.length
+          : (s?.plugins_changed ?? 0);
+    return s.status === 'changes' || changed > 0;
+  }
+  const withUpdates = $derived(components.filter(hasUpdate));
+  const upToDate = $derived(components.filter((c) => !hasUpdate(c)));
 </script>
 
 <div class="p-sw-6">
@@ -29,21 +43,38 @@
     </p>
   </header>
 
-  <!-- Flat auto-fill grid: every card fills the row evenly (each card already shows its group),
-       so a big group no longer makes one tall column with empty space beside it. -->
-  <div class="group-grid">
-    {#each components as c (c.id)}
-      <ComponentCard
-        comp={c}
-        status={statuses[c.id]}
-        busy={running === c.id}
-        anyRunning={!!running}
-        onCheck={() => onCheck(c.id)}
-        onApply={() => onApply(c)}
-        onOpenForks={onOpenTab ? () => onOpenTab('forks') : undefined}
-      />
-    {/each}
-  </div>
+  {#snippet card(c: Component)}
+    <ComponentCard
+      comp={c}
+      status={statuses[c.id]}
+      busy={running === c.id}
+      anyRunning={!!running}
+      onCheck={() => onCheck(c.id)}
+      onApply={() => onApply(c)}
+      onOpenForks={onOpenTab ? () => onOpenTab('forks') : undefined}
+    />
+  {/snippet}
+
+  <!-- Group by update status (#110): components with an available update float to the top, the
+       rest collapse under an "up to date" heading. When nothing has an update, one flat grid. -->
+  {#if withUpdates.length}
+    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+      {t('updates.groupHasUpdate', { count: withUpdates.length })}
+    </h2>
+    <div class="group-grid mb-sw-6">
+      {#each withUpdates as c (c.id)}{@render card(c)}{/each}
+    </div>
+    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+      {t('updates.groupUpToDate', { count: upToDate.length })}
+    </h2>
+    <div class="group-grid">
+      {#each upToDate as c (c.id)}{@render card(c)}{/each}
+    </div>
+  {:else}
+    <div class="group-grid">
+      {#each components as c (c.id)}{@render card(c)}{/each}
+    </div>
+  {/if}
 </div>
 
 <style>

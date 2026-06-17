@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SyncStatus, SyncItem } from '$lib/ipc';
+  import { openPath, type SyncStatus, type SyncItem } from '$lib/ipc';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
 
@@ -93,6 +93,8 @@
         <span class="font-medium">{t('sync.syncthing')}</span>
         {#if st?.available}
           <span class="badge badge-ok" title={t('sync.daemonTitle')}>{t('sync.connected')}{st.version ? ` · ${st.version}` : ''}</span>
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath('http://localhost:8384')}
+            title={t('sync.openWebUiTip')}>{t('sync.openWebUi')}</button>
         {:else}
           <span class="badge badge-warn" title={t('sync.notFoundTitle')}>{t('sync.notFound')}</span>
         {/if}

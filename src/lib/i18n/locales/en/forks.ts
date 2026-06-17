@@ -45,6 +45,9 @@ export default {
   filterForks: 'Forks',
   filterOwn: 'Own',
   filterTip: 'Filter: all repos / forks only / own only',
+  sortTip: 'Sort: by name / by how far behind',
+  sortName: 'by name',
+  sortBehind: 'by behind',
   githubOnlyHeading: 'More on GitHub — not cloned ({n})',
   githubOnlyTip:
     "Your GitHub repos (including private) that aren't cloned locally. Actions are unavailable until you clone.",

@@ -77,6 +77,14 @@
     const i = id.lastIndexOf('@');
     return i > 0 ? { name: id.slice(0, i), market: id.slice(i + 1) } : { name: id, market: '' };
   }
+
+  // #90: the same free-text query also filters the skills section.
+  const filteredSkills = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    return skillList.filter(
+      (s) => !q || s.name.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q)
+    );
+  });
 </script>
 
 <div class="p-sw-6">
@@ -158,7 +166,7 @@
             {/if}
             <span class="ml-auto flex items-center gap-sw-2 text-sw-xs text-sw-text-secondary">
               {#if actingId === p.id}<Spinner size={13} />{/if}
-              {p.enabled ? t('plugins.enabledBadge') : t('plugins.disabledBadge')}
+              <span title={p.enabled ? t('plugins.enabledTip') : t('plugins.disabledTip')}>{p.enabled ? t('plugins.enabledBadge') : t('plugins.disabledBadge')}</span>
               <Toggle checked={p.enabled} disabled={busy}
                 onCheckedChange={() => act(p.enabled ? 'disable' : 'enable', p.id)}
                 title={p.enabled ? t('plugins.disableBtnTip') : t('plugins.enableBtnTip')} />
@@ -188,17 +196,21 @@
     {t('plugins.skillsNote')}
   </p>
   {#if skillList.length}
-    <div class="grid grid-cols-1 gap-sw-2 md:grid-cols-2">
-      {#each skillList as sk (sk.dir)}
-        <div class="sw-card py-sw-2">
-          <div class="flex items-center gap-sw-2">
-            <span class="truncate font-medium">{sk.name}</span>
-            {#if sk.version}<span class="badge badge-muted shrink-0">v{sk.version}</span>{/if}
+    {#if filteredSkills.length}
+      <div class="grid grid-cols-1 gap-sw-2 md:grid-cols-2">
+        {#each filteredSkills as sk (sk.dir)}
+          <div class="sw-card py-sw-2">
+            <div class="flex items-center gap-sw-2">
+              <span class="truncate font-medium">{sk.name}</span>
+              {#if sk.version}<span class="badge badge-muted shrink-0">v{sk.version}</span>{/if}
+            </div>
+            {#if sk.description}<p class="mt-1 text-sw-xs text-sw-text-secondary">{sk.description}</p>{/if}
           </div>
-          {#if sk.description}<p class="mt-1 text-sw-xs text-sw-text-secondary">{sk.description}</p>{/if}
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noMatch')}</div>
+    {/if}
   {:else}
     <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noSkills')}</div>
   {/if}

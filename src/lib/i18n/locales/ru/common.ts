@@ -20,6 +20,8 @@ export default {
   copy: 'Копировать',
   copied: 'Скопировано',
   copyPath: 'Скопировать путь',
+  show: 'Показать',
+  hide: 'Скрыть',
   clear: 'Очистить',
   cancelAction: 'Отменить',
   enable: 'Включить',

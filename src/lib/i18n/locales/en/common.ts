@@ -20,6 +20,8 @@ export default {
   copy: 'Copy',
   copied: 'Copied',
   copyPath: 'Copy path',
+  show: 'Show',
+  hide: 'Hide',
   clear: 'Clear',
   cancelAction: 'Cancel',
   enable: 'Enable',

@@ -2,6 +2,8 @@ export default {
   // ── UpdatesTab: header ──
   title: '更新',
   subtitle: '检查并应用整个 Claude Code 技术栈的更新',
+  groupHasUpdate: '有更新（{count}）',
+  groupUpToDate: '已是最新（{count}）',
 
   // ── ComponentCard: forks summary ──
   forkConflicts: '{count} 个有冲突',

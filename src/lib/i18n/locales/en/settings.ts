@@ -1,5 +1,8 @@
 export default {
   title: 'Settings',
+  searchPlaceholder: 'Search settings…',
+  confirmDestructive: 'Confirm destructive actions',
+  confirmDestructiveDesc: 'Ask before delete/reset (restore and reinstall always confirm)',
 
   // Flash messages
   savedPath: 'Path saved',

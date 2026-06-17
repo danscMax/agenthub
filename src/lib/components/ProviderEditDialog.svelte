@@ -5,6 +5,7 @@
   import Toggle from './Toggle.svelte';
   import Select from './Select.svelte';
   import ModalShell from './ModalShell.svelte';
+  import SecretInput from './SecretInput.svelte';
 
   let {
     open,
@@ -123,8 +124,8 @@
 
       <label class="fld">
         <span>{t('providers.tokenLabel')}</span>
-        <input class="sw-input" type="password" bind:value={token} disabled={keepToken}
-          placeholder={current?.hasToken ? t('providers.tokenSavedPlaceholder') : t('providers.tokenLocalPlaceholder')} autocomplete="off" title={t('providers.tokenInputTip')} />
+        <SecretInput bind:value={token} disabled={keepToken}
+          placeholder={current?.hasToken ? t('providers.tokenSavedPlaceholder') : t('providers.tokenLocalPlaceholder')} title={t('providers.tokenInputTip')} />
         {#if current?.hasToken}
           <div class="chk">
             <Toggle bind:checked={keepToken} title={t('providers.keepTokenTitle')} />

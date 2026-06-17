@@ -59,6 +59,14 @@
         : repos
   );
   const filteredRepos = $derived(byKind.filter(matchesStatus));
+  // #106: sort cycles name → most-behind (by behindBy desc).
+  let sortBy = $state<'name' | 'behind'>('name');
+  const sortedRepos = $derived.by(() => {
+    const list = [...filteredRepos];
+    return sortBy === 'behind'
+      ? list.sort((a, b) => (b.behindBy ?? 0) - (a.behindBy ?? 0) || a.Name.localeCompare(b.Name))
+      : list.sort((a, b) => a.Name.localeCompare(b.Name));
+  });
   const filteredGithubOnly = $derived(
     // Not-cloned repos have no local status, so hide them while a status filter is active.
     statusFilter
@@ -170,21 +178,27 @@
   {/if}
 
   {#if repos.length}
-    <div class="mb-sw-4 inline-flex gap-1 rounded-sw-md border border-sw-border p-1">
-      {#each filterTabs as f (f.id)}
-        <button
-          class="rounded-sw-sm px-sw-3 py-1 text-sw-xs {repoFilter === f.id
-            ? 'bg-sw-bg-secondary font-medium text-sw-text'
-            : 'text-sw-text-muted hover:text-sw-text'}"
-          onclick={() => (repoFilter = f.id)}
-          title={t('forks.filterTip')}
-        >
-          {f.label} <span class="tabular-nums opacity-70">{f.n}</span>
-        </button>
-      {/each}
+    <div class="mb-sw-4 flex flex-wrap items-center gap-sw-3">
+      <div class="inline-flex gap-1 rounded-sw-md border border-sw-border p-1">
+        {#each filterTabs as f (f.id)}
+          <button
+            class="rounded-sw-sm px-sw-3 py-1 text-sw-xs {repoFilter === f.id
+              ? 'bg-sw-bg-secondary font-medium text-sw-text'
+              : 'text-sw-text-muted hover:text-sw-text'}"
+            onclick={() => (repoFilter = f.id)}
+            title={t('forks.filterTip')}
+          >
+            {f.label} <span class="tabular-nums opacity-70">{f.n}</span>
+          </button>
+        {/each}
+      </div>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (sortBy = sortBy === 'name' ? 'behind' : 'name')}
+        title={t('forks.sortTip')}>
+        ⇅ {sortBy === 'behind' ? t('forks.sortBehind') : t('forks.sortName')}
+      </button>
     </div>
     <div class="card-grid">
-      {#each filteredRepos as repo (repo.Path)}
+      {#each sortedRepos as repo (repo.Path)}
         <ForkRepoCard
           {repo}
           {anyRunning}

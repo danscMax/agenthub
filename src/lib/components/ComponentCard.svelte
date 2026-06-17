@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component } from '$lib/ipc';
   import { glossaryText } from '$lib/glossary';
-  import { t, locale, pUpdate } from '$lib/i18n';
+  import { t, locale, pUpdate, plural } from '$lib/i18n';
   import { relTime } from '$lib/relativeTime';
 
   let {
@@ -136,6 +136,9 @@
 
   {#if forkSummary}
     <div class="flex items-center gap-sw-2 rounded-sw-md border border-sw-border p-sw-2 text-sw-xs">
+      {#if forkSummary.needHands > 0}
+        <span class="badge badge-warn shrink-0">{forkSummary.needHands} {plural(forkSummary.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many'))}</span>
+      {/if}
       <span class="{forkSummary.needHands > 0 ? 'text-amber-400' : 'text-sw-text-secondary'}">
         {forkSummary.text}
       </span>

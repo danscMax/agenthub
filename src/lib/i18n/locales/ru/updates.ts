@@ -2,6 +2,8 @@ export default {
   // ── UpdatesTab: header ──
   title: 'Обновления',
   subtitle: 'Проверка и применение обновлений всего стека Claude Code',
+  groupHasUpdate: 'Есть обновление ({count})',
+  groupUpToDate: 'Актуально ({count})',
 
   // ── ComponentCard: forks summary ──
   forkConflicts: '{count} с конфликтами',

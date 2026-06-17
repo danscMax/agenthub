@@ -20,6 +20,8 @@ export default {
   syncthing: 'Syncthing',
   daemonTitle: 'Syncthing daemon reachable over local REST',
   connected: 'connected',
+  openWebUi: 'Web UI',
+  openWebUiTip: 'Open the Syncthing web interface (localhost:8384)',
   notFoundTitle: 'Syncthing not found or not running — sync is not active on this machine',
   notFound: 'not found',
   folder: 'Folder',

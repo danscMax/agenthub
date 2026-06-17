@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import DropdownMenu from './DropdownMenu.svelte';
   import ModalShell from './ModalShell.svelte';
+  import SecretInput from './SecretInput.svelte';
 
   let {
     open,
@@ -136,7 +137,7 @@
 
       <label class="fld">
         <span>{t('myProviders.apiKey')}</span>
-        <input class="sw-input" type="password" bind:value={apiKey} autocomplete="off"
+        <SecretInput bind:value={apiKey}
           placeholder={current?.hasKey ? t('myProviders.apiKeyKeep') : t('myProviders.apiKeyPlaceholder')} />
       </label>
 

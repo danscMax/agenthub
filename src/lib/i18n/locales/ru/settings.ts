@@ -1,5 +1,8 @@
 export default {
   title: 'Настройки',
+  searchPlaceholder: 'Поиск по настройкам…',
+  confirmDestructive: 'Подтверждать опасные действия',
+  confirmDestructiveDesc: 'Спрашивать перед удалением/сбросом (восстановление и переустановка подтверждаются всегда)',
 
   // Flash messages
   savedPath: 'Путь сохранён',

@@ -22,7 +22,9 @@
     density = 'comfortable',
     fullWidth = false,
     onSetDensity,
-    onSetFullWidth
+    onSetFullWidth,
+    confirmDestructive = true,
+    onSetConfirmDestructive
   }: {
     theme: Theme;
     onSetTheme: (th: Theme) => void;
@@ -30,7 +32,16 @@
     fullWidth?: boolean;
     onSetDensity?: (d: 'comfortable' | 'compact') => void;
     onSetFullWidth?: (v: boolean) => void;
+    confirmDestructive?: boolean;
+    onSetConfirmDestructive?: (v: boolean) => void;
   } = $props();
+
+  // #37: filter the settings cards by a free-text query matched against each section's labels.
+  let query = $state('');
+  function show(...labels: string[]): boolean {
+    const q = query.trim().toLowerCase();
+    return !q || labels.some((l) => l.toLowerCase().includes(q));
+  }
 
   let cfg = $state<HubConfig>({});
   let scriptsRoot = $state('');
@@ -126,13 +137,18 @@
 </script>
 
 <div class="p-sw-6">
-  <header class="mb-sw-4 flex items-center justify-between">
+  <header class="mb-sw-4 flex items-center justify-between gap-sw-4">
     <h1 class="text-lg font-semibold">{t('settings.title')}</h1>
-    {#if errMsg}<span class="badge badge-err">{errMsg}</span>{:else if savedMsg}<span class="badge badge-ok">{savedMsg}</span>{/if}
+    <div class="flex items-center gap-sw-2">
+      {#if errMsg}<span class="badge badge-err">{errMsg}</span>{:else if savedMsg}<span class="badge badge-ok">{savedMsg}</span>{/if}
+      <input class="sw-input text-sw-xs" style="width:200px" bind:value={query}
+        placeholder={t('settings.searchPlaceholder')} spellcheck="false" autocomplete="off" />
+    </div>
   </header>
 
   <div class="flex max-w-2xl flex-col gap-sw-4">
     <!-- Theme -->
+    {#if show(t('settings.theme'), t('settings.themeDesc'))}
     <div class="sw-card flex items-center justify-between">
       <div>
         <div class="font-medium">{t('settings.theme')}</div>
@@ -147,8 +163,10 @@
           onclick={() => onSetTheme('system')} title={t('settings.themeSystemTip')}>{t('settings.themeSystem')}</button>
       </div>
     </div>
+    {/if}
 
     <!-- View: density + content width -->
+    {#if show(t('settings.view'), t('settings.density'), t('settings.fullWidth'), t('settings.termScrollback'))}
     <div class="sw-card flex flex-col gap-sw-3">
       <div class="flex items-center justify-between gap-sw-2">
         <div class="font-medium">{t('settings.view')}</div>
@@ -178,8 +196,10 @@
           title={t('settings.termScrollbackTip')} />
       </label>
     </div>
+    {/if}
 
     <!-- Language -->
+    {#if show(t('settings.language'), t('settings.languageDesc'))}
     <div class="sw-card flex items-center justify-between">
       <div>
         <div class="font-medium">{t('settings.language')}</div>
@@ -198,7 +218,10 @@
       </div>
     </div>
 
+    {/if}
+
     <!-- Scripts root -->
+    {#if show(t('settings.scriptsRoot'), t('settings.scriptsRootDesc'))}
     <div class="sw-card flex flex-col gap-sw-2">
       <div class="font-medium">{t('settings.scriptsRoot')}</div>
       <div class="text-sw-sm text-sw-text-secondary">
@@ -215,8 +238,10 @@
       </div>
       {#if paths}<div class="text-sw-xs text-sw-text-muted">{t('settings.currentlyUsed', { path: paths.scriptsRoot })}</div>{/if}
     </div>
+    {/if}
 
     <!-- Launch -->
+    {#if show(t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'))}
     <div class="sw-card flex flex-col gap-sw-3">
       <div class="font-medium">{t('settings.launch')}</div>
       <label class="flex items-center justify-between gap-sw-4">
@@ -237,9 +262,17 @@
         </span>
         <Toggle checked={closeToTray} onCheckedChange={toggleCloseToTray} title={t('settings.closeToTrayTip')} />
       </label>
+      <label class="flex items-center justify-between gap-sw-4">
+        <span class="text-sw-sm">{t('settings.confirmDestructive')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.confirmDestructiveDesc')}</span>
+        </span>
+        <Toggle checked={confirmDestructive} onCheckedChange={(v) => onSetConfirmDestructive?.(v)} title={t('settings.confirmDestructive')} />
+      </label>
     </div>
+    {/if}
 
     <!-- Timeouts -->
+    {#if show(t('settings.timeouts'), t('settings.timeoutsDesc'))}
     <div class="sw-card flex flex-col gap-sw-2">
       <div class="font-medium">{t('settings.timeouts')}</div>
       <div class="text-sw-sm text-sw-text-secondary">{t('settings.timeoutsDesc')}</div>
@@ -255,8 +288,10 @@
         <button class="sw-btn sw-btn-primary" onclick={saveTimeouts} title={t('settings.saveTimeoutsTip')}>{t('common.save')}</button>
       </div>
     </div>
+    {/if}
 
     <!-- About -->
+    {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'))}
     <div class="sw-card flex flex-col gap-sw-2">
       <div class="font-medium">{t('settings.about')}</div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-sw-4 gap-y-1 text-sw-sm">
@@ -275,6 +310,7 @@
         {/if}
       </div>
     </div>
+    {/if}
   </div>
 </div>
 

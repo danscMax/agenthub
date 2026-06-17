@@ -250,6 +250,12 @@
     action: () => void,
     opts: { details?: string[]; requireText?: string | null; danger?: boolean } = {}
   ) {
+    // #120: when confirm-prompts are disabled, run immediately — except type-to-confirm actions
+    // (restore/reinstall), which are destructive enough to always require explicit confirmation.
+    if (!confirmDestructive && !opts.requireText) {
+      action();
+      return;
+    }
     confirm = {
       open: true,
       title,
@@ -994,6 +1000,16 @@
   // View prefs (UI-only, persisted in localStorage): compact density + full-width content.
   let density = $state<'comfortable' | 'compact'>('comfortable');
   let fullWidth = $state(true);
+  // #120: gate confirm dialogs for destructive actions (type-to-confirm ones always prompt).
+  let confirmDestructive = $state(true);
+  function setConfirmDestructive(v: boolean) {
+    confirmDestructive = v;
+    try {
+      localStorage.setItem('cmh-confirm-destructive', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
   function setDensity(d: 'comfortable' | 'compact') {
     density = d;
     try {
@@ -1057,6 +1073,7 @@
     try {
       if (localStorage.getItem('cmh-density') === 'compact') density = 'compact';
       fullWidth = localStorage.getItem('cmh-fullwidth') !== '0';
+      confirmDestructive = localStorage.getItem('cmh-confirm-destructive') !== '0';
       // Restore the last-open tab (validated against the known set).
       const savedTab = localStorage.getItem('cmh-active-tab');
       if (savedTab && NAV_IDS.includes(savedTab)) active = savedTab;
@@ -1328,7 +1345,7 @@
       {:else if active === 'schedule'}
         <ScheduleTab data={schedulesData} {running} onAction={onScheduleAction} onRefresh={reloadSchedules} />
       {:else if active === 'settings'}
-        <SettingsTab {theme} onSetTheme={setTheme} {density} {fullWidth} onSetDensity={setDensity} onSetFullWidth={setFullWidth} />
+        <SettingsTab {theme} onSetTheme={setTheme} {density} {fullWidth} onSetDensity={setDensity} onSetFullWidth={setFullWidth} {confirmDestructive} onSetConfirmDestructive={setConfirmDestructive} />
       {:else if active !== 'sessions'}
         <div class="grid h-full place-items-center p-sw-6 text-center text-sw-text-muted">
           <div>

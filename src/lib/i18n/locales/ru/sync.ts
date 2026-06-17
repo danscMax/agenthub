@@ -20,6 +20,8 @@ export default {
   syncthing: 'Syncthing',
   daemonTitle: 'Демон Syncthing доступен по локальному REST',
   connected: 'подключён',
+  openWebUi: 'Web UI',
+  openWebUiTip: 'Открыть веб-интерфейс Syncthing (localhost:8384)',
   notFoundTitle: 'Syncthing не найден или не запущен — синхронизация не активна на этой машине',
   notFound: 'не найден',
   folder: 'Папка',

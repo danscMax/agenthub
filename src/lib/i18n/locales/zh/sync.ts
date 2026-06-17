@@ -20,6 +20,8 @@ export default {
   syncthing: 'Syncthing',
   daemonTitle: 'Syncthing 守护进程可通过本地 REST 访问',
   connected: '已连接',
+  openWebUi: 'Web UI',
+  openWebUiTip: '打开 Syncthing 网页界面（localhost:8384）',
   notFoundTitle: '未找到或未运行 Syncthing——此设备上同步未激活',
   notFound: '未找到',
   folder: '文件夹',

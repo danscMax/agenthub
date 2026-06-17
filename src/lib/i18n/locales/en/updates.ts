@@ -2,6 +2,8 @@ export default {
   // ── UpdatesTab: header ──
   title: 'Updates',
   subtitle: 'Check and apply updates for the whole Claude Code stack',
+  groupHasUpdate: 'Update available ({count})',
+  groupUpToDate: 'Up to date ({count})',
 
   // ── ComponentCard: forks summary ──
   forkConflicts: '{count} with conflicts',
