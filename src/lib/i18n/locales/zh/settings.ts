@@ -15,6 +15,9 @@ export default {
   densityCompact: '紧凑',
   fullWidth: '内容全宽',
   fullWidthDesc: '不限制 1600px 宽度（适合宽屏）',
+  termScrollback: '终端回滚行数',
+  termScrollbackDesc: '每个会话面板保留的输出行数（1000–50000）',
+  termScrollbackTip: '适用于新打开的面板；行数越多占用内存越大',
   // Theme
   theme: '主题',
   themeDesc: '界面外观',

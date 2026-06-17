@@ -47,6 +47,8 @@
       defaultArgs = localStorage.getItem(DAKEY) ?? '';
       const c = Number(localStorage.getItem(CKEY));
       if (c >= 1 && c <= 3) columns = c;
+      const fz = Number(localStorage.getItem('cmh-sessions-fontsize'));
+      if (fz >= 8 && fz <= 28) globalFont = fz;
     } catch {
       /* first run / private mode */
     }
@@ -315,9 +317,33 @@
   }
 
   // Tab-scoped shortcuts (only while the Sessions tab is shown): Ctrl+T new session, Alt+1/2/3 cols.
-  // Pane component refs, so a shortcut can move focus between terminals.
-  const paneRefs: Record<string, { focusTerminal: () => void } | undefined> = {};
+  // Pane component refs, so a shortcut can move focus between terminals (and the tab can drive
+  // search/zoom across every pane at once).
+  type PaneApi = {
+    focusTerminal: () => void;
+    runExternalSearch: (q: string) => void;
+    setFontSize: (px: number) => void;
+  };
+  const paneRefs: Record<string, PaneApi | undefined> = {};
   let focusIdx = 0;
+
+  // Search every pane at once (#52). Each pane runs the query through its own SearchAddon.
+  let searchAllText = $state('');
+  function searchAll() {
+    for (const k in paneRefs) paneRefs[k]?.runExternalSearch(searchAllText);
+  }
+
+  // Synced zoom: push one font size to every pane (#60). Persisted in the shared font key so new
+  // panes open at the same size.
+  let globalFont = $state(13);
+  function zoomAll(delta: number) {
+    globalFont = Math.min(28, Math.max(8, globalFont + delta));
+    for (const k in paneRefs) paneRefs[k]?.setFontSize(globalFont);
+  }
+
+  // Focus mode (#61): dim every pane except the hovered one (for screencasts) — pure CSS, no
+  // tracking of which terminal holds keyboard focus.
+  let focusMode = $state(false);
   function cycleFocus(dir: 1 | -1) {
     const list = maximized ? panes.filter((p) => p.key === maximized) : panes;
     if (!list.length) return;
@@ -381,7 +407,10 @@
     </div>
     <div class="flex shrink-0 items-center gap-sw-2">
       {#if panes.length > 1}
-        <input class="sw-input text-sw-xs" style="width:150px" bind:value={sendAllText}
+        <input class="sw-input text-sw-xs" style="width:130px" bind:value={searchAllText}
+          placeholder={t('sessions.searchAllPlaceholder')} title={t('sessions.searchAllTip')} spellcheck="false"
+          oninput={searchAll} onkeydown={(e) => e.key === 'Enter' && searchAll()} />
+        <input class="sw-input text-sw-xs" style="width:130px" bind:value={sendAllText}
           placeholder={t('sessions.sendAllPlaceholder')} title={t('sessions.sendAllTip')} spellcheck="false"
           onkeydown={(e) => e.key === 'Enter' && sendToAll()} />
         <span class="text-sw-text-muted">·</span>
@@ -389,6 +418,13 @@
           <Toggle bind:checked={broadcast} />
           <span class="text-sw-xs" class:text-sw-text-primary={broadcast} class:text-sw-text-secondary={!broadcast}>{t('sessions.broadcast')}</span>
         </label>
+        <span class="text-sw-text-muted">·</span>
+      {/if}
+      {#if panes.length}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => zoomAll(-1)} title={t('sessions.zoomAllOut')} aria-label={t('sessions.zoomAllOut')}>A−</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => zoomAll(1)} title={t('sessions.zoomAllIn')} aria-label={t('sessions.zoomAllIn')}>A+</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={focusMode} onclick={() => (focusMode = !focusMode)}
+          title={t('sessions.focusModeTip')} aria-pressed={focusMode}>◎</button>
         <span class="text-sw-text-muted">·</span>
       {/if}
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.layout')}</span>
@@ -494,6 +530,7 @@
   {#if panes.length}
     <div
       class="grid"
+      class:focus-dim={focusMode && !maximized}
       bind:this={gridEl}
       style="grid-template-columns: {maximized ? '1fr' : colFr.map((f) => `minmax(0, ${f}fr)`).join(' ')}; grid-template-rows: {maximized ? '1fr' : rowFr.map((f) => `minmax(80px, ${f}fr)`).join(' ')};"
     >
@@ -718,6 +755,13 @@
   }
   .cell.hidden {
     display: none;
+  }
+  /* Focus mode: dim every pane except the one under the cursor (for screencasts). */
+  .grid.focus-dim .cell {
+    transition: opacity 0.15s;
+  }
+  .grid.focus-dim .cell:not(:hover) {
+    opacity: 0.3;
   }
   .divider {
     position: absolute;

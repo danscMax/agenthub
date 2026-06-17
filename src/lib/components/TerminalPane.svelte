@@ -8,6 +8,7 @@
   import { Channel } from '@tauri-apps/api/core';
   import '@xterm/xterm/css/xterm.css';
   import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
+  import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
 
   let {
@@ -99,6 +100,24 @@
   export function focusTerminal() {
     term?.focus();
   }
+  // Search this pane for an externally-supplied query (the tab's "search all panes" box, #52).
+  export function runExternalSearch(q: string) {
+    query = q;
+    if (!q) return;
+    searchOpen = true;
+    search?.findNext(q);
+  }
+  // Set an absolute font size pushed from the tab's synced-zoom control (#60).
+  export function setFontSize(px: number) {
+    fontSize = Math.min(28, Math.max(8, px));
+    if (term) term.options.fontSize = fontSize;
+    try {
+      localStorage.setItem(FONT_KEY, String(fontSize));
+    } catch {
+      /* ignore */
+    }
+    refit();
+  }
 
   async function copySelection() {
     const sel = term?.getSelection();
@@ -169,14 +188,15 @@
     });
   }
   function zoom(delta: number) {
-    fontSize = Math.min(28, Math.max(8, fontSize + delta));
-    if (term) term.options.fontSize = fontSize;
-    try {
-      localStorage.setItem(FONT_KEY, String(fontSize));
-    } catch {
-      /* ignore */
-    }
-    refit();
+    setFontSize(fontSize + delta);
+  }
+  // Snippets: insert a templated first message into THIS pane (#57). No auto-Enter — user reviews
+  // then sends. Default templates live in sessionPresets; the menu is a small bar popover.
+  let snipOpen = $state(false);
+  function insertSnippet(text: string) {
+    if (id && !exited) sessionWrite(id, text);
+    snipOpen = false;
+    term?.focus();
   }
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return; // plain wheel → xterm scrollback
@@ -243,11 +263,20 @@
     } catch {
       /* ignore */
     }
+    // Scrollback cap is user-configurable (Settings → View); read it per-pane so a changed
+    // setting applies to every newly-opened pane without a restart (#132).
+    let sb = 5000;
+    try {
+      const v = Number(localStorage.getItem('cmh-sessions-scrollback'));
+      if (v >= 1000 && v <= 50000) sb = v;
+    } catch {
+      /* ignore */
+    }
     term = new Terminal({
       fontFamily: "'Cascadia Code', 'Consolas', monospace",
       fontSize,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: sb,
       theme: { background: '#0b0e14', foreground: '#cdd6f4' }
     });
     fit = new FitAddon();
@@ -357,6 +386,18 @@
     {#if exited}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="snip-wrap" onmouseleave={() => (snipOpen = false)}>
+      <button class="x" onclick={() => (snipOpen = !snipOpen)} title={t('sessions.snippets')}
+        aria-label={t('sessions.snippets')} aria-haspopup="menu" aria-expanded={snipOpen}>❡</button>
+      {#if snipOpen}
+        <div class="snip-menu" role="menu">
+          {#each MSG_SNIPPETS as s (s)}
+            <button class="snip-item" role="menuitem" onclick={() => insertSnippet(s)}>{s}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <button class="x" onclick={openSearch} title={t('sessions.find')} aria-label={t('sessions.find')}>🔍</button>
     <button class="x" onclick={() => term?.clear()} title={t('sessions.clearOutput')} aria-label={t('sessions.clearOutput')}>⌫</button>
     <button class="x" onclick={exportLog} title={t('sessions.exportLog')} aria-label={t('sessions.exportLog')}>⭳</button>
@@ -511,6 +552,39 @@
     line-height: 1;
   }
   .x:hover {
+    color: var(--sw-text-primary);
+  }
+  .snip-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .snip-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    min-width: 120px;
+    padding: 4px;
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-md);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+  .snip-item {
+    text-align: left;
+    padding: 4px 8px;
+    border: none;
+    background: transparent;
+    color: var(--sw-text-secondary);
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    border-radius: var(--sw-radius-sm);
+    cursor: pointer;
+  }
+  .snip-item:hover {
+    background: var(--sw-accent-glow);
     color: var(--sw-text-primary);
   }
   .term {

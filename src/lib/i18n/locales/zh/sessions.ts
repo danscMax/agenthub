@@ -69,5 +69,11 @@ export default {
   wsLaunchTip: '启动工作区「{name}」',
   wsDeleteTip: '删除工作区「{name}」',
   paneClosed: '已关闭：{name}',
-  reopen: '重新打开'
+  reopen: '重新打开',
+  searchAllPlaceholder: '搜索全部 ⏎',
+  searchAllTip: '同时在所有面板中搜索',
+  snippets: '插入模板',
+  zoomAllIn: '放大所有面板',
+  zoomAllOut: '缩小所有面板',
+  focusModeTip: '专注模式：淡化其他面板（悬停所需面板）'
 };

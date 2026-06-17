@@ -43,6 +43,8 @@
   let version = $state('');
   let savedMsg = $state('');
   let errMsg = $state('');
+  // Terminal scrollback cap (UI-only, localStorage; read per-pane by TerminalPane on open).
+  let termScrollback = $state<number | ''>('');
 
   onMount(async () => {
     try {
@@ -55,6 +57,8 @@
       autostart = await getAutostart();
       paths = await appPaths();
       version = await getVersion();
+      const sb = Number(localStorage.getItem('cmh-sessions-scrollback'));
+      if (sb >= 1000 && sb <= 50000) termScrollback = sb;
     } catch (e) {
       // Surface in-app — devtools console is invisible in the packaged build.
       errMsg = `${t('common.error')}: ${e}`;
@@ -73,6 +77,16 @@
     onSetDensity?.('comfortable');
     onSetFullWidth?.(false);
     flash(t('common.done'));
+  }
+  function saveScrollback() {
+    const n = termScrollback === '' ? 5000 : Math.min(50000, Math.max(1000, Number(termScrollback)));
+    termScrollback = n;
+    try {
+      localStorage.setItem('cmh-sessions-scrollback', String(n));
+    } catch {
+      /* ignore */
+    }
+    flash(t('settings.saved'));
   }
 
   async function persist(patch: Partial<HubConfig>) {
@@ -154,6 +168,14 @@
           <span class="block text-sw-xs text-sw-text-muted">{t('settings.fullWidthDesc')}</span>
         </span>
         <Toggle checked={fullWidth} onCheckedChange={(v) => onSetFullWidth?.(v)} title={t('settings.fullWidth')} />
+      </label>
+      <label class="flex items-center justify-between gap-sw-4">
+        <span class="text-sw-sm">{t('settings.termScrollback')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.termScrollbackDesc')}</span>
+        </span>
+        <input class="sw-input w-28" type="number" min="1000" max="50000" step="1000"
+          bind:value={termScrollback} placeholder="5000" onchange={saveScrollback}
+          title={t('settings.termScrollbackTip')} />
       </label>
     </div>
 

@@ -69,5 +69,11 @@ export default {
   wsLaunchTip: 'Launch workspace “{name}”',
   wsDeleteTip: 'Delete workspace “{name}”',
   paneClosed: 'Closed: {name}',
-  reopen: 'Reopen'
+  reopen: 'Reopen',
+  searchAllPlaceholder: 'Search all ⏎',
+  searchAllTip: 'Search across every pane at once',
+  snippets: 'Insert template',
+  zoomAllIn: 'Larger in all panes',
+  zoomAllOut: 'Smaller in all panes',
+  focusModeTip: 'Focus mode: dim the other panes (hover the one you want)'
 };

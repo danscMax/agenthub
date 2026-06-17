@@ -5,6 +5,10 @@ export const ARG_PRESETS: Record<string, string[]> = {
   opencode: ['--continue']
 };
 
+// First-message snippet templates inserted into a pane (no auto-Enter). Common Claude slash
+// commands + a couple of nudges. Inserted as-is so the user can review before sending.
+export const MSG_SNIPPETS: string[] = ['/clear', '/compact', '/context', 'continue', 'go on'];
+
 // Toggle a flag in a space-separated args string (add if absent, strip if present).
 export function toggleFlag(args: string, flag: string): string {
   return args.includes(flag)

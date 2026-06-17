@@ -69,5 +69,11 @@ export default {
   wsLaunchTip: 'Запустить набор «{name}»',
   wsDeleteTip: 'Удалить набор «{name}»',
   paneClosed: 'Панель закрыта: {name}',
-  reopen: 'Открыть снова'
+  reopen: 'Открыть снова',
+  searchAllPlaceholder: 'Поиск во всех ⏎',
+  searchAllTip: 'Искать во всех панелях сразу',
+  snippets: 'Вставить шаблон',
+  zoomAllIn: 'Крупнее во всех панелях',
+  zoomAllOut: 'Мельче во всех панелях',
+  focusModeTip: 'Режим фокуса: затемнить остальные панели (наведи на нужную)'
 };

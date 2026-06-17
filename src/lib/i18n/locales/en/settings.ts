@@ -15,6 +15,9 @@ export default {
   densityCompact: 'Compact',
   fullWidth: 'Full-width content',
   fullWidthDesc: 'Don’t cap content at 1600px (for wide screens)',
+  termScrollback: 'Terminal scrollback',
+  termScrollbackDesc: 'How many output lines each session pane keeps (1000–50000)',
+  termScrollbackTip: 'Applies to newly opened panes; more lines use more memory',
   // Theme
   theme: 'Theme',
   themeDesc: 'Interface appearance',

@@ -15,6 +15,9 @@ export default {
   densityCompact: 'Компактно',
   fullWidth: 'Контент на всю ширину',
   fullWidthDesc: 'Не ограничивать ширину 1600px (для широких экранов)',
+  termScrollback: 'История терминала',
+  termScrollbackDesc: 'Сколько строк вывода хранит каждая панель сессий (1000–50000)',
+  termScrollbackTip: 'Применяется к новым панелям; больше строк — больше памяти',
   // Theme
   theme: 'Тема',
   themeDesc: 'Оформление интерфейса',
