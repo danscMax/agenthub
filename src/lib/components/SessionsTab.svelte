@@ -104,6 +104,16 @@
     }
     for (const p of profiles) addPane({ tool: 'claude', profile: p, cwd: askFolder ? dir : (lastFolders[p] ?? cwd), args: '' });
   }
+  // Quick-launch opencode or a bare shell (no profile). Respects the ask-folder toggle.
+  async function quickTool(tool: 'opencode' | 'shell') {
+    let dir = cwd;
+    if (askFolder) {
+      const picked = await pickFolder(dir);
+      if (picked === null) return;
+      dir = picked;
+    }
+    addPane({ tool, profile: '', cwd: dir, args: '' });
+  }
   function closePane(key: string) {
     panes = panes.filter((p) => p.key !== key);
     if (maximized === key) maximized = null;
@@ -112,11 +122,17 @@
     panes = [];
     maximized = null;
   }
-  // Resizable columns: per-column fraction weights + draggable dividers between them.
+  // Resizable columns/rows: per-track fraction weights + draggable dividers. Explicit equal
+  // fractions (not grid-auto-rows) guarantee equal default sizes.
   let colFr = $state<number[]>([1, 1]);
+  let rowFr = $state<number[]>([1]);
   let gridEl: HTMLDivElement | undefined = $state();
+  const rowCount = $derived(Math.max(1, Math.ceil(panes.length / columns)));
   $effect(() => {
     if (colFr.length !== columns) colFr = Array(columns).fill(1);
+  });
+  $effect(() => {
+    if (rowFr.length !== rowCount) rowFr = Array(rowCount).fill(1);
   });
   const colBounds = $derived.by(() => {
     const total = colFr.reduce((s, f) => s + f, 0) || 1;
@@ -128,21 +144,33 @@
     }
     return out; // percent positions of each divider
   });
-  function startResize(e: PointerEvent, k: number) {
+  const rowBounds = $derived.by(() => {
+    const total = rowFr.reduce((s, f) => s + f, 0) || 1;
+    const out: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < rowFr.length - 1; i++) {
+      acc += rowFr[i];
+      out.push((acc / total) * 100);
+    }
+    return out;
+  });
+  // Shared divider drag: `axis` picks width/clientX (col) vs height/clientY (row).
+  function startResize(e: PointerEvent, k: number, axis: 'col' | 'row') {
     e.preventDefault();
-    const w = gridEl?.clientWidth || 1;
-    const total = colFr.reduce((s, f) => s + f, 0);
-    const startX = e.clientX;
-    const a = colFr[k];
-    const b = colFr[k + 1];
+    const fr = axis === 'col' ? colFr : rowFr;
+    const span = (axis === 'col' ? gridEl?.clientWidth : gridEl?.clientHeight) || 1;
+    const total = fr.reduce((s, f) => s + f, 0);
+    const start = axis === 'col' ? e.clientX : e.clientY;
+    const a = fr[k];
+    const b = fr[k + 1];
     const move = (ev: PointerEvent) => {
-      const dFr = ((ev.clientX - startX) / w) * total;
-      const na = Math.max(0.25, a + dFr);
-      const nb = Math.max(0.25, b - dFr);
-      const next = [...colFr];
-      next[k] = na;
-      next[k + 1] = nb;
-      colFr = next;
+      const pos = axis === 'col' ? ev.clientX : ev.clientY;
+      const dFr = ((pos - start) / span) * total;
+      const next = [...(axis === 'col' ? colFr : rowFr)];
+      next[k] = Math.max(0.25, a + dFr);
+      next[k + 1] = Math.max(0.25, b - dFr);
+      if (axis === 'col') colFr = next;
+      else rowFr = next;
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -296,6 +324,9 @@
           {t('sessions.launchAll')}
         </button>
       {/if}
+      <span class="text-sw-text-muted">·</span>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quickTool('opencode')} title={t('sessions.launchToolTip', { tool: 'opencode' })}>▶ opencode</button>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quickTool('shell')} title={t('sessions.launchToolTip', { tool: 'shell' })}>▶ shell</button>
       {#if savingWs}
         <input class="sw-input text-sw-xs" style="width:160px" bind:value={wsName} placeholder={t('sessions.wsNamePlaceholder')}
           onkeydown={(e) => e.key === 'Enter' && saveWorkspace()} />
@@ -331,7 +362,7 @@
     <div
       class="grid"
       bind:this={gridEl}
-      style="grid-template-columns: {maximized ? '1fr' : colFr.map((f) => `minmax(0, ${f}fr)`).join(' ')};"
+      style="grid-template-columns: {maximized ? '1fr' : colFr.map((f) => `minmax(0, ${f}fr)`).join(' ')}; grid-template-rows: {maximized ? '1fr' : rowFr.map((f) => `minmax(80px, ${f}fr)`).join(' ')};"
     >
       <!-- Every pane stays MOUNTED (sessions must survive maximize); non-maximized ones are just
            hidden, so the maximized pane fills the single column. -->
@@ -358,12 +389,16 @@
           />
         </div>
       {/each}
-      {#if !maximized && columns > 1}
+      {#if !maximized}
         {#each colBounds as pos, k (k)}
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <button type="button" class="col-divider" style="left:{pos}%"
+          <button type="button" class="divider col-divider" style="left:{pos}%"
             title={t('sessions.resizeCol')} aria-label={t('sessions.resizeCol')}
-            onpointerdown={(e) => startResize(e, k)}></button>
+            onpointerdown={(e) => startResize(e, k, 'col')}></button>
+        {/each}
+        {#each rowBounds as pos, k (k)}
+          <button type="button" class="divider row-divider" style="top:{pos}%"
+            title={t('sessions.resizeRow')} aria-label={t('sessions.resizeRow')}
+            onpointerdown={(e) => startResize(e, k, 'row')}></button>
         {/each}
       {/if}
     </div>
@@ -466,31 +501,49 @@
   .cell.hidden {
     display: none;
   }
-  .col-divider {
+  .divider {
     position: absolute;
+    border: none;
+    background: transparent;
+    z-index: 4;
+    padding: 0;
+  }
+  .divider::after {
+    content: '';
+    position: absolute;
+    background: transparent;
+    transition: background 0.12s;
+  }
+  .divider:hover::after {
+    background: var(--sw-accent-text);
+  }
+  .col-divider {
     top: 0;
     bottom: 0;
     width: 10px;
     transform: translateX(-50%);
-    border: none;
-    background: transparent;
     cursor: col-resize;
-    z-index: 4;
-    padding: 0;
   }
   .col-divider::after {
-    content: '';
-    position: absolute;
     left: 50%;
     top: 0;
     bottom: 0;
     width: 2px;
     transform: translateX(-50%);
-    background: transparent;
-    transition: background 0.12s;
   }
-  .col-divider:hover::after {
-    background: var(--sw-accent-text);
+  .row-divider {
+    left: 0;
+    right: 0;
+    height: 10px;
+    transform: translateY(-50%);
+    cursor: row-resize;
+  }
+  .row-divider::after {
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    transform: translateY(-50%);
   }
   .grid {
     position: relative;
@@ -498,10 +551,10 @@
     gap: var(--sw-space-3);
     flex: 1;
     min-height: 0;
-    /* Rows share the available height (so panes fill the page); they only scroll once
-       there are too many to fit at a sensible minimum height. */
-    grid-auto-rows: minmax(220px, 1fr);
-    overflow-y: auto;
+    /* Explicit equal grid-template-rows are set inline (equal default + resizable). This is just a
+       fallback for any unexpected implicit row. */
+    grid-auto-rows: minmax(80px, 1fr);
+    overflow: hidden;
     padding-bottom: var(--sw-space-2);
   }
   .empty {

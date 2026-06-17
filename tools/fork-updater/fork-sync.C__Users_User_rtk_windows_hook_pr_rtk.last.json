@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "component": "forks",
+  "status": "ok",
+  "counts": {
+    "changed": 0,
+    "failed": 0,
+    "total": 1
+  },
+  "timestamp": "2026-06-17T11:16:13.1568538+03:00",
+  "durationSec": 15.5,
+  "generatedAt": "2026-06-17T11:16:13.1597002+03:00",
+  "mode": "APPLY: внесение изменений",
+  "gitVersion": "git version 2.54.0.windows.1",
+  "ghAvailable": true,
+  "summary": {
+    "repos": 1,
+    "merged": 0,
+    "open": 2,
+    "conflict": 0,
+    "needHands": 0
+  },
+  "repos": [
+    {
+      "Name": "rtk",
+      "Path": "C:\\Users\\User\\rtk-windows-hook-pr\\rtk",
+      "upstream": "upstream -> rtk-ai/rtk",
+      "fork": "origin -> danscMax/rtk",
+      "defaultBranch": "develop",
+      "upstreamRemote": "upstream",
+      "forkRemote": "origin",
+      "forkOwnerRepo": "danscMax/rtk",
+      "parentOwnerRepo": "rtk-ai/rtk",
+      "currentBranch": "feat/windows-powershell-hook",
+      "rolesGuessed": false,
+      "isOwn": false,
+      "behindBy": 3,
+      "ffSafe": true,
+      "dirty": false,
+      "untracked": false,
+      "midOp": false,
+      "opName": null,
+      "detached": false,
+      "branches": [
+        {
+          "name": "feat/windows-powershell-hook",
+          "prNumber": 2255,
+          "prState": "OPEN",
+          "url": "https://github.com/rtk-ai/rtk/pull/2255",
+          "outcome": "clean",
+          "conflictFiles": [],
+          "aheadOfUpstream": 1,
+          "cherryPlus": 1,
+          "divergedFromForkAhead": null,
+          "checks": "pass",
+          "action": "открыт; ляжет на upstream чисто"
+        },
+        {
+          "name": "fix/resolve-local-node-modules-bin",
+          "prNumber": 2321,
+          "prState": "OPEN",
+          "url": "https://github.com/rtk-ai/rtk/pull/2321",
+          "outcome": "clean",
+          "conflictFiles": [],
+          "aheadOfUpstream": 1,
+          "cherryPlus": 1,
+          "divergedFromForkAhead": null,
+          "checks": "pass",
+          "action": "открыт; ляжет на upstream чисто"
+        }
+      ],
+      "wipLocal": null,
+      "Skipped": null,
+      "actionsTaken": "ff 'develop' до upstream/develop (+3); форк-remote синхронизирован"
+    }
+  ]
+}
