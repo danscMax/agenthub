@@ -1,22 +1,62 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import TerminalPane from './TerminalPane.svelte';
+  import SessionLaunchDialog from './SessionLaunchDialog.svelte';
   import { t } from '$lib/i18n';
+  import type { SessionTool } from '$lib/ipc';
 
   let { profiles = [], visible = true }: { profiles?: string[]; visible?: boolean } = $props();
 
-  // Each pane is an independent terminal; the key (not the profile) identifies it, so the same
-  // profile can run in several panes at once.
-  let panes = $state<{ key: string; profile: string }[]>([]);
+  type Pane = { key: string; profile: string; tool: SessionTool; cwd: string; args: string };
+  // The key (not the profile) identifies a pane, so the same profile can run in several at once.
+  let panes = $state<Pane[]>([]);
   let seq = 0;
   let columns = $state(2);
-  let cwd = $state('');
+  let cwd = $state(''); // default folder for quick launches
   let maximized = $state<string | null>(null); // key of the pane shown full-screen, or null
 
-  function launch(profile: string) {
-    panes = [...panes, { key: `${profile}#${seq++}`, profile }];
+  // Persisted prefs: column count + last folder used per profile (so re-launching a profile lands
+  // in the same place).
+  const FKEY = 'cmh-sessions-folders';
+  const CKEY = 'cmh-sessions-cols';
+  let lastFolders = $state<Record<string, string>>({});
+  onMount(() => {
+    try {
+      lastFolders = JSON.parse(localStorage.getItem(FKEY) ?? '{}');
+      const c = Number(localStorage.getItem(CKEY));
+      if (c >= 1 && c <= 3) columns = c;
+    } catch {
+      /* first run / private mode */
+    }
+  });
+  $effect(() => {
+    try {
+      localStorage.setItem(CKEY, String(columns));
+    } catch {
+      /* ignore */
+    }
+  });
+  function rememberFolder(profile: string, folder: string) {
+    if (!profile) return;
+    lastFolders = { ...lastFolders, [profile]: folder };
+    try {
+      localStorage.setItem(FKEY, JSON.stringify(lastFolders));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function addPane(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
+    const key = `${v.tool}:${v.profile || 'sh'}#${seq++}`;
+    panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args }];
+    if (v.tool === 'claude') rememberFolder(v.profile, v.cwd);
+  }
+  // Quick launch: Claude under a profile, in its remembered folder (or the default), no extra args.
+  function quick(profile: string) {
+    addPane({ tool: 'claude', profile, cwd: lastFolders[profile] ?? cwd, args: '' });
   }
   function launchAll() {
-    for (const p of profiles) launch(p);
+    for (const p of profiles) quick(p);
   }
   function closePane(key: string) {
     panes = panes.filter((p) => p.key !== key);
@@ -29,8 +69,19 @@
   function toggleMax(key: string) {
     maximized = maximized === key ? null : key;
   }
-  // When maximized, render only that pane; otherwise the whole grid.
   const shown = $derived(maximized ? panes.filter((p) => p.key === maximized) : panes);
+
+  // Launch dialog (tool / profile / folder / args).
+  let dlgOpen = $state(false);
+  let dlgProfile = $state('');
+  function openDlg(profile = '') {
+    dlgProfile = profile;
+    dlgOpen = true;
+  }
+  function onDlgSubmit(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
+    dlgOpen = false;
+    addPane(v);
+  }
 </script>
 
 <div class="wrap">
@@ -53,20 +104,23 @@
     </div>
   </header>
 
-  <!-- Launcher: pick a profile to open a new terminal (claude runs under it) -->
+  <!-- Launcher: quick-launch a profile (Claude), or open the dialog for tool/folder/args -->
   <div class="launcher">
     <label class="cwd">
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwd')}</span>
       <input class="sw-input text-sw-xs" bind:value={cwd} placeholder={t('sessions.cwdPlaceholder')} spellcheck="false" />
     </label>
     <div class="profiles">
+      <button class="sw-btn sw-btn-primary text-sw-xs" onclick={() => openDlg()} title={t('sessions.newSessionTip')}>
+        + {t('sessions.newSession')}
+      </button>
       {#each profiles as p (p)}
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => launch(p)} title={t('sessions.launchTip', { profile: p })}>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quick(p)} title={t('sessions.launchTip', { profile: p })}>
           ▶ {p}
         </button>
       {/each}
       {#if profiles.length > 1}
-        <button class="sw-btn sw-btn-primary text-sw-xs" onclick={launchAll} title={t('sessions.launchAllTip')}>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={launchAll} title={t('sessions.launchAllTip')}>
           {t('sessions.launchAll')}
         </button>
       {/if}
@@ -78,7 +132,9 @@
       {#each shown as pane (pane.key)}
         <TerminalPane
           profile={pane.profile}
-          cwd={cwd || undefined}
+          tool={pane.tool}
+          args={pane.args}
+          cwd={pane.cwd || undefined}
           {visible}
           maximized={maximized === pane.key}
           onClose={() => closePane(pane.key)}
@@ -93,6 +149,15 @@
       <div class="text-sw-sm text-sw-text-muted">{t('sessions.emptyHint')}</div>
     </div>
   {/if}
+
+  <SessionLaunchDialog
+    open={dlgOpen}
+    {profiles}
+    defaultProfile={dlgProfile}
+    defaultCwd={cwd}
+    onSubmit={onDlgSubmit}
+    onCancel={() => (dlgOpen = false)}
+  />
 </div>
 
 <style>

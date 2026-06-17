@@ -17,5 +17,15 @@ export default {
   maximize: '最大化到全屏',
   restore: '还原到网格',
   spawnError: '启动错误：{e}',
-  ended: '[会话已结束]'
+  ended: '[会话已结束]',
+  newSession: '新会话',
+  newSessionTip: '打开会话并选择工具、文件夹和参数',
+  dlgTitle: '新会话',
+  dlgTool: '工具',
+  dlgToolHint: 'Claude / opencode — 在所选文件夹中；shell — 纯 PowerShell。',
+  dlgProfile: '配置',
+  dlgArgs: '启动参数',
+  dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
+  dlgArgsHint: '原样传给命令（这是你的机器）。',
+  dlgLaunch: '启动'
 };

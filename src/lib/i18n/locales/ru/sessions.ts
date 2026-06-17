@@ -17,5 +17,15 @@ export default {
   maximize: 'Развернуть на весь экран',
   restore: 'Свернуть обратно в сетку',
   spawnError: 'Ошибка запуска: {e}',
-  ended: '[сессия завершена]'
+  ended: '[сессия завершена]',
+  newSession: 'Новая сессия',
+  newSessionTip: 'Открыть сессию с выбором инструмента, папки и аргументов',
+  dlgTitle: 'Новая сессия',
+  dlgTool: 'Инструмент',
+  dlgToolHint: 'Claude / opencode — под выбранной папкой; shell — чистый PowerShell.',
+  dlgProfile: 'Профиль',
+  dlgArgs: 'Аргументы запуска',
+  dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
+  dlgArgsHint: 'Передаются команде как есть (это твоя машина).',
+  dlgLaunch: 'Запустить'
 };

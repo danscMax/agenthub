@@ -17,5 +17,15 @@ export default {
   maximize: 'Maximize to full screen',
   restore: 'Restore into the grid',
   spawnError: 'Launch error: {e}',
-  ended: '[session ended]'
+  ended: '[session ended]',
+  newSession: 'New session',
+  newSessionTip: 'Open a session choosing the tool, folder and arguments',
+  dlgTitle: 'New session',
+  dlgTool: 'Tool',
+  dlgToolHint: 'Claude / opencode — in the chosen folder; shell — a bare PowerShell.',
+  dlgProfile: 'Profile',
+  dlgArgs: 'Launch arguments',
+  dlgArgsPlaceholder: '--dangerously-skip-permissions --effort max',
+  dlgArgsHint: 'Passed to the command verbatim (this is your machine).',
+  dlgLaunch: 'Launch'
 };

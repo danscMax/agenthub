@@ -3254,19 +3254,26 @@ fn gen_session_id() -> String {
     format!("s{:015x}", (n as u64) & 0x000f_ffff_ffff_ffff)
 }
 
-/// Spawn a profile's `claude` inside a real PTY and stream its output. Returns the session id.
-/// Output → event `pty:data:<id>` (base64 string); termination → `pty:exit:<id>` (exit code i32).
+/// Spawn a tool (claude / opencode / shell) inside a real PTY and stream its output. Returns the
+/// session id. Output → event `pty:data:<id>` (base64); termination → `pty:exit:<id>` (exit i32).
 #[tauri::command]
 fn session_spawn(
     app: AppHandle,
     state: State<'_, SessionState>,
     profile: String,
+    tool: Option<String>,
+    args: Option<String>,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
     use portable_pty::{CommandBuilder, PtySize};
-    if !valid_profile_name(&profile) {
+    let tool = tool.unwrap_or_else(|| "claude".into());
+    if !matches!(tool.as_str(), "claude" | "opencode" | "shell") {
+        return Err(format!("неизвестный инструмент: {tool}"));
+    }
+    // The profile only matters for claude (it picks CLAUDE_CONFIG_DIR = ~/.claude-<name>).
+    if tool == "claude" && !valid_profile_name(&profile) {
         return Err(format!("недопустимый профиль: {profile}"));
     }
     let size = PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 };
@@ -3274,16 +3281,23 @@ fn session_spawn(
         .openpty(size)
         .map_err(|e| format!("openpty: {e}"))?;
 
-    // `claude` is a .cmd shim → launch it inside pwsh; -NoExit keeps the pane usable after it exits.
-    // CLAUDE_CONFIG_DIR selects which profile (~/.claude-<name>) the session runs under.
+    // Tools are .cmd shims → launch inside pwsh; -NoExit keeps the pane usable after the tool exits.
+    // `shell` opens a bare interactive pwsh. Extra args (e.g. `--effort max`) are the user's own
+    // input on their own machine, appended to the launch command verbatim.
     let home = std::env::var("USERPROFILE").unwrap_or_default();
-    let config_dir = format!("{home}\\.claude-{profile}");
+    let extra = args.unwrap_or_default();
+    let extra = extra.trim();
     let mut cmd = CommandBuilder::new("pwsh");
     cmd.arg("-NoLogo");
-    cmd.arg("-NoExit");
-    cmd.arg("-Command");
-    cmd.arg("claude");
-    cmd.env("CLAUDE_CONFIG_DIR", &config_dir);
+    if tool != "shell" {
+        let base = if tool == "opencode" { "opencode" } else { "claude" };
+        cmd.arg("-NoExit");
+        cmd.arg("-Command");
+        cmd.arg(if extra.is_empty() { base.to_string() } else { format!("{base} {extra}") });
+    }
+    if tool == "claude" {
+        cmd.env("CLAUDE_CONFIG_DIR", format!("{home}\\.claude-{profile}"));
+    }
     let dir = cwd.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| home.clone());
     if !dir.is_empty() {
         cmd.cwd(dir);

@@ -4,11 +4,13 @@
   import { FitAddon } from '@xterm/addon-fit';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import '@xterm/xterm/css/xterm.css';
-  import { sessionSpawn, sessionWrite, sessionResize, sessionKill } from '$lib/ipc';
+  import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
   import { t } from '$lib/i18n';
 
   let {
     profile,
+    tool = 'claude',
+    args = '',
     cwd = undefined,
     visible = true,
     maximized = false,
@@ -16,12 +18,20 @@
     onToggleMax
   }: {
     profile: string;
+    tool?: SessionTool;
+    args?: string;
     cwd?: string;
     visible?: boolean;
     maximized?: boolean;
     onClose: () => void;
     onToggleMax?: () => void;
   } = $props();
+
+  // Pane title: tool + the profile (claude) or the folder it's running in (opencode/shell).
+  const folderName = $derived(cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '');
+  const label = $derived(
+    tool === 'claude' ? `${tool} · ${profile}` : folderName ? `${tool} · ${folderName}` : tool
+  );
 
   let host: HTMLDivElement;
   let term: Terminal | undefined;
@@ -57,7 +67,7 @@
       /* host not laid out yet — resize observer fits shortly */
     }
     try {
-      id = await sessionSpawn(profile, cwd, term.cols, term.rows);
+      id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows);
     } catch (e) {
       error = String(e);
       term.writeln(`\r\n\x1b[31m${t('sessions.spawnError', { e: String(e) })}\x1b[0m`);
@@ -115,7 +125,7 @@
 <div class="pane">
   <div class="bar">
     <span class="dot" class:dead={exited} class:err={!!error}></span>
-    <span class="name" title={t('sessions.paneTitle', { profile })}>{profile}</span>
+    <span class="name" title={cwd || t('sessions.paneTitle', { profile: label })}>{label}</span>
     <span class="spacer"></span>
     {#if onToggleMax}
       <button class="x" onclick={onToggleMax}
