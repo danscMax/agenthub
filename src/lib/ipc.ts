@@ -536,6 +536,7 @@ export type HubConfig = {
   closeToTray?: boolean;
   fetchTimeoutSec?: number | null;
   ghTimeoutSec?: number | null;
+  toggleHotkey?: string | null;
 };
 export type AppPaths = {
   scriptsRoot: string;
@@ -557,5 +558,7 @@ export const pickOpenFile = async (): Promise<string | null> => {
 };
 export const exportConfig = (dest: string) => invoke('export_config', { dest });
 export const importConfig = (src: string) => invoke<HubConfig>('import_config', { src });
+// Register/clear the OS-global show/hide hotkey at runtime (#123). Throws on a bad/taken combo.
+export const setToggleHotkey = (accel: string | null) => invoke('set_toggle_hotkey', { accel });
 export const getAutostart = () => invoke<boolean>('get_autostart');
 export const setAutostart = (enabled: boolean) => invoke('set_autostart', { enabled });

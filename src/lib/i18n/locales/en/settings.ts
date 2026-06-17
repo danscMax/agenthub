@@ -57,6 +57,11 @@ export default {
   closeToTray: 'Close to tray',
   closeToTrayDesc: 'The ✕ button hides the window to the tray. Turn off to make ✕ quit the app.',
   closeToTrayTip: 'Behavior of the window close button',
+  toggleHotkey: 'Global show/hide hotkey',
+  toggleHotkeyDesc: 'A system-wide combo to show/hide the window from anywhere. Empty = off.',
+  toggleHotkeyTip: 'e.g. CommandOrControl+Shift+H',
+  toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
+  toggleHotkeyError: 'Could not register the hotkey',
 
   // Timeouts
   timeouts: 'Timeouts (forks)',

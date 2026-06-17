@@ -57,6 +57,11 @@ export default {
   closeToTray: '关闭到托盘',
   closeToTrayDesc: '✕ 按钮将窗口最小化到托盘。关闭后，✕ 将直接退出应用。',
   closeToTrayTip: '窗口关闭按钮的行为',
+  toggleHotkey: '全局显示/隐藏热键',
+  toggleHotkeyDesc: '在任意位置显示/隐藏窗口的系统级组合键。留空 = 关闭。',
+  toggleHotkeyTip: '例如：CommandOrControl+Shift+H',
+  toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
+  toggleHotkeyError: '无法注册热键',
 
   // Timeouts
   timeouts: '超时（分叉）',

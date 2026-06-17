@@ -12,6 +12,7 @@
     pickOpenFile,
     exportConfig,
     importConfig,
+    setToggleHotkey,
     type HubConfig,
     type AppPaths
   } from '$lib/ipc';
@@ -54,6 +55,8 @@
   let autostart = $state(false);
   let startHidden = $state(false);
   let closeToTray = $state(true);
+  // #123: OS-global show/hide accelerator (empty = off).
+  let toggleHotkey = $state('');
   let paths = $state<AppPaths | null>(null);
   let version = $state('');
   let savedMsg = $state('');
@@ -69,6 +72,7 @@
     ghTimeout = c.ghTimeoutSec ?? '';
     startHidden = !!c.startHidden;
     closeToTray = c.closeToTray ?? true;
+    toggleHotkey = c.toggleHotkey ?? '';
   }
 
   onMount(async () => {
@@ -103,6 +107,7 @@
       const c = await importConfig(src);
       await writeConfig(c);
       loadConfigFields(c);
+      await setToggleHotkey(c.toggleHotkey ?? null).catch(() => {}); // re-register imported hotkey (ignore a taken combo)
       paths = await appPaths(); // scriptsRoot may have changed → refresh the About "currently used" path
       flash(t('settings.configImported'));
     } catch (e) {
@@ -167,6 +172,18 @@
     closeToTray = v;
     await persist({ closeToTray: v });
     flash(t('settings.saved'));
+  }
+  // #123: register the combo first (it throws on a bad/taken accelerator) and only persist if it took.
+  async function applyToggleHotkey() {
+    const accel = toggleHotkey.trim() || null;
+    errMsg = '';
+    try {
+      await setToggleHotkey(accel);
+      await persist({ toggleHotkey: accel });
+      flash(t('settings.saved'));
+    } catch (e) {
+      errMsg = `${t('settings.toggleHotkeyError')}: ${e}`;
+    }
   }
 </script>
 
@@ -275,7 +292,7 @@
     {/if}
 
     <!-- Launch -->
-    {#if show(t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'))}
+    {#if show(t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey'))}
     <div class="sw-card flex flex-col gap-sw-3">
       <div class="font-medium">{t('settings.launch')}</div>
       <label class="flex items-center justify-between gap-sw-4">
@@ -302,6 +319,20 @@
         </span>
         <Toggle checked={confirmDestructive} onCheckedChange={(v) => onSetConfirmDestructive?.(v)} title={t('settings.confirmDestructive')} />
       </label>
+      <div class="flex flex-col gap-1">
+        <span class="text-sw-sm">{t('settings.toggleHotkey')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.toggleHotkeyDesc')}</span>
+        </span>
+        <div class="flex items-center gap-sw-2">
+          <input
+            class="sw-input flex-1"
+            bind:value={toggleHotkey}
+            placeholder={t('settings.toggleHotkeyPlaceholder')}
+            title={t('settings.toggleHotkeyTip')}
+          />
+          <button class="sw-btn sw-btn-primary" onclick={applyToggleHotkey}>{t('common.apply')}</button>
+        </div>
+      </div>
     </div>
     {/if}
 

@@ -38,6 +38,9 @@ struct HubConfig {
     fetch_timeout_sec: Option<u32>,
     #[serde(rename = "ghTimeoutSec", default, skip_serializing_if = "Option::is_none")]
     gh_timeout_sec: Option<u32>,
+    // OS-level accelerator (e.g. "CommandOrControl+Shift+H") that toggles the window. None/empty = off.
+    #[serde(rename = "toggleHotkey", default, skip_serializing_if = "Option::is_none")]
+    toggle_hotkey: Option<String>,
 }
 
 fn config_path() -> Option<String> {
@@ -3298,6 +3301,61 @@ fn reveal(app: &AppHandle) {
     }
 }
 
+/// Toggle window visibility from the global hotkey: hide when it's the foreground window, else reveal.
+fn toggle_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let visible = w.is_visible().unwrap_or(false);
+        let focused = w.is_focused().unwrap_or(false);
+        if visible && focused {
+            let _ = w.hide();
+        } else {
+            reveal(app);
+        }
+    }
+}
+
+/// Reflect the number of open session panes in the tray tooltip.
+// ponytail: tooltip count, not a drawn overlay badge — add image-gen only if a visual badge is requested.
+fn update_tray_tooltip(app: &AppHandle) {
+    let n = app
+        .state::<SessionState>()
+        .0
+        .lock()
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let label = if n == 0 {
+        "AgentHub".to_string()
+    } else {
+        format!("AgentHub — активных сессий: {n}")
+    };
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_tooltip(Some(&label));
+    }
+}
+
+/// Register (replacing any previous) the OS-global show/hide accelerator. Errors on a bad/taken combo.
+fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let sc = Shortcut::from_str(accel).map_err(|e| format!("неверная комбинация: {e}"))?;
+    let gs = app.global_shortcut();
+    let _ = gs.unregister_all();
+    gs.register(sc).map_err(|e| format!("{e}"))
+}
+
+/// Apply a new toggle hotkey at runtime. Empty/None clears it. Config persistence is the frontend's job.
+#[tauri::command]
+fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    match accel.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(a) => register_toggle_hotkey(&app, a),
+        None => {
+            let _ = app.global_shortcut().unregister_all();
+            Ok(())
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 // ===================== Parallel terminal sessions (real PTYs) =====================
 // Each session runs a profile's `claude` in a true PTY (portable-pty) so its TUI renders in an
@@ -3407,6 +3465,7 @@ fn session_spawn(
         .lock()
         .unwrap()
         .insert(id.clone(), PtySession { master: pair.master, writer, child });
+    update_tray_tooltip(&app);
     Ok(id)
 }
 
@@ -3433,10 +3492,11 @@ fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u
 
 /// Kill a session's child process and drop it (its reader thread then ends on EOF).
 #[tauri::command]
-fn session_kill(state: State<'_, SessionState>, id: String) -> Result<(), String> {
+fn session_kill(app: AppHandle, state: State<'_, SessionState>, id: String) -> Result<(), String> {
     if let Some(mut s) = state.0.lock().unwrap().remove(&id) {
         let _ = s.child.kill();
     }
+    update_tray_tooltip(&app);
     Ok(())
 }
 
@@ -3467,6 +3527,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Remember window position/size across launches (auto-restores on start, saves on exit).
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        // OS-global hotkey to show/hide the window; the actual combo is registered from config in setup.
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state == ShortcutState::Pressed {
+                        toggle_window(app);
+                    }
+                })
+                .build(),
+        )
         .manage(RunState::default())
         .manage(ForkRuns::default())
         .manage(SessionState::default())
@@ -3542,14 +3613,22 @@ pub fn run() {
             open_terminal,
             get_autostart,
             set_autostart,
+            set_toggle_hotkey,
             cancel_run
         ])
         .setup(|app| {
             build_tray(app.handle())?;
+            let cfg = read_config_file();
             // Start minimized to tray if configured.
-            if read_config_file().start_hidden {
+            if cfg.start_hidden {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.hide();
+                }
+            }
+            // Register the configured show/hide hotkey, if any. A bad/taken combo must not block startup.
+            if let Some(accel) = cfg.toggle_hotkey.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Err(e) = register_toggle_hotkey(app.handle(), accel) {
+                    eprintln!("toggle hotkey register failed: {e}");
                 }
             }
             Ok(())

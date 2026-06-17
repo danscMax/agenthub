@@ -57,6 +57,11 @@ export default {
   closeToTray: 'Закрывать в трей',
   closeToTrayDesc: 'Кнопка ✕ сворачивает окно в трей. Выключи — ✕ будет полностью закрывать приложение.',
   closeToTrayTip: 'Поведение кнопки закрытия окна',
+  toggleHotkey: 'Глобальный хоткей показать/скрыть',
+  toggleHotkeyDesc: 'Системная комбинация для показа/скрытия окна из любого места. Пусто = выключено.',
+  toggleHotkeyTip: 'Например: CommandOrControl+Shift+H',
+  toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
+  toggleHotkeyError: 'Не удалось зарегистрировать хоткей',
 
   // Timeouts
   timeouts: 'Таймауты (форки)',
