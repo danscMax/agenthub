@@ -7,7 +7,7 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine, checkMyProvider, readStackProcs, freellmapiAuthStatus, type StackProc } from '$lib/ipc';
+  import { updateEngine, checkMyProvider, checkProviderUrl, readStackProcs, freellmapiAuthStatus, type StackProc } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
@@ -201,6 +201,17 @@
       health = { ...health, [id]: { ok: false, detail: String(e) } };
     }
   }
+  // Liveness check for an arbitrary base URL (engines / stack services), keyed separately so
+  // results don't collide with my-provider checks. No key — local backends.
+  async function checkUrl(key: string, baseUrl: string, protocol: string) {
+    health = { ...health, [key]: 'checking' };
+    try {
+      const r = await checkProviderUrl(baseUrl, protocol);
+      health = { ...health, [key]: { ok: r.ok, detail: r.detail } };
+    } catch (e) {
+      health = { ...health, [key]: { ok: false, detail: String(e) } };
+    }
+  }
 
   // Key rotation pool: expandable per-card panel + inline "add key" input.
   let keysOpen = $state<Record<string, boolean>>({});
@@ -270,6 +281,7 @@
       {#if stackOpen}
       <div class="card-grid">
         {#each stackList as s (s.id)}
+          {@const hc = health['stack:' + s.id]}
           <div class="sw-card flex flex-col gap-sw-2">
             <div class="flex items-start justify-between gap-sw-2">
               <div class="min-w-0">
@@ -308,7 +320,14 @@
                   {t('providers.dashboard')}
                 </button>
               {/if}
+              <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => checkUrl('stack:' + s.id, 'http://127.0.0.1:' + s.port, s.protocol)}
+                title={t('providers.checkTip')}>
+                {hc === 'checking' ? t('common.busy') : t('common.check')}
+              </button>
             </div>
+            {#if hc && hc !== 'checking'}
+              <p class="text-sw-xs {hc.ok ? 'text-emerald-400' : 'text-red-400'}">{hc.ok ? '✓' : '✗'} {hc.detail}</p>
+            {/if}
           </div>
         {/each}
       </div>
@@ -337,6 +356,7 @@
   {#if engineList.length}
     <div class="card-grid">
       {#each engineList as e (e.id)}
+        {@const he = health['engine:' + e.id]}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
@@ -411,7 +431,14 @@
             {/if}
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => openEdit(e)}
               title={t('providers.editEndpointTitle')}>{t('providers.portUrl')}</button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => checkUrl('engine:' + e.id, e.baseUrl, e.protocol)}
+              title={t('providers.checkTip')}>
+              {he === 'checking' ? t('common.busy') : t('common.check')}
+            </button>
           </div>
+          {#if he && he !== 'checking'}
+            <p class="text-sw-xs {he.ok ? 'text-emerald-400' : 'text-red-400'}">{he.ok ? '✓' : '✗'} {he.detail}</p>
+          {/if}
         </div>
       {/each}
     </div>

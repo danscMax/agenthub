@@ -3,6 +3,7 @@ export default {
   title: 'Провайдеры и движки',
   subtitle: 'Локальные LLM-движки и привязка провайдера к каждому профилю Claude Code',
   refreshTitle: 'Перечитать статус движков и провайдеры профилей',
+  checkTip: 'Проверить доступность: GET /v1/models по этому адресу',
   refreshLabel: 'Обновить',
   busy: 'Идёт…',
 

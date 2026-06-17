@@ -3,6 +3,7 @@ export default {
   title: 'Providers and engines',
   subtitle: 'Local LLM engines and binding a provider to each Claude Code profile',
   refreshTitle: 'Re-read engine status and profile providers',
+  checkTip: 'Check availability: GET /v1/models at this address',
   refreshLabel: 'Refresh',
   busy: 'Working…',
 

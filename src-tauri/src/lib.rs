@@ -2106,21 +2106,9 @@ async fn next_provider_key(
 
 const CHECK_PROVIDER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Check-Provider.ps1";
 
-/// Liveness check for a saved provider: GET {baseUrl}/models with its key (read from the Credential
-/// Manager, fed via STDIN). Returns `{ ok, detail, count? }`. Does not take the run slot.
-#[tauri::command]
-async fn check_my_provider(id: String) -> serde_json::Value {
-    let list = read_myproviders_raw();
-    let entry = list
-        .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .cloned();
-    let Some(e) = entry else {
-        return serde_json::json!({ "ok": false, "detail": "провайдер не найден" });
-    };
-    let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai").to_string();
-    let api_key = active_provider_key(&id, &e).unwrap_or_default();
+/// Shared liveness check: GET {baseUrl}/v1/models via Check-Provider.ps1 with an API key fed over
+/// STDIN (never argv). Returns `{ ok, detail, count? }`. No run slot taken.
+async fn run_provider_check(base_url: &str, protocol: &str, api_key: &str) -> serde_json::Value {
     let script = abs(CHECK_PROVIDER_SCRIPT_REL);
     let child = tokio::process::Command::new("pwsh")
         .args([
@@ -2130,9 +2118,9 @@ async fn check_my_provider(id: String) -> serde_json::Value {
             "-File",
             &script,
             "-BaseUrl",
-            &base_url,
+            base_url,
             "-Protocol",
-            &protocol,
+            protocol,
         ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2155,6 +2143,29 @@ async fn check_my_provider(id: String) -> serde_json::Value {
     let stdout = String::from_utf8_lossy(&out.stdout);
     parse_json_bom(stdout.trim())
         .unwrap_or_else(|_| serde_json::json!({ "ok": false, "detail": "нет ответа" }))
+}
+
+/// Liveness check for a saved custom provider: key read from the Credential Manager.
+#[tauri::command]
+async fn check_my_provider(id: String) -> serde_json::Value {
+    let list = read_myproviders_raw();
+    let entry = list
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        .cloned();
+    let Some(e) = entry else {
+        return serde_json::json!({ "ok": false, "detail": "провайдер не найден" });
+    };
+    let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai").to_string();
+    let api_key = active_provider_key(&id, &e).unwrap_or_default();
+    run_provider_check(&base_url, &protocol, &api_key).await
+}
+
+/// Liveness check for an arbitrary base URL (local engines / stack services — no key needed).
+#[tauri::command]
+async fn check_provider_url(base_url: String, protocol: String) -> serde_json::Value {
+    run_provider_check(&base_url, &protocol, "").await
 }
 
 const OPENCODE_PROVIDER_SCRIPT_REL: &str =
@@ -3461,6 +3472,7 @@ pub fn run() {
             freellmapi_auth_status,
             connect_my_provider,
             check_my_provider,
+            check_provider_url,
             add_provider_key,
             remove_provider_key,
             next_provider_key,

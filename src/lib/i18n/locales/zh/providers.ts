@@ -3,6 +3,7 @@ export default {
   title: '提供商与引擎',
   subtitle: '本地 LLM 引擎以及为每个 Claude Code 配置绑定提供商',
   refreshTitle: '重新读取引擎状态和配置的提供商',
+  checkTip: '检查可用性：对该地址执行 GET /v1/models',
   refreshLabel: '刷新',
   busy: '进行中…',
 
