@@ -935,6 +935,10 @@
     return m;
   });
   const tabRefreshing = $derived(!!tabLoading[active]);
+  // Forks "check" is a long (~40s) script run; dimming + disabling the whole tab made it feel frozen.
+  // Keep the lightweight "refreshing" pill, but don't block the forks tab — cards stay readable,
+  // scrollable and expandable (per-repo mutation buttons still gate on `running` for git safety).
+  const blockingRefresh = $derived(tabRefreshing && active !== 'forks');
 
   // Lazy: refresh forks on first open this session (cached on disk → can be stale).
   // Re-runs once the run lock frees if something else was running when the tab opened.
@@ -1276,8 +1280,8 @@
 
       <div
         class="transition-opacity duration-200"
-        class:opacity-40={tabRefreshing}
-        class:pointer-events-none={tabRefreshing}
+        class:opacity-40={blockingRefresh}
+        class:pointer-events-none={blockingRefresh}
       >
       {#if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />

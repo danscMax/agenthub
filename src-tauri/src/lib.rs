@@ -2429,6 +2429,92 @@ async fn read_profile_file(name: String, which: String) -> Result<String, String
     std::fs::read_to_string(&path).map_err(|e| format!("{e}"))
 }
 
+// --- Claude Code usage limits (per profile) ---------------------------------------------------
+// Mirrors the user's statusline: each profile's OAuth token (~/.claude-<name>/.credentials.json)
+// → GET the usage endpoint → 5-hour & 7-day utilization + reset times. Used to show remaining
+// budget over each profile (and session).
+
+#[derive(Clone, Serialize)]
+struct ProfileUsage {
+    #[serde(rename = "fiveHourPct")]
+    five_hour_pct: Option<f64>,
+    #[serde(rename = "sevenDayPct")]
+    seven_day_pct: Option<f64>,
+    #[serde(rename = "fiveHourResetsAt")]
+    five_hour_resets_at: Option<String>,
+    #[serde(rename = "sevenDayResetsAt")]
+    seven_day_resets_at: Option<String>,
+}
+
+#[derive(Default)]
+struct UsageCache(Mutex<std::collections::HashMap<String, (std::time::Instant, ProfileUsage)>>);
+
+/// Blocking: read a profile's OAuth token and query the usage endpoint. None on any failure
+/// (not logged in / token expired / offline) so the UI just omits the badge.
+fn fetch_profile_usage(profile: &str) -> Option<ProfileUsage> {
+    let home = std::env::var("USERPROFILE").ok()?;
+    let creds = format!("{home}\\.claude-{profile}\\.credentials.json");
+    let content = std::fs::read_to_string(&creds).ok()?;
+    let v: serde_json::Value = serde_json::from_str(content.trim_start_matches('\u{feff}')).ok()?;
+    let token = v.get("claudeAiOauth")?.get("accessToken")?.as_str()?.to_string();
+    if token.is_empty() {
+        return None;
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into();
+    let body = agent
+        .get("https://api.anthropic.com/api/oauth/usage")
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("Accept", "application/json")
+        .call()
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
+    let r: serde_json::Value = serde_json::from_str(&body).ok()?;
+    let pct = |k: &str| r.get(k).and_then(|x| x.get("utilization")).and_then(|x| x.as_f64());
+    let reset =
+        |k: &str| r.get(k).and_then(|x| x.get("resets_at")).and_then(|x| x.as_str()).map(String::from);
+    Some(ProfileUsage {
+        five_hour_pct: pct("five_hour"),
+        seven_day_pct: pct("seven_day"),
+        five_hour_resets_at: reset("five_hour"),
+        seven_day_resets_at: reset("seven_day"),
+    })
+}
+
+/// Claude Code usage limits for a profile (5h + 7d). Cached ~60s per profile; null on any error.
+#[tauri::command]
+async fn read_profile_usage(
+    cache: State<'_, UsageCache>,
+    profile: String,
+) -> Result<Option<ProfileUsage>, String> {
+    if !valid_profile_name(&profile) {
+        return Ok(None);
+    }
+    {
+        let map = cache.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, u)) = map.get(&profile) {
+            if at.elapsed().as_secs() < 60 {
+                return Ok(Some(u.clone()));
+            }
+        }
+    }
+    let p = profile.clone();
+    let fetched = tokio::task::spawn_blocking(move || fetch_profile_usage(&p)).await.ok().flatten();
+    if let Some(u) = &fetched {
+        cache
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(profile, (std::time::Instant::now(), u.clone()));
+    }
+    Ok(fetched)
+}
+
 const OPENCODE_PROVIDER_SCRIPT_REL: &str =
     "!Настройки и MCP\\ClaudeProfiles\\Manage-OpenCode-Provider.ps1";
 
@@ -3772,6 +3858,7 @@ pub fn run() {
         .manage(RunState::default())
         .manage(ForkRuns::default())
         .manage(SessionState::default())
+        .manage(UsageCache::default())
         .invoke_handler(tauri::generate_handler![
             list_components,
             read_status,
@@ -3821,6 +3908,7 @@ pub fn run() {
             check_my_provider,
             check_provider_url,
             read_profile_file,
+            read_profile_usage,
             add_provider_key,
             remove_provider_key,
             next_provider_key,

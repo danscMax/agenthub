@@ -19,6 +19,7 @@
   import ModalShell from './ModalShell.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
   import Toggle from './Toggle.svelte';
+  import ProfileUsageBadge from './ProfileUsageBadge.svelte';
 
   let {
     data,
@@ -426,6 +427,11 @@
               </button>
             {/if}
           </div>
+
+          <!-- Claude Code usage limits (5h / weekly remaining) for this profile -->
+          {#if p.exists && p.credentialsPresent}
+            <ProfileUsageBadge profile={p.name} />
+          {/if}
 
           <!-- Provider (single line: value truncates so every card keeps the same height) -->
           {#if p.exists}
