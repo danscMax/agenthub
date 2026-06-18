@@ -10,6 +10,7 @@
   import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
+  import ProfileUsageBadge from './ProfileUsageBadge.svelte';
 
   let {
     profile,
@@ -383,6 +384,7 @@
     {/if}
     {#if tool === 'claude' && folderName}<span class="folder" title={cwd}>{folderName}</span>{/if}
     {#if args}<span class="argbadge" title={args}>⚑</span>{/if}
+    {#if tool === 'claude' && profile}<ProfileUsageBadge {profile} compact />{/if}
     <span class="spacer"></span>
     {#if exited}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>

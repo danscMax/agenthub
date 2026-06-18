@@ -208,6 +208,7 @@
           onAction={(a, p, l) => onAction(a, p, l)}
           onCancel={() => onCancelFork?.(repo.Path)}
           {onOpenSession}
+          refreshing={running === 'forks'}
         />
       {/each}
     </div>

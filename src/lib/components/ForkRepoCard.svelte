@@ -10,7 +10,8 @@
     run,
     onAction,
     onCancel,
-    onOpenSession
+    onOpenSession,
+    refreshing = false
   }: {
     repo: ForkRepo;
     anyRunning: boolean;
@@ -18,6 +19,8 @@
     onAction: (action: ForkAction, path: string, label: string) => void;
     onCancel?: () => void;
     onOpenSession?: (path: string) => void;
+    // A whole-stack forks "check" is in flight: this card's status is being refreshed.
+    refreshing?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -169,12 +172,13 @@
   const normTip = $derived(t('forks.normTip'));
 </script>
 
-<div class="sw-card flex flex-col gap-sw-2">
+<div class="sw-card flex flex-col gap-sw-2" class:fork-busy={busy} class:fork-refreshing={refreshing && !busy}>
   <div class="flex items-start justify-between gap-sw-2">
     <button class="flex min-w-0 items-center gap-sw-2 text-left" onclick={() => (open = !open)} title={open ? t('forks.collapseTip') : t('forks.expandTip')}>
       <span class="text-sw-text-muted">{open ? '▾' : '▸'}</span>
       <div class="min-w-0">
         <div class="flex items-center gap-sw-2">
+          {#if busy}<span class="busy-dot shrink-0" title={t('common.busy')}></span>{/if}
           <h3 class="truncate font-medium">{repo.Name}</h3>
           <span class="badge {repo.isOwn ? 'badge-muted' : 'badge-info'}" title={repo.isOwn ? t('forks.badgeOwnTip') : t('forks.badgeForkTip')}>{repo.isOwn ? t('forks.badgeOwn') : t('forks.badgeFork')}</span>
         </div>
@@ -306,6 +310,45 @@
   @keyframes fork-spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  /* This repo is being mutated right now (ff/delete/rebase/sync) — strong accent glow. */
+  .fork-busy {
+    border-color: var(--sw-accent-text);
+    box-shadow:
+      0 0 0 1px var(--sw-accent-text),
+      0 0 14px -2px var(--sw-accent-glow);
+  }
+  .busy-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--sw-accent-text);
+    animation: busypulse 1s ease-in-out infinite;
+  }
+  /* A whole-stack check is refreshing this card's status — gentle pulse so it reads as "updating". */
+  .fork-refreshing {
+    animation: forkpulse 1.5s ease-in-out infinite;
+  }
+  @keyframes busypulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: scale(0.8);
+    }
+  }
+  @keyframes forkpulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.62;
     }
   }
 </style>

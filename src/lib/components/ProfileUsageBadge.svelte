@@ -5,7 +5,8 @@
 
   // Shows remaining Claude Code budget (5h + weekly) for a profile, refreshed every 60s. The
   // backend caches per profile, so polling is cheap. Renders nothing when not logged in / offline.
-  let { profile }: { profile: string } = $props();
+  // compact = minimal inline form (for the session pane bar): "5ч 90% · 7д 94%", no reset countdown.
+  let { profile, compact = false }: { profile: string; compact?: boolean } = $props();
 
   let u = $state<ProfileUsage | null>(null);
 
@@ -47,15 +48,22 @@
 </script>
 
 {#if r5 != null || r7 != null}
-  <div class="flex flex-wrap items-center gap-x-sw-3 gap-y-1 text-sw-xs" title={t('profiles.usageTip')}>
-    {#if r5 != null}
-      <span><span class="text-sw-text-muted">{t('profiles.usage5h')}</span> <span class={color(r5)}>{r5}%</span></span>
-    {/if}
-    {#if r7 != null}
-      <span><span class="text-sw-text-muted">{t('profiles.usage7d')}</span> <span class={color(r7)}>{r7}%</span></span>
-    {/if}
-    {#if resetTxt}
-      <span class="text-sw-text-muted">{t('profiles.usageReset', { time: resetTxt })}</span>
-    {/if}
-  </div>
+  {#if compact}
+    <span class="flex items-center gap-x-sw-2 text-sw-xs whitespace-nowrap" title={t('profiles.usageTip')}>
+      {#if r5 != null}<span><span class="text-sw-text-muted">{t('profiles.usage5h')}</span><span class={color(r5)}>{r5}%</span></span>{/if}
+      {#if r7 != null}<span><span class="text-sw-text-muted">{t('profiles.usage7d')}</span><span class={color(r7)}>{r7}%</span></span>{/if}
+    </span>
+  {:else}
+    <div class="flex flex-wrap items-center gap-x-sw-3 gap-y-1 text-sw-xs" title={t('profiles.usageTip')}>
+      {#if r5 != null}
+        <span><span class="text-sw-text-muted">{t('profiles.usage5h')}</span> <span class={color(r5)}>{r5}%</span></span>
+      {/if}
+      {#if r7 != null}
+        <span><span class="text-sw-text-muted">{t('profiles.usage7d')}</span> <span class={color(r7)}>{r7}%</span></span>
+      {/if}
+      {#if resetTxt}
+        <span class="text-sw-text-muted">{t('profiles.usageReset', { time: resetTxt })}</span>
+      {/if}
+    </div>
+  {/if}
 {/if}
