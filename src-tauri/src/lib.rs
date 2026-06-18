@@ -250,6 +250,29 @@ async fn spawn_streamed_io(
     args: Vec<String>,
     stdin_payload: Option<String>,
 ) -> Result<i32, String> {
+    // Run the PowerShell script through the generic program runner.
+    let mut full = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script,
+    ];
+    full.extend(args);
+    spawn_streamed_prog(app, state, id, "pwsh".to_string(), full, stdin_payload).await
+}
+
+/// Core single-slot streamed runner: run `program args`, stream stdout/stderr to the console log,
+/// wait for exit. Optionally feeds `stdin_payload` (secrets go here, never argv). Exports the
+/// resolved SCRIPTS_ROOT so a child's {{SCRIPTS_ROOT}} expansion matches the backend's.
+async fn spawn_streamed_prog(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    id: String,
+    program: String,
+    args: Vec<String>,
+    stdin_payload: Option<String>,
+) -> Result<i32, String> {
     // Reserve the single run slot (guard dropped before any await).
     {
         let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -259,12 +282,7 @@ async fn spawn_streamed_io(
         *g = Some(0);
     }
 
-    let mut cmd = Command::new("pwsh");
-    cmd.arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-File")
-        .arg(&script);
+    let mut cmd = Command::new(&program);
     for a in &args {
         cmd.arg(a);
     }
@@ -273,8 +291,6 @@ async fn spawn_streamed_io(
     if stdin_payload.is_some() {
         cmd.stdin(std::process::Stdio::piped());
     }
-    // Export the resolved scripts root so a script's {{SCRIPTS_ROOT}} placeholder expansion matches
-    // the backend's (incl. a config.scriptsRoot override the script couldn't otherwise see).
     cmd.env("SCRIPTS_ROOT", scripts_root());
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -282,7 +298,7 @@ async fn spawn_streamed_io(
         Ok(c) => c,
         Err(e) => {
             *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            return Err(format!("не удалось запустить pwsh для {script}: {e}"));
+            return Err(format!("не удалось запустить {program}: {e}"));
         }
     };
 
@@ -798,7 +814,6 @@ async fn run_sync(
 
 // --- LLM provider per profile + local engine launcher ---
 const ENGINES_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\engines.json";
-const ENGINE_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Manage-Engine.ps1";
 const PROVIDER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Manage-Provider.ps1";
 /// Per-profile launch config (full vs lean mode + which tools to re-include when lean).
 const LAUNCH_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\profile-launch.json";
@@ -1308,6 +1323,114 @@ fn update_engine(id: String, base_url: String, port: u16) -> Result<(), String> 
 
 /// Start / stop a local engine via Manage-Engine.ps1 (streamed).
 #[tauri::command]
+/// Expand engines.json path placeholders (machine-independent config): {{SCRIPTS_ROOT}} and
+/// {{USERPROFILE}}. A string without placeholders passes through unchanged.
+fn expand_manifest(p: &str) -> String {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    p.replace("{{SCRIPTS_ROOT}}", &scripts_root())
+        .replace("{{USERPROFILE}}", &home)
+}
+
+struct EngineCfg {
+    start: String,
+    stop: String,
+    command: String,
+    port: u16,
+}
+
+/// Look up one engine's launch fields in config\engines.json by id.
+fn load_engine_cfg(id: &str) -> Option<EngineCfg> {
+    let content = std::fs::read_to_string(abs(ENGINES_CONFIG_REL)).ok()?;
+    let v = parse_json_bom(&content).ok()?;
+    let arr = v.get("engines")?.as_array()?;
+    let e = arr
+        .iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))?;
+    let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    Some(EngineCfg {
+        start: s("start"),
+        stop: s("stop"),
+        command: s("command"),
+        port: e.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
+    })
+}
+
+/// PIDs of processes LISTENING on a local TCP `port`, via `netstat -ano`. A listener is identified
+/// by its foreign address being the wildcard `0.0.0.0:0` / `[::]:0` — locale-independent (we never
+/// read the localized "LISTENING" state word). Empty on any error.
+fn listeners_on_port(port: u16) -> Vec<u32> {
+    if port == 0 {
+        return Vec::new();
+    }
+    let out = std::process::Command::new("netstat")
+        .args(["-ano"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    let Ok(out) = out else { return Vec::new() };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let suffix = format!(":{port}");
+    let mut pids = Vec::new();
+    for line in text.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        // Proto  Local  Foreign  State  PID
+        if cols.len() < 5 || !cols[0].eq_ignore_ascii_case("TCP") {
+            continue;
+        }
+        if !cols[1].ends_with(&suffix) {
+            continue;
+        }
+        if cols[2] != "0.0.0.0:0" && cols[2] != "[::]:0" {
+            continue;
+        }
+        if let Ok(pid) = cols[cols.len() - 1].parse::<u32>() {
+            if !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+    }
+    pids
+}
+
+const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+/// Launch a long-running engine DETACHED in its own console window (fire-and-forget). We neither
+/// wait for it nor capture its pipes — a server never exits and would otherwise hang the streamed
+/// runner forever (locking the run slot). "Running" is derived from the port probe, not from the
+/// launcher exiting. `cwd` sets the working directory when given. Dropping the Child does not kill
+/// it on Windows, so the engine keeps running after we return.
+fn spawn_engine_detached(program: &str, args: &[String], cwd: Option<&str>) -> Result<(), String> {
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args)
+        .env("SCRIPTS_ROOT", scripts_root())
+        .creation_flags(CREATE_NEW_CONSOLE);
+    if let Some(d) = cwd.filter(|d| !d.is_empty()) {
+        cmd.current_dir(d);
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("не удалось запустить {program}: {e}"))
+}
+
+/// Console feedback for a detached engine launch (the launch produced no streamed output here —
+/// the engine's own window has the live logs). Mirrors the normal run-log/run-done so the UI
+/// spinner clears cleanly.
+fn emit_engine_started(app: &AppHandle) {
+    let _ = app.emit(
+        "run-log",
+        LogLine {
+            component: "engine".into(),
+            stream: "out".into(),
+            line: "Запрошен запуск в отдельном окне. Статус обновится по проверке порта.".into(),
+        },
+    );
+    let _ = app.emit("run-done", RunDone { component: "engine".into(), code: 0 });
+}
+
+/// Start / stop a local LLM engine from config\engines.json (native; was Manage-Engine.ps1).
+/// start: launch the engine's `start` shell command (or `command` file) DETACHED in its own
+/// console, else status-only no-op. stop: run `stop` (streamed), else kill whatever listens on
+/// its port.
+#[tauri::command]
 async fn run_engine(
     app: AppHandle,
     state: State<'_, RunState>,
@@ -1317,15 +1440,56 @@ async fn run_engine(
     if !matches!(action.as_str(), "start" | "stop") {
         return Err(format!("неизвестное действие engine: {action}"));
     }
-    let script = abs(ENGINE_SCRIPT_REL);
-    spawn_streamed(
-        app,
-        state,
-        "engine".to_string(),
-        script,
-        vec!["-Action".into(), action, "-Id".into(), id],
-    )
-    .await
+    let Some(cfg) = load_engine_cfg(&id) else {
+        return Err(format!("движок '{id}' не найден в engines.json"));
+    };
+
+    if action == "start" {
+        // A server never exits, so launch it DETACHED in its own console and return immediately —
+        // streaming-until-exit would hang the run slot forever. Status comes from the port probe.
+        // Shell start command (ccr, llmstack): run via `cmd /c` in a fresh console.
+        if !cfg.start.trim().is_empty() {
+            let sh = expand_manifest(&cfg.start);
+            spawn_engine_detached("cmd", &["/c".to_string(), sh], None)?;
+            emit_engine_started(&app);
+            return Ok(0);
+        }
+        // File-based engine: run the file directly in its own console (.py via python), cwd = its dir.
+        if !cfg.command.trim().is_empty() {
+            let cmd = expand_manifest(&cfg.command);
+            let path = std::path::Path::new(&cmd);
+            if !path.is_file() {
+                return Err(format!("файл запуска не найден: {cmd}"));
+            }
+            let dir = path.parent().map(|p| p.display().to_string());
+            if cmd.to_lowercase().ends_with(".py") {
+                spawn_engine_detached("python", &[cmd.clone()], dir.as_deref())?;
+            } else {
+                spawn_engine_detached(&cmd, &[], dir.as_deref())?;
+            }
+            emit_engine_started(&app);
+            return Ok(0);
+        }
+        // Status-only engine (no launch command) — nothing to start.
+        return Ok(0);
+    }
+
+    // stop
+    if !cfg.stop.trim().is_empty() {
+        let sh = expand_manifest(&cfg.stop);
+        return spawn_streamed_prog(app, state, "engine".into(), "cmd".into(), vec!["/c".into(), sh], None).await;
+    }
+    // Fallback: kill whatever listens on the engine's port.
+    let pids = listeners_on_port(cfg.port);
+    if pids.is_empty() {
+        return Ok(0); // nobody listening — already stopped
+    }
+    let mut args: Vec<String> = vec!["/F".into()];
+    for pid in pids {
+        args.push("/PID".into());
+        args.push(pid.to_string());
+    }
+    spawn_streamed_prog(app, state, "engine".into(), "taskkill".into(), args, None).await
 }
 
 const ROUTER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Setup-Router.ps1";
@@ -2163,12 +2327,14 @@ fn probe_provider(base_url: &str, protocol: &str, api_key: &str) -> serde_json::
             serde_json::json!({ "ok": true, "detail": format!("ответил (моделей: {n})"), "count": n })
         }
         Err(ureq::Error::StatusCode(code)) => {
-            let detail = if code == 401 || code == 403 {
-                format!("ключ отклонён ({code})")
+            // An HTTP status means the server is ALIVE (it answered). Only auth failure is a real
+            // problem; any other status (e.g. 404 — routers/bridges like ccr have no /v1/models)
+            // still means "responding".
+            if code == 401 || code == 403 {
+                serde_json::json!({ "ok": false, "detail": format!("ключ отклонён ({code})") })
             } else {
-                format!("ответ HTTP {code}")
-            };
-            serde_json::json!({ "ok": false, "detail": detail })
+                serde_json::json!({ "ok": true, "detail": format!("отвечает (HTTP {code})") })
+            }
         }
         Err(e) => serde_json::json!({ "ok": false, "detail": format!("не отвечает: {e}") }),
     }
