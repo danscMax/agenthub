@@ -13,23 +13,23 @@
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
 
-**English** · [Русский](#русский) · [中文](#中文)
+🇬🇧 [English](#english) · 🇷🇺 [Русский](#русский) · 🇨🇳 [中文](#中文)
 
 </div>
 
-## Screenshots
+## Screenshots · Скриншоты · 截图
 
 <table>
 <tr>
-<td width="50%"><b>Profiles</b> — accounts, usage limits (5h / weekly), per‑profile providers<br><img src="docs/img/screenshot-profiles.png" alt="Profiles tab" /></td>
-<td width="50%"><b>Plugins &amp; skills</b> — sortable tables, ownership, bulk actions<br><img src="docs/img/screenshot-plugins-skills.png" alt="Plugins and skills tab" /></td>
+<td width="50%" align="center"><b>Profiles · Профили · 配置</b><br><img src="docs/img/screenshot-profiles.png" alt="Profiles tab" /></td>
+<td width="50%" align="center"><b>Plugins &amp; skills · Плагины и скиллы · 插件与技能</b><br><img src="docs/img/screenshot-plugins-skills.png" alt="Plugins and skills tab" /></td>
 </tr>
 <tr>
-<td><b>MCP</b> — source‑of‑truth + per‑profile deploy matrix<br><img src="docs/img/screenshot-mcp.png" alt="MCP tab" /></td>
-<td><b>Providers &amp; engines</b> — local stack, routers, per‑profile binding<br><img src="docs/img/screenshot-providers.png" alt="Providers tab" /></td>
+<td align="center"><b>MCP</b><br><img src="docs/img/screenshot-mcp.png" alt="MCP tab" /></td>
+<td align="center"><b>Providers &amp; engines · Провайдеры · 提供商</b><br><img src="docs/img/screenshot-providers.png" alt="Providers tab" /></td>
 </tr>
 <tr>
-<td colspan="2"><b>Sync</b> — exactly what syncs across machines via Syncthing<br><img src="docs/img/screenshot-sync.png" alt="Sync tab" /></td>
+<td colspan="2" align="center"><b>Sync · Синхронизация · 同步</b><br><img src="docs/img/screenshot-sync.png" alt="Sync tab" /></td>
 </tr>
 </table>
 
