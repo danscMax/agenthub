@@ -1148,6 +1148,24 @@ fn cmd_on_path(name: &str) -> bool {
     false
 }
 
+/// Resolve a command on PATH to a Windows-LAUNCHABLE path (.exe / .cmd / .bat — what CreateProcess
+/// and `std::process::Command` can run; Rust ≥1.77 launches .cmd/.bat via cmd.exe with safe argument
+/// escaping). Skips extension-less and .ps1 shims (npm drops all three for the same tool). None if
+/// not found. Used to spawn npm-installed CLIs (`claude`, `ccr`, `npm`) directly.
+fn exe_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var("PATH").ok()?;
+    let exts = [".exe", ".cmd", ".bat"];
+    for dir in std::env::split_paths(&path) {
+        for ext in exts {
+            let cand = dir.join(format!("{name}{ext}"));
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
 /// Fast TCP probe: is something listening on 127.0.0.1:port?
 fn port_listening(port: u16) -> bool {
     if port == 0 {
@@ -1789,10 +1807,167 @@ async fn run_engine(
     spawn_streamed_prog(app, state, "engine".into(), "taskkill".into(), args, None).await
 }
 
-const ROUTER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Setup-Router.ps1";
 const CONNECT_ROUTER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Connect-Router.ps1";
 
-/// Install or configure claude-code-router (ccr) via Setup-Router.ps1 (streamed).
+/// Run a child process to completion, forwarding stdout/stderr to the UI log (indented, mirroring the
+/// PS `| ForEach Write-Host "    $_"`). Returns the exit code (None if it failed to launch). Uses
+/// `.output()` (deadlock-free); the npm/ccr commands here are non-interactive. Simple args only — no
+/// JSON, so .cmd shims (npm.cmd / ccr.cmd) launch cleanly under Rust's escaping.
+fn stream_output(
+    prog: &std::path::Path,
+    args: &[&str],
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> Option<i32> {
+    match std::process::Command::new(prog).args(args).creation_flags(CREATE_NO_WINDOW).output() {
+        Ok(o) => {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                out(&format!("    {line}"));
+            }
+            for line in String::from_utf8_lossy(&o.stderr).lines() {
+                err(&format!("    {line}"));
+            }
+            o.status.code()
+        }
+        Err(e) => {
+            err(&format!("    не удалось запустить: {e}"));
+            None
+        }
+    }
+}
+
+/// The config.json merge of Setup-Router `configure` (testable; explicit path). Writes
+/// ~/.claude-code-router/config.json so ccr forwards Claude Code to `backend`/`model` under provider
+/// `name`, preserving other providers. Returns the exit code; streams via out/err.
+fn apply_router_config(
+    cfg_path: &str,
+    backend: &str,
+    model: &str,
+    name: &str,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> i32 {
+    use serde_json::{json, Value};
+    if backend.is_empty() {
+        err("ОШИБКА: для configure нужен -Backend (URL движка).");
+        return 1;
+    }
+    if model.is_empty() {
+        err("ОШИБКА: для configure нужен -Model (например, из «Загрузить модели»).");
+        return 1;
+    }
+    // ccr wants the full chat-completions URL.
+    let mut api_base = backend.trim_end_matches('/').to_string();
+    if !api_base.ends_with("/chat/completions") {
+        api_base = format!("{api_base}/chat/completions");
+    }
+    // Load existing config (preserve other providers/keys) or start fresh.
+    let mut cfg: Value = std::fs::read_to_string(cfg_path)
+        .ok()
+        .and_then(|c| parse_json_bom(&c).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| json!({}));
+    let obj = cfg.as_object_mut().unwrap();
+    if !obj.get("Providers").map(|p| p.is_array()).unwrap_or(false) {
+        obj.insert("Providers".into(), json!([]));
+    }
+    out(&format!(
+        "  Провайдер '{name}' -> {api_base}  (модель {model}); Router.default = {name},{model}"
+    ));
+    let provider =
+        json!({ "name": name, "api_base_url": api_base, "api_key": "not-needed", "models": [model] });
+    {
+        let providers = obj.get_mut("Providers").unwrap().as_array_mut().unwrap();
+        let mut found = false;
+        for p in providers.iter_mut() {
+            if p.get("name").and_then(|n| n.as_str()) == Some(name) {
+                *p = provider.clone();
+                found = true;
+            }
+        }
+        if !found {
+            providers.push(provider);
+        }
+    }
+    if !obj.get("Router").map(|r| r.is_object()).unwrap_or(false) {
+        obj.insert("Router".into(), json!({}));
+    }
+    obj.get_mut("Router")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert("default".into(), json!(format!("{name},{model}")));
+
+    // Backup then write (UTF-8 no BOM).
+    if let Some(dir) = std::path::Path::new(cfg_path).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if std::path::Path::new(cfg_path).exists() {
+        let _ = std::fs::copy(cfg_path, format!("{cfg_path}.bak"));
+    }
+    let serialized = match serde_json::to_string_pretty(&cfg) {
+        Ok(s) => s,
+        Err(e) => {
+            err(&format!("ОШИБКА сериализации config.json: {e}"));
+            return 1;
+        }
+    };
+    if let Err(e) = write_file_no_bom(cfg_path, &serialized) {
+        err(&format!("ОШИБКА записи config.json: {e}"));
+        return 1;
+    }
+    out("  config.json записан (бэкап .bak).");
+    0
+}
+
+/// Native port of Setup-Router.ps1 (install | configure). `install` runs `npm install -g
+/// @musistudio/claude-code-router`; `configure` rewrites ccr's config.json then `ccr restart`.
+/// Returns the exit code; streams via out/err.
+fn setup_router_native(
+    action: &str,
+    backend: &str,
+    model: &str,
+    name: &str,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> i32 {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let cfg_path = format!("{home}\\.claude-code-router\\config.json");
+    out(&format!("=== Router (ccr): {action} ==="));
+
+    if action == "install" {
+        if exe_on_path("ccr").is_some() {
+            out("  ccr уже установлен.");
+            return 0;
+        }
+        let Some(npm) = exe_on_path("npm") else {
+            err("  ОШИБКА: npm не найден на PATH (нужен Node.js).");
+            return 1;
+        };
+        out("  npm install -g @musistudio/claude-code-router …");
+        stream_output(&npm, &["install", "-g", "@musistudio/claude-code-router"], out, err);
+        if exe_on_path("ccr").is_some() {
+            out("  ccr установлен.");
+            0
+        } else {
+            out("  Не удалось подтвердить установку ccr.");
+            1
+        }
+    } else {
+        let code = apply_router_config(&cfg_path, backend, model, name, out, err);
+        if code != 0 {
+            return code;
+        }
+        if let Some(ccr) = exe_on_path("ccr") {
+            out("  ccr restart …");
+            stream_output(&ccr, &["restart"], out, err);
+        }
+        out("  Готово. Навесь на профиль пресет «Claude Code Router» (http://127.0.0.1:3456).");
+        0
+    }
+}
+
+/// Install or configure claude-code-router (ccr) (native; was Setup-Router.ps1).
 /// `configure` needs `backend` (engine baseUrl) + `model`.
 #[tauri::command]
 async fn run_router(
@@ -1806,24 +1981,17 @@ async fn run_router(
     if !matches!(action.as_str(), "install" | "configure") {
         return Err(format!("неизвестное действие router: {action}"));
     }
-    let mut args: Vec<String> = vec!["-Action".into(), action.clone()];
-    if action == "configure" {
-        let b = backend.unwrap_or_default();
-        let m = model.unwrap_or_default();
-        if b.is_empty() || m.is_empty() {
-            return Err("для configure нужны backend и model".into());
-        }
-        args.push("-Backend".into());
-        args.push(b);
-        args.push("-Model".into());
-        args.push(m);
-        if let Some(n) = name.filter(|s| !s.is_empty()) {
-            args.push("-Name".into());
-            args.push(n);
-        }
+    let backend = backend.unwrap_or_default();
+    let model = model.unwrap_or_default();
+    if action == "configure" && (backend.is_empty() || model.is_empty()) {
+        return Err("для configure нужны backend и model".into());
     }
-    let script = abs(ROUTER_SCRIPT_REL);
-    spawn_streamed(app, state, "engine".to_string(), script, args).await
+    // PS default provider name is 'lmstudio'.
+    let name = name.filter(|s| !s.is_empty()).unwrap_or_else(|| "lmstudio".to_string());
+    run_native_streamed(app, state, "engine".to_string(), move |out, err| {
+        setup_router_native(&action, &backend, &model, &name, out, err)
+    })
+    .await
 }
 
 /// Turnkey: configure+start ccr for `backend`/`model` and bind `profile` to it (streamed).
@@ -3646,6 +3814,11 @@ async fn run_schedule(
 }
 
 /// Run an MCP-tab action: deploy shared MCP servers into all profiles (Deploy-Mcp.ps1).
+/// NOTE: kept on PowerShell deliberately. The deploy must pass each server's JSON to
+/// `claude mcp add-json <name> <json>`; PowerShell 7's native arg-passing forwards the quoted JSON
+/// to the `claude.cmd` shim intact, but Rust's `std::process::Command` .cmd escaping mangles it
+/// (claude then rejects it with "Invalid configuration: Invalid input"). A native port would need to
+/// edit each profile's live `.claude.json` directly — too invasive for the gain. The PS path works.
 #[tauri::command]
 async fn run_mcp(
     app: AppHandle,
@@ -5163,6 +5336,51 @@ mod tests {
             assert!(v["env"].get(k).is_none(), "{k} should be cleared");
         }
         assert_eq!(v["env"]["FOO"], "bar");
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(format!("{p}.bak"));
+    }
+
+    #[test]
+    fn router_config_upsert_preserves_others() {
+        let path = std::env::temp_dir().join(format!("castellyn_ccr_{}.json", std::process::id()));
+        let p = path.to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&p);
+        // Seed: an unrelated provider + a stale entry for the name we'll upsert + extra top-level key.
+        let seed = serde_json::json!({
+            "APIKEY": "keep-me",
+            "Providers": [
+                { "name": "other", "api_base_url": "http://other/v1/chat/completions", "models": ["x"] },
+                { "name": "lmstudio", "api_base_url": "http://STALE", "models": ["old"] }
+            ],
+            "Router": { "default": "other,x" }
+        });
+        std::fs::write(&p, serde_json::to_string(&seed).unwrap()).unwrap();
+        let noop = |_: &str| {};
+
+        // configure: backend without /chat/completions → normalized; upsert lmstudio; others kept.
+        let code =
+            apply_router_config(&p, "http://localhost:1234/v1", "qwen", "lmstudio", &noop, &noop);
+        assert_eq!(code, 0);
+        let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["APIKEY"], "keep-me"); // unrelated top-level key preserved
+        let provs = v["Providers"].as_array().unwrap();
+        assert_eq!(provs.len(), 2); // upsert, not append
+        let other = provs.iter().find(|x| x["name"] == "other").unwrap();
+        assert_eq!(other["api_base_url"], "http://other/v1/chat/completions"); // untouched
+        let lm = provs.iter().find(|x| x["name"] == "lmstudio").unwrap();
+        assert_eq!(lm["api_base_url"], "http://localhost:1234/v1/chat/completions"); // normalized
+        assert_eq!(lm["api_key"], "not-needed");
+        assert_eq!(lm["models"][0], "qwen");
+        assert_eq!(v["Router"]["default"], "lmstudio,qwen");
+
+        // A backend already ending in /chat/completions must not be doubled.
+        let code = apply_router_config(
+            &p, "http://h/v1/chat/completions", "m", "lmstudio", &noop, &noop,
+        );
+        assert_eq!(code, 0);
+        let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        let lm = v["Providers"].as_array().unwrap().iter().find(|x| x["name"] == "lmstudio").unwrap();
+        assert_eq!(lm["api_base_url"], "http://h/v1/chat/completions");
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(format!("{p}.bak"));
     }
