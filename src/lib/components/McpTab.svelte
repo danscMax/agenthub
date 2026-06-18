@@ -81,43 +81,54 @@
         {t('mcp.bulkDeploy')}{bulkCount ? ` (${bulkCount})` : ''}
       </button>
     </div>
-    <div class="card-grid">
-      {#each sortedSource as srv (srv.name)}
-        <div class="sw-card flex flex-col gap-sw-3">
-          <div class="flex items-start justify-between gap-sw-2">
-            <div class="min-w-0">
-              <h3 class="font-medium">{srv.name}</h3>
-              <p class="truncate font-mono text-sw-xs text-sw-text-muted" title={t('mcp.commandTitle')}>{srv.command}</p>
-            </div>
-            {#if isPlugin(srv.name)}
-              <span class="badge badge-info shrink-0" title={t('mcp.pluginBadgeTitle')}>{t('mcp.pluginBadge')}</span>
-            {:else}
-              <span class="badge {srv.deployedIn.length === ALL_PROFILES.length ? 'badge-ok' : srv.deployedIn.length > 0 ? 'badge-warn' : 'badge-err'} shrink-0"
-                title={t('mcp.deployedCountTitle', { n: srv.deployedIn.length, total: ALL_PROFILES.length })}>
-                {srv.deployedIn.length}/{ALL_PROFILES.length}
-              </span>
-            {/if}
-          </div>
-
-          {#if isPlugin(srv.name)}
-            <p class="text-sw-xs text-sw-text-muted">
-              {t('mcp.pluginNote')}
-            </p>
-          {:else}
-            <div class="flex flex-wrap gap-sw-2">
-              {#each ALL_PROFILES as p (p)}
-                {@const ok = srv.deployedIn.includes(p)}
-                {#if ok}
-                  <span class="badge badge-ok" title={t('mcp.profileDeployedTitle', { p })}>{p}</span>
+    <div class="overflow-x-auto rounded-sw-md border border-sw-border">
+      <table class="w-full text-sw-sm">
+        <thead>
+          <tr class="border-b border-sw-border text-left text-sw-xs uppercase tracking-wide text-sw-text-muted">
+            <th class="px-sw-2 py-sw-1 font-medium">{t('mcp.colName')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('mcp.colCommand')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('mcp.colDeployed')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('mcp.colProfiles')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each sortedSource as srv (srv.name)}
+            <tr class="border-b border-sw-border/40 align-top hover:bg-sw-bg-secondary/40">
+              <td class="whitespace-nowrap px-sw-2 py-sw-1 font-medium">{srv.name}</td>
+              <td class="max-w-[280px] px-sw-2 py-sw-1 font-mono text-sw-xs text-sw-text-muted">
+                <span class="line-clamp-1" title={srv.command}>{srv.command}</span>
+              </td>
+              <td class="whitespace-nowrap px-sw-2 py-sw-1">
+                {#if isPlugin(srv.name)}
+                  <span class="badge badge-info" title={t('mcp.pluginBadgeTitle')}>{t('mcp.pluginBadge')}</span>
                 {:else}
-                  <button class="badge badge-muted" disabled={busy} onclick={() => onDeploy(p)}
-                    title={t('mcp.deployToProfileTip', { p })}>{p}</button>
+                  <span class="badge {srv.deployedIn.length === ALL_PROFILES.length ? 'badge-ok' : srv.deployedIn.length > 0 ? 'badge-warn' : 'badge-err'}"
+                    title={t('mcp.deployedCountTitle', { n: srv.deployedIn.length, total: ALL_PROFILES.length })}>
+                    {srv.deployedIn.length}/{ALL_PROFILES.length}
+                  </span>
                 {/if}
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/each}
+              </td>
+              <td class="px-sw-2 py-sw-1">
+                {#if isPlugin(srv.name)}
+                  <span class="text-sw-xs text-sw-text-muted">{t('mcp.pluginNote')}</span>
+                {:else}
+                  <div class="flex flex-wrap gap-sw-1">
+                    {#each ALL_PROFILES as p (p)}
+                      {@const ok = srv.deployedIn.includes(p)}
+                      {#if ok}
+                        <span class="badge badge-ok" title={t('mcp.profileDeployedTitle', { p })}>{p}</span>
+                      {:else}
+                        <button class="badge badge-muted" disabled={busy} onclick={() => onDeploy(p)}
+                          title={t('mcp.deployToProfileTip', { p })}>{p}</button>
+                      {/if}
+                    {/each}
+                  </div>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
     </div>
   {:else}
     <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">

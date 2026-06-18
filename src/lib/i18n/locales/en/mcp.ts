@@ -2,6 +2,10 @@ export default {
   // Header
   title: 'MCP servers',
   subtitle: 'Source of truth (config/.mcp.json) and per-profile deployment',
+  colName: 'Server',
+  colCommand: 'Command',
+  colDeployed: 'Deployed',
+  colProfiles: 'Profiles',
   refreshTitle: 'Re-read configs and refresh the matrix (read-only)',
   refreshing: 'Working…',
   refresh: 'Refresh',

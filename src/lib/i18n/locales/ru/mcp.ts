@@ -2,6 +2,10 @@ export default {
   // Header
   title: 'MCP-серверы',
   subtitle: 'Источник истины (config/.mcp.json) и развёртывание по профилям',
+  colName: 'Сервер',
+  colCommand: 'Команда',
+  colDeployed: 'Развёрнут',
+  colProfiles: 'Профили',
   refreshTitle: 'Перечитать конфиги и обновить матрицу (только чтение)',
   refreshing: 'Идёт…',
   refresh: 'Обновить',

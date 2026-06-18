@@ -2,6 +2,10 @@ export default {
   // Header
   title: 'MCP 服务器',
   subtitle: '真实来源 (config/.mcp.json) 与按配置部署',
+  colName: '服务器',
+  colCommand: '命令',
+  colDeployed: '已部署',
+  colProfiles: '配置',
   refreshTitle: '重新读取配置并刷新矩阵（只读）',
   refreshing: '处理中…',
   refresh: '刷新',
