@@ -2215,8 +2215,6 @@ async fn run_provider(
 // endpoint). Metadata lives in myproviders.json; the API key lives ONLY in the Credential Manager
 // (mirrors the user's Mediafarm api_profiles split — never plaintext in JSON).
 const MYPROVIDERS_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\myproviders.json";
-const CONNECT_CUSTOM_SCRIPT_REL: &str =
-    "!Настройки и MCP\\ClaudeProfiles\\Connect-CustomProvider.ps1";
 /// Credential Manager service names. One entry per provider key (`provider:<id>`) + a single
 /// freellmapi dashboard-session token (`dashboard`) used by the "connect via freellmapi" path.
 const KR_PROVIDERS: &str = "agenthub.providers";
@@ -2632,8 +2630,149 @@ fn gateway_base_url() -> Option<String> {
     Some(format!("http://localhost:{port}"))
 }
 
+/// Native port of Connect-CustomProvider.ps1: register a custom OpenAI-compatible provider in the
+/// freellmapi gateway. Authenticates with the saved session `token`, else logs in via
+/// `/api/auth/login` (email+password), then POSTs `/api/keys/custom`. Returns the exit code; streams
+/// progress via out/err. Secrets are ordinary captured args here (process memory) — no STDIN dance.
+#[allow(clippy::too_many_arguments)]
+fn connect_custom_native(
+    gateway: &str,
+    base_url: &str,
+    model: &str,
+    display_name: &str,
+    label: &str,
+    token: &str,
+    email: &str,
+    password: &str,
+    api_key: &str,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> i32 {
+    use serde_json::{json, Value};
+    let base = gateway.trim_end_matches('/');
+    let token = token.trim();
+    let email = email.trim();
+    let api_key = api_key.trim();
+    // Generous timeout: a cold gateway login/registration can take a few seconds.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .into();
+
+    // Authenticate: reuse the token, else log in with email+password.
+    let token = if token.is_empty() {
+        if email.is_empty() || password.is_empty() {
+            err("ОШИБКА: нет токена и неполные email/пароль freellmapi.");
+            return 1;
+        }
+        out("  Вход в freellmapi (email+пароль)…");
+        let body = json!({ "email": email, "password": password }).to_string();
+        match agent
+            .post(&format!("{base}/api/auth/login"))
+            .header("Content-Type", "application/json")
+            .send(body.as_str())
+        {
+            Ok(mut resp) => {
+                let parsed = resp
+                    .body_mut()
+                    .read_to_string()
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<Value>(&s).ok());
+                match parsed.as_ref().and_then(|v| v["token"].as_str()).filter(|t| !t.is_empty()) {
+                    Some(t) => t.to_string(),
+                    None => {
+                        err("  ОШИБКА входа в freellmapi: login не вернул токен");
+                        return 1;
+                    }
+                }
+            }
+            Err(ureq::Error::StatusCode(401)) => {
+                err("  ОШИБКА входа (401): неверный email или пароль freellmapi.");
+                return 1;
+            }
+            Err(ureq::Error::StatusCode(429)) => {
+                err("  ОШИБКА входа (429): слишком много попыток, подождите ~15 мин.");
+                return 1;
+            }
+            Err(e) => {
+                err(&format!("  ОШИБКА входа в freellmapi: {e}"));
+                return 1;
+            }
+        }
+    } else {
+        token.to_string()
+    };
+
+    // Build the registration payload (mirrors the script's optional fields).
+    let mut payload = serde_json::Map::new();
+    payload.insert("baseUrl".into(), json!(base_url));
+    payload.insert(
+        "displayName".into(),
+        json!(if display_name.is_empty() { base_url } else { display_name }),
+    );
+    if !label.is_empty() {
+        payload.insert("label".into(), json!(label));
+    }
+    if !model.is_empty() {
+        payload.insert("models".into(), json!([model]));
+    }
+    if !api_key.is_empty() {
+        payload.insert("apiKey".into(), json!(api_key));
+    }
+    let payload = Value::Object(payload).to_string();
+
+    let uri = format!("{base}/api/keys/custom");
+    out("=== freellmapi: регистрация custom-провайдера ===");
+    out(&format!(
+        "  POST {uri}  (baseUrl={base_url}, model={})",
+        if model.is_empty() { "—" } else { model }
+    ));
+
+    match agent
+        .post(&uri)
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .send(payload.as_str())
+    {
+        Ok(mut resp) => {
+            let v = resp
+                .body_mut()
+                .read_to_string()
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .unwrap_or(Value::Null);
+            let key_id = v["keyId"].as_str().unwrap_or("");
+            let platform = v["platform"].as_str().unwrap_or("");
+            out(&format!("  OK: провайдер зарегистрирован (keyId={key_id}, platform={platform})."));
+            if let Some(models) = v["models"].as_array() {
+                let names: Vec<String> =
+                    models.iter().filter_map(|m| m.as_str().map(String::from)).collect();
+                if !names.is_empty() {
+                    out(&format!("  Модели: {}", names.join(", ")));
+                }
+            }
+            out("  Готово. Провайдер доступен через freellmapi (:13001) для Claude Code (ccr) и opencode.");
+            0
+        }
+        Err(ureq::Error::StatusCode(code @ (401 | 403))) => {
+            err(&format!(
+                "  ОШИБКА авторизации ({code}): сессия freellmapi недействительна — переавторизуйтесь (Вход freellmapi)."
+            ));
+            1
+        }
+        Err(ureq::Error::StatusCode(400)) => {
+            err("  ОШИБКА (400): freellmapi отклонил baseUrl или тело запроса.");
+            1
+        }
+        Err(e) => {
+            err(&format!("  ОШИБКА запроса к freellmapi: {e}"));
+            1
+        }
+    }
+}
+
 /// Connect a saved provider to a harness. Dispatches by connectVia/protocol; the key (and the
-/// freellmapi dash-token) are read from the Credential Manager and handed to PowerShell over STDIN.
+/// freellmapi dash-token) are read from the Credential Manager and used in-process.
 #[tauri::command]
 async fn connect_my_provider(
     app: AppHandle,
@@ -2690,26 +2829,24 @@ async fn connect_my_provider(
                 return Err("сначала задайте вход в freellmapi (email+пароль или токен) — кнопка «Вход freellmapi»".into());
             }
             let gateway = gateway_base_url().ok_or("не найден gateway в stack.json")?;
-            let args = vec![
-                "-Gateway".into(),
-                gateway,
-                "-BaseUrl".into(),
-                base_url,
-                "-Model".into(),
-                s("model"),
-                "-DisplayName".into(),
-                s("name"),
-                "-Label".into(),
-                format!("agenthub:{}", s("name")),
-            ];
-            // STDIN payload: JSON with auth (token or email/password) + provider apiKey. Secrets
-            // never reach argv. The script logs in via /api/auth/login when token is empty.
-            let payload = serde_json::json!({
-                "token": token, "email": email, "password": password, "apiKey": api_key
+            let (model, display_name, label) =
+                (s("model"), s("name"), format!("agenthub:{}", s("name")));
+            run_native_streamed(app, state, "provider".into(), move |out, err| {
+                connect_custom_native(
+                    &gateway,
+                    &base_url,
+                    &model,
+                    &display_name,
+                    &label,
+                    &token,
+                    &email,
+                    &password,
+                    &api_key,
+                    out,
+                    err,
+                )
             })
-            .to_string();
-            let script = abs(CONNECT_CUSTOM_SCRIPT_REL);
-            spawn_streamed_io(app, state, "provider".into(), script, args, Some(payload)).await
+            .await
         }
         _ => Err(format!("неизвестная комбинация connectVia/protocol: {via}/{protocol}")),
     }
