@@ -47,6 +47,7 @@
     openPath,
     listPlugins,
     listSkills,
+    deleteSkill,
     listPluginUpdates,
     listPluginContents,
     runPlugin,
@@ -967,7 +968,9 @@
         ? t('page.plugin_verb_update')
         : action === 'enable'
           ? t('page.plugin_verb_enable')
-          : t('page.plugin_verb_disable');
+          : action === 'remove'
+            ? t('page.plugin_verb_remove')
+            : t('page.plugin_verb_disable');
     log = [t('page.plugin_log', { id, verb })];
     runPlugin(action, id).catch((e) => {
       log = [...log, t('page.log_error', { e })];
@@ -983,6 +986,14 @@
         t('page.confirm_plugin_disable_btn'),
         () => startPlugin('disable', id)
       );
+    } else if (action === 'remove') {
+      askConfirm(
+        t('page.confirm_plugin_remove_title'),
+        t('page.confirm_plugin_remove_msg', { id }),
+        t('page.confirm_plugin_remove_btn'),
+        () => startPlugin('remove', id),
+        { danger: true }
+      );
     } else {
       startPlugin(action, id);
     }
@@ -993,6 +1004,23 @@
     if (!d) return;
     const parent = d.slice(0, Math.max(d.lastIndexOf('\\'), d.lastIndexOf('/')));
     if (parent) openPath(parent).catch(toastErr);
+  }
+
+  function onOpenSkill(dir: string) {
+    openPath(dir).catch(toastErr);
+  }
+  function onDeleteSkill(dir: string, name: string) {
+    askConfirm(
+      t('page.confirm_skill_delete_title'),
+      t('page.confirm_skill_delete_msg', { name }),
+      t('page.confirm_skill_delete_btn'),
+      () => {
+        deleteSkill(dir)
+          .then(() => reloadExtensions())
+          .catch(toastErr);
+      },
+      { danger: true }
+    );
   }
 
   async function cancel() {
@@ -1352,6 +1380,8 @@
           onAction={onPluginAction}
           onRefresh={reloadExtensions}
           {onOpenSkills}
+          {onOpenSkill}
+          {onDeleteSkill}
         />
       {:else if active === 'schedule'}
         <ScheduleTab data={schedulesData} {running} onAction={onScheduleAction} onRefresh={reloadSchedules} />

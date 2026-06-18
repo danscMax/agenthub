@@ -143,10 +143,17 @@ export default {
   plugin_verb_update: 'обновление',
   plugin_verb_enable: 'включение',
   plugin_verb_disable: 'выключение',
+  plugin_verb_remove: 'удаление',
   plugin_log: '▶ Плагин {id}: {verb}…',
   confirm_plugin_disable_title: 'Выключить плагин?',
   confirm_plugin_disable_msg: '«{id}» будет выключен во всех профилях. Продолжить?',
   confirm_plugin_disable_btn: 'Выключить',
+  confirm_plugin_remove_title: 'Удалить плагин?',
+  confirm_plugin_remove_msg: '«{id}» будет удалён (claude plugin remove). Продолжить?',
+  confirm_plugin_remove_btn: 'Удалить',
+  confirm_skill_delete_title: 'Удалить скилл?',
+  confirm_skill_delete_msg: 'Папка скилла «{name}» будет удалена безвозвратно. Продолжить?',
+  confirm_skill_delete_btn: 'Удалить',
 
   // Operational toasts
   toast_op_done: '{name}: готово',

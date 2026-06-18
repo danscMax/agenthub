@@ -18,7 +18,9 @@
     running,
     onAction,
     onRefresh,
-    onOpenSkills
+    onOpenSkills,
+    onOpenSkill,
+    onDeleteSkill
   }: {
     plugins: PluginInfo[] | null;
     skills: SkillInfo[] | null;
@@ -28,6 +30,8 @@
     onAction: (action: PluginAction, id: string) => void;
     onRefresh: () => void;
     onOpenSkills: () => void;
+    onOpenSkill: (dir: string) => void;
+    onDeleteSkill: (dir: string, name: string) => void;
   } = $props();
 
   const busy = $derived(!!running);
@@ -41,6 +45,8 @@
     actingId = id;
     onAction(action, id);
   }
+  // Which plugin row has its bundled-contents detail expanded (one at a time).
+  let expandedId = $state<string | null>(null);
   const pluginList = $derived(plugins ?? []);
   const skillList = $derived(skills ?? []);
   const updateMap = $derived(new Map(updates.map((u) => [u.id, u.available])));
@@ -114,66 +120,75 @@
       <button class="sw-btn text-sw-xs {onlyEnabled ? 'sw-btn-primary' : 'sw-btn-ghost'}" onclick={() => (onlyEnabled = !onlyEnabled)}>{t('plugins.filterEnabled')}</button>
       <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={cycleSort}>⇅ {sortLabel}</button>
     </div>
-    <div class="card-grid">
-      {#each filtered as p (p.id)}
-        {@const s = split(p.id)}
-        {@const c = contentMap.get(p.id)}
-        <div class="sw-card flex flex-col gap-sw-3">
-          <div class="flex items-start justify-between gap-sw-2">
-            <div class="min-w-0">
-              <h3 class="truncate font-medium" title={p.id}>{s.name}</h3>
-              <p class="truncate text-sw-xs text-sw-text-muted">
-                {s.market}{p.version && p.version !== 'unknown' ? ` · v${p.version}` : ''}
-              </p>
-            </div>
-            <div class="flex shrink-0 flex-wrap items-center justify-end gap-sw-2">
-              {#if updateMap.has(p.id)}<span class="badge badge-info" title={t('plugins.updateAvailableBadgeTip', { version: updateMap.get(p.id) ?? '' })}>{t('plugins.updateAvailableBadge')}</span>{/if}
-              {#if p.scope === 'managed'}<span class="badge badge-muted" title={t('plugins.managedBadgeTip')}>{t('plugins.managedBadge')}</span>{/if}
-            </div>
-          </div>
-          {#if c && (c.skills.length || c.commands.length || c.agents.length)}
-            <details class="group rounded-sw-md border border-sw-border">
-              <summary class="flex cursor-pointer list-none items-center gap-sw-2 px-sw-2 py-1 text-sw-xs text-sw-text-secondary"
-                title={t('plugins.contentsToggleTip')}>
-                <span class="transition-transform group-open:rotate-90">▸</span>
-                <span>{t('plugins.contentsLabel')}</span>
-                {#if c.skills.length}<span class="badge badge-muted" title={t('plugins.skillsBadgeTip')}>{t('plugins.skillsBadge', { count: c.skills.length, skills: pSkill(c.skills.length) })}</span>{/if}
-                {#if c.commands.length}<span class="badge badge-muted" title={t('plugins.commandsBadgeTip')}>{t('plugins.commandsBadge', { count: c.commands.length, commands: pCommand(c.commands.length) })}</span>{/if}
-                {#if c.agents.length}<span class="badge badge-muted" title={t('plugins.agentsBadgeTip')}>{t('plugins.agentsBadge', { count: c.agents.length, agents: pAgent(c.agents.length) })}</span>{/if}
-              </summary>
-              <div class="flex flex-col gap-sw-2 border-t border-sw-border px-sw-2 py-sw-2">
-                {#each [{ label: t('plugins.catSkills'), items: c.skills }, { label: t('plugins.catCommands'), items: c.commands }, { label: t('plugins.catAgents'), items: c.agents }] as cat (cat.label)}
-                  {#if cat.items.length}
-                    <div>
-                      <p class="mb-1 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{cat.label}</p>
-                      <div class="flex flex-wrap gap-1">
-                        {#each cat.items as item (item)}
-                          <span class="rounded bg-sw-bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-sw-text-secondary">{item}</span>
-                        {/each}
-                      </div>
-                    </div>
+    <div class="overflow-x-auto rounded-sw-md border border-sw-border">
+      <table class="w-full text-sw-sm">
+        <thead>
+          <tr class="border-b border-sw-border text-left text-sw-xs uppercase tracking-wide text-sw-text-muted">
+            <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colName')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colMarket')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colVersion')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colContents')}</th>
+            <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colStatus')}</th>
+            <th class="px-sw-2 py-sw-1 text-right font-medium">{t('plugins.colActions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each filtered as p (p.id)}
+            {@const s = split(p.id)}
+            {@const c = contentMap.get(p.id)}
+            <tr class="border-b border-sw-border/40 hover:bg-sw-bg-secondary/40">
+              <td class="px-sw-2 py-sw-1">
+                <span class="font-medium" title={p.id}>{s.name}</span>
+                {#if p.scope === 'managed'}<span class="badge badge-muted ml-sw-2" title={t('plugins.managedBadgeTip')}>{t('plugins.managedBadge')}</span>{/if}
+              </td>
+              <td class="px-sw-2 py-sw-1 text-sw-xs text-sw-text-muted">{s.market || '—'}</td>
+              <td class="px-sw-2 py-sw-1 text-sw-xs whitespace-nowrap">
+                {p.version && p.version !== 'unknown' ? `v${p.version}` : '—'}
+                {#if updateMap.has(p.id)}<span class="badge badge-info ml-sw-1" title={t('plugins.updateAvailableBadgeTip', { version: updateMap.get(p.id) ?? '' })}>↑ v{updateMap.get(p.id)}</span>{/if}
+              </td>
+              <td class="px-sw-2 py-sw-1 text-sw-xs">
+                {#if c && (c.skills.length || c.commands.length || c.agents.length)}
+                  <button class="text-sw-text-secondary hover:text-sw-text" onclick={() => (expandedId = expandedId === p.id ? null : p.id)} title={t('plugins.contentsToggleTip')}>
+                    {#if c.skills.length}{c.skills.length} {pSkill(c.skills.length)}{/if}{#if c.commands.length} · {c.commands.length} {pCommand(c.commands.length)}{/if}{#if c.agents.length} · {c.agents.length} {pAgent(c.agents.length)}{/if} {expandedId === p.id ? '▾' : '▸'}
+                  </button>
+                {:else}<span class="text-sw-text-muted">—</span>{/if}
+              </td>
+              <td class="px-sw-2 py-sw-1">
+                <span class="flex items-center gap-sw-2">
+                  {#if actingId === p.id}<Spinner size={13} />{/if}
+                  <Toggle checked={p.enabled} disabled={busy} onCheckedChange={() => act(p.enabled ? 'disable' : 'enable', p.id)} title={p.enabled ? t('plugins.disableBtnTip') : t('plugins.enableBtnTip')} />
+                </span>
+              </td>
+              <td class="px-sw-2 py-sw-1">
+                <span class="flex items-center justify-end gap-sw-2">
+                  {#if updateMap.has(p.id)}
+                    <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => act('update', p.id)} title={t('plugins.updateBtnTip', { version: updateMap.get(p.id) ?? '' })}>{t('plugins.updateBtn')}</button>
                   {/if}
-                {/each}
-              </div>
-            </details>
-          {/if}
-          <div class="mt-auto flex flex-wrap items-center gap-sw-2 border-t border-sw-border pt-sw-2">
-            {#if updateMap.has(p.id)}
-              <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={() => act('update', p.id)}
-                title={t('plugins.updateBtnTip', { version: updateMap.get(p.id) ?? '' })}>{t('plugins.updateBtn')}</button>
-            {:else}
-              <span class="text-sw-xs text-sw-text-muted" title={t('plugins.upToDateTip')}>{t('plugins.upToDate')}</span>
+                  <button class="sw-btn sw-btn-danger text-sw-xs" disabled={busy} onclick={() => act('remove', p.id)} title={t('plugins.removeBtnTip')}>{t('plugins.removeBtn')}</button>
+                </span>
+              </td>
+            </tr>
+            {#if expandedId === p.id && c && (c.skills.length || c.commands.length || c.agents.length)}
+              <tr class="border-b border-sw-border/40 bg-sw-bg-secondary/30">
+                <td colspan="6" class="px-sw-3 py-sw-2">
+                  <div class="flex flex-col gap-sw-2">
+                    {#each [{ label: t('plugins.catSkills'), items: c.skills }, { label: t('plugins.catCommands'), items: c.commands }, { label: t('plugins.catAgents'), items: c.agents }] as cat (cat.label)}
+                      {#if cat.items.length}
+                        <div>
+                          <p class="mb-1 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{cat.label}</p>
+                          <div class="flex flex-wrap gap-1">
+                            {#each cat.items as item (item)}<span class="rounded bg-sw-bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-sw-text-secondary">{item}</span>{/each}
+                          </div>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
+                </td>
+              </tr>
             {/if}
-            <span class="ml-auto flex items-center gap-sw-2 text-sw-xs text-sw-text-secondary">
-              {#if actingId === p.id}<Spinner size={13} />{/if}
-              <span title={p.enabled ? t('plugins.enabledTip') : t('plugins.disabledTip')}>{p.enabled ? t('plugins.enabledBadge') : t('plugins.disabledBadge')}</span>
-              <Toggle checked={p.enabled} disabled={busy}
-                onCheckedChange={() => act(p.enabled ? 'disable' : 'enable', p.id)}
-                title={p.enabled ? t('plugins.disableBtnTip') : t('plugins.enableBtnTip')} />
-            </span>
-          </div>
-        </div>
-      {/each}
+          {/each}
+        </tbody>
+      </table>
     </div>
     {#if !filtered.length}
       <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noMatch')}</div>
@@ -197,16 +212,32 @@
   </p>
   {#if skillList.length}
     {#if filteredSkills.length}
-      <div class="grid grid-cols-1 gap-sw-2 md:grid-cols-2">
-        {#each filteredSkills as sk (sk.dir)}
-          <div class="sw-card py-sw-2">
-            <div class="flex items-center gap-sw-2">
-              <span class="truncate font-medium">{sk.name}</span>
-              {#if sk.version}<span class="badge badge-muted shrink-0">v{sk.version}</span>{/if}
-            </div>
-            {#if sk.description}<p class="mt-1 text-sw-xs text-sw-text-secondary">{sk.description}</p>{/if}
-          </div>
-        {/each}
+      <div class="overflow-x-auto rounded-sw-md border border-sw-border">
+        <table class="w-full text-sw-sm">
+          <thead>
+            <tr class="border-b border-sw-border text-left text-sw-xs uppercase tracking-wide text-sw-text-muted">
+              <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colName')}</th>
+              <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.colVersion')}</th>
+              <th class="px-sw-2 py-sw-1 font-medium">{t('plugins.skillColDesc')}</th>
+              <th class="px-sw-2 py-sw-1 text-right font-medium">{t('plugins.colActions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each filteredSkills as sk (sk.dir)}
+              <tr class="border-b border-sw-border/40 hover:bg-sw-bg-secondary/40">
+                <td class="px-sw-2 py-sw-1 font-medium">{sk.name}</td>
+                <td class="px-sw-2 py-sw-1 text-sw-xs text-sw-text-muted whitespace-nowrap">{sk.version ? `v${sk.version}` : '—'}</td>
+                <td class="px-sw-2 py-sw-1 text-sw-xs text-sw-text-secondary"><span class="line-clamp-1" title={sk.description ?? ''}>{sk.description ?? ''}</span></td>
+                <td class="px-sw-2 py-sw-1">
+                  <span class="flex items-center justify-end gap-sw-2">
+                    <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenSkill(sk.dir)} title={t('plugins.skillOpenTip')}>{t('plugins.skillOpen')}</button>
+                    <button class="sw-btn sw-btn-danger text-sw-xs" onclick={() => onDeleteSkill(sk.dir, sk.name)} title={t('plugins.skillDeleteTip')}>{t('plugins.skillDelete')}</button>
+                  </span>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
     {:else}
       <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noMatch')}</div>

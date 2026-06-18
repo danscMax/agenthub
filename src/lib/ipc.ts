@@ -520,7 +520,7 @@ export type PluginInfo = {
   lastUpdated?: string;
 };
 export type SkillInfo = { name: string; description: string; version: string; dir: string };
-export type PluginAction = 'enable' | 'disable' | 'update';
+export type PluginAction = 'enable' | 'disable' | 'update' | 'remove';
 
 export type PluginUpdate = { id: string; installed: string; available: string };
 
@@ -533,6 +533,8 @@ export type PluginContents = {
 
 export const listPlugins = () => invoke<PluginInfo[]>('list_plugins');
 export const listSkills = () => invoke<SkillInfo[]>('list_skills');
+// Delete a skill directory (guarded server-side to ~/.claude/skills).
+export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
 export const listPluginUpdates = () => invoke<PluginUpdate[]>('list_plugin_updates');
 export const listPluginContents = () => invoke<PluginContents[]>('list_plugin_contents');
 export const runPlugin = (action: PluginAction, id: string) =>

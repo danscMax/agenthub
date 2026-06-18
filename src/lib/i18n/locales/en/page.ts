@@ -143,10 +143,17 @@ export default {
   plugin_verb_update: 'updating',
   plugin_verb_enable: 'enabling',
   plugin_verb_disable: 'disabling',
+  plugin_verb_remove: 'removing',
   plugin_log: '▶ Plugin {id}: {verb}…',
   confirm_plugin_disable_title: 'Disable plugin?',
   confirm_plugin_disable_msg: '“{id}” will be disabled in all profiles. Continue?',
   confirm_plugin_disable_btn: 'Disable',
+  confirm_plugin_remove_title: 'Remove plugin?',
+  confirm_plugin_remove_msg: '“{id}” will be uninstalled (claude plugin remove). Continue?',
+  confirm_plugin_remove_btn: 'Remove',
+  confirm_skill_delete_title: 'Delete skill?',
+  confirm_skill_delete_msg: 'The skill folder “{name}” will be permanently deleted. Continue?',
+  confirm_skill_delete_btn: 'Delete',
 
   // Operational toasts
   toast_op_done: '{name}: done',

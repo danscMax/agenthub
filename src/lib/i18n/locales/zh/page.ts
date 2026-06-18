@@ -138,10 +138,17 @@ export default {
   plugin_verb_update: '更新',
   plugin_verb_enable: '启用',
   plugin_verb_disable: '禁用',
+  plugin_verb_remove: '删除',
   plugin_log: '▶ 插件 {id}：{verb}…',
   confirm_plugin_disable_title: '禁用插件？',
   confirm_plugin_disable_msg: '「{id}」将在所有配置中被禁用。是否继续？',
   confirm_plugin_disable_btn: '禁用',
+  confirm_plugin_remove_title: '删除插件？',
+  confirm_plugin_remove_msg: '「{id}」将被卸载（claude plugin remove）。是否继续？',
+  confirm_plugin_remove_btn: '删除',
+  confirm_skill_delete_title: '删除技能？',
+  confirm_skill_delete_msg: '技能文件夹「{name}」将被永久删除。是否继续？',
+  confirm_skill_delete_btn: '删除',
 
   // Operational toasts
   toast_op_done: '{name}：完成',

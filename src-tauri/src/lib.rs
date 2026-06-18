@@ -3122,6 +3122,24 @@ async fn run_plugin(
     action: String,
     id: String,
 ) -> Result<i32, String> {
+    // Uninstall runs the claude CLI directly (the vetted script only does enable/disable/update).
+    // Guard the id since it reaches `cmd /c` — plugin ids are name@marketplace, never shell metachars.
+    if action == "remove" {
+        if id.is_empty()
+            || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
+        {
+            return Err(format!("недопустимый id плагина: {id}"));
+        }
+        return spawn_streamed_prog(
+            app,
+            state,
+            "plugin-mgr".to_string(),
+            "cmd".to_string(),
+            vec!["/c".into(), "claude".into(), "plugin".into(), "remove".into(), id],
+            None,
+        )
+        .await;
+    }
     if !matches!(action.as_str(), "enable" | "disable" | "update") {
         return Err(format!("неизвестное действие plugin: {action}"));
     }
@@ -3134,6 +3152,19 @@ async fn run_plugin(
         vec!["-Action".into(), action, "-Id".into(), id],
     )
     .await
+}
+
+/// Delete a skill directory. Guarded: the resolved path must live inside ~/.claude/skills.
+#[tauri::command]
+fn delete_skill(dir: String) -> Result<(), String> {
+    let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
+    let skills_root = std::path::Path::new(&home).join(".claude").join("skills");
+    let canon_root = std::fs::canonicalize(&skills_root).map_err(|e| format!("папка скиллов: {e}"))?;
+    let canon_target = std::fs::canonicalize(&dir).map_err(|e| format!("скилл не найден: {e}"))?;
+    if canon_target == canon_root || !canon_target.starts_with(&canon_root) {
+        return Err("путь вне папки скиллов".into());
+    }
+    std::fs::remove_dir_all(&canon_target).map_err(|e| format!("удаление: {e}"))
 }
 
 #[tauri::command]
@@ -3921,6 +3952,7 @@ pub fn run() {
             list_plugin_updates,
             list_plugin_contents,
             run_plugin,
+            delete_skill,
             read_schedules,
             run_schedule,
             read_config,
