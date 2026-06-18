@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import { getVersion } from '@tauri-apps/api/app';
   import {
     readConfig,
@@ -371,6 +372,13 @@
     {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'))}
     <div class="sw-card flex flex-col gap-sw-2">
       <div class="font-medium">{t('settings.about')}</div>
+      <div class="flex items-center gap-sw-3 pb-sw-1">
+        <img src="{base}/favicon.png" alt="Castellyn" width="48" height="48" style="border-radius:11px" />
+        <div class="min-w-0">
+          <div class="text-base font-semibold">Castellyn</div>
+          <div class="text-sw-xs text-sw-text-muted">{t('settings.tagline')}</div>
+        </div>
+      </div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-sw-4 gap-y-1 text-sw-sm">
         <dt class="text-sw-text-muted">{t('settings.version')}</dt><dd class="text-sw-text">{version || t('common.dash')}</dd>
         <dt class="text-sw-text-muted">{t('settings.scripts')}</dt>

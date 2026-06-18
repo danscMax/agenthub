@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   import { t } from '$lib/i18n';
   import { runningStore, opName } from '$lib/running.svelte';
 
@@ -37,7 +38,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="titlebar" data-tauri-drag-region ondblclick={toggleMaximize}>
   <div class="brand" data-tauri-drag-region>
-    <span class="dot" data-tauri-drag-region></span>
+    <img class="logo" src="{base}/favicon.png" alt="" data-tauri-drag-region width="18" height="18" />
     <span class="title" data-tauri-drag-region>{t('titlebar.title')}</span>
     {#if runningStore.op}
       <span class="running" title={opName(runningStore.op)}>
@@ -92,13 +93,12 @@
     flex: 1;
     min-width: 0;
   }
-  .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--sw-accent);
-    box-shadow: 0 0 8px var(--sw-accent-glow);
+  .logo {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
     flex-shrink: 0;
+    object-fit: contain;
   }
   .title {
     font-size: var(--sw-text-xs);

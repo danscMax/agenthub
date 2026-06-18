@@ -11,6 +11,7 @@
 ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000?style=for-the-badge&logo=rust&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
 
 **English** · [Русский](#русский) · [中文](#中文)
 
@@ -86,7 +87,7 @@ Issues and PRs are welcome. Keep the gates green: `npm run check` (0 errors / 0 
 
 ### License
 
-No license file yet — **MIT** is recommended for maximum reuse. Open an issue if you’d like one added.
+Released under the **MIT License** — see [LICENSE](LICENSE).
 
 ---
 
@@ -158,7 +159,7 @@ Issues и PR приветствуются. Держите гейты зелён�
 
 ### Лицензия
 
-Файла лицензии пока нет — рекомендуется **MIT** для максимального переиспользования. Откройте issue, если нужно добавить.
+Распространяется под лицензией **MIT** — см. [LICENSE](LICENSE).
 
 ---
 
@@ -230,7 +231,7 @@ Tauri v2 · SvelteKit（static/SPA）· Svelte 5 runes · TypeScript · Tailwind
 
 ### 许可证
 
-暂无许可证文件——推荐 **MIT** 以便最大化复用。如需添加请提一个 issue。
+基于 **MIT 许可证** 发布——见 [LICENSE](LICENSE)。
 
 ---
 

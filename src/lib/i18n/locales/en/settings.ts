@@ -74,6 +74,7 @@ export default {
 
   // About
   about: 'About',
+  tagline: 'Control center for your AI-coding dev environment',
   version: 'Version',
   scripts: 'Scripts',
   config: 'Config',

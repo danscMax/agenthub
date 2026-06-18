@@ -74,6 +74,7 @@ export default {
 
   // About
   about: '关于',
+  tagline: 'AI 编程开发环境的控制中心',
   version: '版本',
   scripts: '脚本',
   config: '配置文件',

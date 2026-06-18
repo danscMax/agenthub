@@ -74,6 +74,7 @@ export default {
 
   // About
   about: 'О программе',
+  tagline: 'Центр управления средой разработки',
   version: 'Версия',
   scripts: 'Скрипты',
   config: 'Конфиг',
