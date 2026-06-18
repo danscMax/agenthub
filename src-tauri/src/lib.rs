@@ -3890,7 +3890,6 @@ async fn run_mcp(
     spawn_streamed(app, state, "mcp".to_string(), script, args).await
 }
 
-const PLUGIN_MGR_SCRIPT_REL: &str = "claude-plugin-updater\\Manage-Plugin.ps1";
 
 /// Map plugin id → description, read from each installed plugin's .claude-plugin/plugin.json
 /// (the `claude plugin list --json` output has no description).
@@ -4339,7 +4338,65 @@ fn list_plugin_contents() -> Vec<PluginContents> {
     out
 }
 
-/// Manage one plugin: enable / disable / update (streamed via Manage-Plugin.ps1).
+/// Run `claude plugin <action> <id>` once, optionally under a specific CLAUDE_CONFIG_DIR profile.
+/// Streams stdout/stderr to the UI log (indented). Simple args only (no JSON) — the `.cmd` shim
+/// launches cleanly under Rust's escaping (unlike the Deploy-Mcp add-json case).
+fn run_claude_plugin(
+    claude: &std::path::Path,
+    cfg_dir: Option<&str>,
+    action: &str,
+    id: &str,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) {
+    let mut cmd = std::process::Command::new(claude);
+    cmd.args(["plugin", action, id]).creation_flags(CREATE_NO_WINDOW);
+    if let Some(d) = cfg_dir {
+        cmd.env("CLAUDE_CONFIG_DIR", d);
+    }
+    match cmd.output() {
+        Ok(o) => {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                out(&format!("    {line}"));
+            }
+            for line in String::from_utf8_lossy(&o.stderr).lines() {
+                err(&format!("    {line}"));
+            }
+        }
+        Err(e) => err(&format!("    не удалось запустить claude: {e}")),
+    }
+}
+
+/// Native port of Manage-Plugin.ps1: enable / disable / update a plugin via the claude CLI.
+/// `update` runs once (the plugins/ cache is shared across profiles via junction); enable/disable
+/// loop every profile (enabled-state is per-profile, switched via CLAUDE_CONFIG_DIR). Uses the
+/// canonical `profile_names()` (vs the script's hardcoded 6) so a 7th profile is covered too.
+/// Returns the exit code; streams via out/err.
+fn manage_plugin_native(action: &str, id: &str, out: &dyn Fn(&str), err: &dyn Fn(&str)) -> i32 {
+    let Some(claude) = exe_on_path("claude") else {
+        err("claude CLI не найден на PATH.");
+        return 1;
+    };
+    out(&format!("=== Плагин: {action} {id} ==="));
+    if action == "update" {
+        run_claude_plugin(&claude, None, action, id, out, err);
+    } else {
+        let home = std::env::var("USERPROFILE").unwrap_or_default();
+        for p in profile_names() {
+            let dir = format!("{home}\\.claude-{p}");
+            if !std::path::Path::new(&dir).exists() {
+                out(&format!("  [skip] {p} (нет каталога)"));
+                continue;
+            }
+            out(&format!("  [{p}] claude plugin {action} {id}"));
+            run_claude_plugin(&claude, Some(&dir), action, id, out, err);
+        }
+    }
+    out("Готово.");
+    0
+}
+
+/// Manage one plugin: enable / disable / update (native; was Manage-Plugin.ps1).
 #[tauri::command]
 async fn run_plugin(
     app: AppHandle,
@@ -4368,14 +4425,15 @@ async fn run_plugin(
     if !matches!(action.as_str(), "enable" | "disable" | "update") {
         return Err(format!("неизвестное действие plugin: {action}"));
     }
-    let script = abs(PLUGIN_MGR_SCRIPT_REL);
-    spawn_streamed(
-        app,
-        state,
-        "plugin-mgr".to_string(),
-        script,
-        vec!["-Action".into(), action, "-Id".into(), id],
-    )
+    // id reaches process args natively now — guard it (same rule as the remove branch).
+    if id.is_empty()
+        || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
+    {
+        return Err(format!("недопустимый id плагина: {id}"));
+    }
+    run_native_streamed(app, state, "plugin-mgr".to_string(), move |out, err| {
+        manage_plugin_native(&action, &id, out, err)
+    })
     .await
 }
 
