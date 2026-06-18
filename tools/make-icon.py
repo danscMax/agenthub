@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Generate the Castellyn app icon master (1024x1024 PNG) with Pillow.
+"""Legacy procedural icon generator (Pillow). NOT the production icon.
 
-Concept: a central hub node orbited by agent nodes — a control center for many AI agents,
-on the brand blue gradient (#3b82f6 -> #2563eb), rounded-square.
+The shipped Castellyn icon is an AI-generated citadel/gatehouse master committed at
+`src-tauri/icons/icon-master.png` (white fortress emblem on the brand blue gradient,
+rounded-square). Regenerate the full icon set from it with:
+
+    npm run tauri -- icon src-tauri/icons/icon-master.png
+
+This file is kept only as an offline, dependency-free fallback that draws a simple
+procedural mark (hub-and-nodes) if you ever need an icon without the master PNG.
 
 Usage:
-    python tools/make-icon.py                 # writes <temp>/agenthub_icon.png
-    npm run tauri -- icon <that path>         # regenerates src-tauri/icons/* (ico/icns/png/Square*)
+    python tools/make-icon.py                 # writes <temp>/castellyn_icon.png (fallback only)
+    npm run tauri -- icon <that path>         # regenerates src-tauri/icons/*
 
 Requires: Pillow (pip install pillow). No SVG toolchain needed.
 """
@@ -93,7 +99,7 @@ def build() -> Image.Image:
 
 
 if __name__ == "__main__":
-    dst = os.path.join(tempfile.gettempdir(), "agenthub_icon.png")
+    dst = os.path.join(tempfile.gettempdir(), "castellyn_icon.png")
     build().save(dst)
     print("wrote", dst)
     print("next: npm run tauri -- icon", f'"{dst}"')
