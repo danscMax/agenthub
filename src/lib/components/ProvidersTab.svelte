@@ -7,7 +7,7 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine, checkMyProvider, checkProviderUrl, readStackProcs, freellmapiAuthStatus, type StackProc } from '$lib/ipc';
+  import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, type StackProc, type ProviderBalance } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
@@ -211,6 +211,22 @@
     } catch (e) {
       health = { ...health, [key]: { ok: false, detail: String(e) } };
     }
+  }
+
+  // Per-provider balance/credits (#B4): id -> result | 'checking'. Fetched on demand (a button),
+  // since balance endpoints are slow/rate-limited and provider-specific.
+  let balance = $state<Record<string, ProviderBalance | 'checking'>>({});
+  async function checkBalance(id: string) {
+    balance = { ...balance, [id]: 'checking' };
+    try {
+      balance = { ...balance, [id]: await checkProviderBalance(id) };
+    } catch (e) {
+      balance = { ...balance, [id]: { ok: false, detail: String(e) } };
+    }
+  }
+  function fmtBalance(b: ProviderBalance): string {
+    const a = b.amount ?? 0;
+    return b.currency ? `${a} ${b.currency}` : `${a}`;
   }
 
   // Key rotation pool: expandable per-card panel + inline "add key" input.
@@ -505,6 +521,7 @@
       {#each myProviderList as p (p.id)}
         {@const openaiDirect = p.connectVia === 'direct' && p.protocol === 'openai'}
         {@const h = health[p.id]}
+        {@const bal = balance[p.id]}
         <div class="sw-card flex flex-col gap-sw-3">
           <div class="flex items-start justify-between gap-sw-2">
             <div class="min-w-0">
@@ -522,6 +539,9 @@
                 <span class="badge {h.ok ? 'badge-ok' : 'badge-warn'}" title={h.detail}>
                   {h.ok ? t('myProviders.alive') : t('myProviders.dead')}
                 </span>
+              {/if}
+              {#if bal && bal !== 'checking' && bal.ok}
+                <span class="badge badge-info" title={t('myProviders.balanceTitle')}>{fmtBalance(bal)}</span>
               {/if}
             </div>
           </div>
@@ -551,6 +571,10 @@
               onclick={() => check(p.id)} title={t('myProviders.checkTitle')}>
               {h === 'checking' ? t('myProviders.checking') : t('myProviders.check')}
             </button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!p.hasKey || bal === 'checking'}
+              onclick={() => checkBalance(p.id)} title={t('myProviders.balanceTitle')}>
+              {bal === 'checking' ? t('myProviders.checking') : t('myProviders.balance')}
+            </button>
             <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => toggleKeys(p.id)}
               title={t('myProviders.keysTitle')}>
               {t('myProviders.keys')}{p.keyCount > 1 ? ` (${p.keyCount})` : ''}
@@ -560,6 +584,9 @@
             <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onMyProviderDelete(p.id)}
               title={t('myProviders.deleteTitle')}>{t('myProviders.delete')}</button>
           </div>
+          {#if bal && bal !== 'checking' && !bal.ok}
+            <p class="text-sw-xs text-sw-text-muted">{bal.detail}</p>
+          {/if}
           {#if keysOpen[p.id]}
             <div class="flex flex-col gap-sw-2 rounded border border-sw-border bg-sw-bg-subtle p-sw-2">
               <p class="text-sw-xs text-sw-text-muted">{t('myProviders.keysHint')}</p>

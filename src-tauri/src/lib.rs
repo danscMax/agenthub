@@ -1866,6 +1866,9 @@ struct MyProvider {
     connect_via: String,
     #[serde(rename = "targetProfile")]
     target_profile: String,
+    /// Optional balance/credits endpoint (full URL) queried with the provider's key (#B4).
+    #[serde(rename = "balanceUrl")]
+    balance_url: String,
     #[serde(rename = "createdAt")]
     created_at: String,
     /// Computed (never persisted): does a Credential Manager entry exist for this provider?
@@ -1897,6 +1900,8 @@ struct MyProviderInput {
     connect_via: String,
     #[serde(rename = "targetProfile", default)]
     target_profile: String,
+    #[serde(rename = "balanceUrl", default)]
+    balance_url: String,
 }
 
 fn read_myproviders_raw() -> Vec<serde_json::Value> {
@@ -1939,6 +1944,7 @@ fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
         small_model: s("smallModel"),
         connect_via: s("connectVia"),
         target_profile: s("targetProfile"),
+        balance_url: s("balanceUrl"),
         created_at: s("createdAt"),
         has_key,
         key_count,
@@ -1995,6 +2001,7 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
         "smallModel": p.small_model.trim(),
         "connectVia": p.connect_via,
         "targetProfile": p.target_profile.trim(),
+        "balanceUrl": p.balance_url.trim(),
         "createdAt": created,
         "keyCount": key_count,
         "activeKey": active_key,
@@ -2408,6 +2415,114 @@ async fn check_my_provider(id: String) -> serde_json::Value {
 #[tauri::command]
 async fn check_provider_url(base_url: String, protocol: String) -> serde_json::Value {
     run_provider_check(&base_url, &protocol, "").await
+}
+
+// --- Provider balance (#B4) ------------------------------------------------------------------
+// Balance is provider-specific (no universal endpoint). We try, in order: a user-configured
+// balanceUrl, then known shapes (DeepSeek /user/balance, OpenAI-billing /dashboard/billing).
+
+/// Follow a dot-path (segments may be array indices) to a numeric value (number or numeric string).
+fn json_f64(v: &serde_json::Value, path: &str) -> Option<f64> {
+    let mut cur = v;
+    for seg in path.split('.') {
+        cur = if let Ok(i) = seg.parse::<usize>() { cur.get(i)? } else { cur.get(seg)? };
+    }
+    match cur {
+        serde_json::Value::Number(n) => n.as_f64(),
+        serde_json::Value::String(s) => s.parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// GET a balance endpoint with the provider's auth header; parse the JSON body.
+fn balance_get(agent: &ureq::Agent, url: &str, protocol: &str, key: &str) -> Option<serde_json::Value> {
+    let mut req = agent.get(url);
+    if protocol == "anthropic" {
+        if !key.is_empty() {
+            req = req.header("x-api-key", key);
+        }
+        req = req.header("anthropic-version", "2023-06-01");
+    } else if !key.is_empty() {
+        req = req.header("Authorization", &format!("Bearer {key}"));
+    }
+    let body = req.call().ok()?.body_mut().read_to_string().ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+/// Extract (amount, currency) from a balance response across common shapes.
+fn extract_balance(v: &serde_json::Value) -> Option<(f64, String)> {
+    let cur = v
+        .get("currency")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.pointer("/balance_infos/0/currency").and_then(|x| x.as_str()))
+        .unwrap_or("")
+        .to_string();
+    for p in [
+        "balance",
+        "data.balance",
+        "balance_infos.0.total_balance",
+        "total_balance",
+        "hard_limit_usd",
+        "quota",
+        "data.quota",
+        "remaining",
+    ] {
+        if let Some(n) = json_f64(v, p) {
+            return Some((n, cur));
+        }
+    }
+    None
+}
+
+fn fetch_provider_balance(id: &str) -> serde_json::Value {
+    let list = read_myproviders_raw();
+    let Some(e) = list.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id)) else {
+        return serde_json::json!({ "ok": false, "detail": "провайдер не найден" });
+    };
+    let base = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("");
+    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai");
+    let balance_url = e.get("balanceUrl").and_then(|x| x.as_str()).unwrap_or("");
+    let key = active_provider_key(id, e).unwrap_or_default();
+    let root = base.trim_end_matches('/').trim_end_matches("/v1").trim_end_matches('/');
+
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into();
+
+    // 1) User-configured balance URL — most reliable.
+    if !balance_url.is_empty() {
+        return match balance_get(&agent, balance_url, protocol, &key) {
+            Some(v) => match extract_balance(&v) {
+                Some((amt, cur)) => serde_json::json!({ "ok": true, "amount": amt, "currency": cur, "detail": "" }),
+                None => serde_json::json!({ "ok": false, "detail": "не нашёл число баланса в ответе" }),
+            },
+            None => serde_json::json!({ "ok": false, "detail": "balance-URL не ответил" }),
+        };
+    }
+    // 2) DeepSeek-style.
+    if base.contains("deepseek") {
+        if let Some(v) = balance_get(&agent, &format!("{root}/user/balance"), protocol, &key) {
+            if let Some((amt, cur)) = extract_balance(&v) {
+                return serde_json::json!({ "ok": true, "amount": amt, "currency": cur, "detail": "" });
+            }
+        }
+    }
+    // 3) OpenAI-billing style (one-api / new-api gateways).
+    if let Some(v) = balance_get(&agent, &format!("{root}/dashboard/billing/subscription"), protocol, &key) {
+        if let Some(amt) = json_f64(&v, "hard_limit_usd").or_else(|| json_f64(&v, "system_hard_limit_usd")) {
+            return serde_json::json!({ "ok": true, "amount": amt, "currency": "USD", "detail": "лимит" });
+        }
+    }
+    serde_json::json!({ "ok": false, "detail": "баланс недоступен — задайте balance-URL в настройках провайдера" })
+}
+
+/// Best-effort balance/credits for a custom provider (#B4). `{ ok, amount?, currency?, detail }`.
+#[tauri::command]
+async fn check_provider_balance(id: String) -> serde_json::Value {
+    tokio::task::spawn_blocking(move || fetch_provider_balance(&id))
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "detail": format!("{e}") }))
 }
 
 /// Read-only view of a profile's CLAUDE.md or settings.json (#80). Whitelisted filenames +
@@ -3938,6 +4053,7 @@ pub fn run() {
             connect_my_provider,
             check_my_provider,
             check_provider_url,
+            check_provider_balance,
             read_profile_file,
             read_profile_usage,
             add_provider_key,

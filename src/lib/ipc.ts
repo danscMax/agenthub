@@ -385,6 +385,7 @@ export type MyProvider = {
   smallModel: string;
   connectVia: 'freellmapi' | 'direct';
   targetProfile: string;
+  balanceUrl: string;
   createdAt: string;
   hasKey: boolean;
   keyCount: number; // keys in the rotation pool (0 = legacy single key)
@@ -400,8 +401,13 @@ export type MyProviderInput = {
   smallModel?: string;
   connectVia: 'freellmapi' | 'direct';
   targetProfile?: string;
+  balanceUrl?: string;
 };
+export type ProviderBalance = { ok: boolean; amount?: number; currency?: string; detail: string };
 export const listMyProviders = () => invoke<MyProvider[]>('list_my_providers');
+// Best-effort balance/credits for a custom provider (#B4); ok=false when unavailable.
+export const checkProviderBalance = (id: string) =>
+  invoke<ProviderBalance>('check_provider_balance', { id });
 export const saveMyProvider = (p: MyProviderInput, apiKey?: string) =>
   invoke<MyProvider>('save_my_provider', { p, apiKey });
 export const deleteMyProvider = (id: string) => invoke('delete_my_provider', { id });

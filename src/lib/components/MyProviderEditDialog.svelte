@@ -26,6 +26,7 @@
   let smallModel = $state('');
   let connectVia = $state<'freellmapi' | 'direct'>('freellmapi');
   let targetProfile = $state('');
+  let balanceUrl = $state('');
   let apiKey = $state('');
   let advanced = $state(false);
   let seeded = '';
@@ -40,8 +41,9 @@
       smallModel = current?.smallModel ?? '';
       connectVia = current?.connectVia ?? 'freellmapi';
       targetProfile = current?.targetProfile ?? '';
+      balanceUrl = current?.balanceUrl ?? '';
       apiKey = '';
-      advanced = !!current?.smallModel || current?.protocol === 'anthropic';
+      advanced = !!current?.smallModel || current?.protocol === 'anthropic' || !!current?.balanceUrl;
       seeded = key;
     }
   });
@@ -75,7 +77,8 @@
         model: model.trim(),
         smallModel: smallModel.trim(),
         connectVia,
-        targetProfile: needsProfile ? targetProfile : ''
+        targetProfile: needsProfile ? targetProfile : '',
+        balanceUrl: balanceUrl.trim()
       },
       apiKey.trim()
     );
@@ -165,6 +168,11 @@
             <span>{t('myProviders.smallModel')}</span>
             <input class="sw-input" bind:value={smallModel} placeholder={t('myProviders.smallModelPlaceholder')} spellcheck="false" />
             <span class="hint">{t('myProviders.smallModelHint')}</span>
+          </label>
+          <label class="fld">
+            <span>{t('myProviders.balanceUrl')}</span>
+            <input class="sw-input" bind:value={balanceUrl} placeholder="https://api.deepseek.com/user/balance" spellcheck="false" autocomplete="off" />
+            <span class="hint">{t('myProviders.balanceUrlHint')}</span>
           </label>
         </div>
       {/if}
