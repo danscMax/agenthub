@@ -1112,7 +1112,6 @@ async fn run_sync(action: String, enabled: Option<Vec<String>>) -> Result<i32, S
 
 // --- LLM provider per profile + local engine launcher ---
 const ENGINES_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\engines.json";
-const PROVIDER_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Manage-Provider.ps1";
 /// Per-profile launch config (full vs lean mode + which tools to re-include when lean).
 const LAUNCH_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\profile-launch.json";
 
@@ -1996,7 +1995,179 @@ fn read_providers() -> Vec<ProfileProvider> {
     out
 }
 
-/// Bind (set) or unbind (clear) a profile's provider via Manage-Provider.ps1 (streamed).
+/// Provider env keys written to a profile's settings.json. The last two are legacy single-value
+/// keys, kept here only so `clear` (and the set-migration) scrub them too.
+const PROVIDER_ENV_KEYS: [&str; 7] = [
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+];
+
+/// Native port of Manage-Provider.ps1: merge the provider env block of ONE profile's
+/// `~/.claude-<name>/settings.json` (preserving every other setting). `model`/`small_model`:
+/// `None` = leave untouched, `Some("")` = remove the override, `Some(v)` = set it. Token: `keep_token`
+/// keeps the existing bearer; otherwise a non-empty `token` is written, an empty one falls back to the
+/// dummy bearer (so a bare `claude` skips the login screen). Returns the exit code; streams via out/err.
+#[allow(clippy::too_many_arguments)]
+fn manage_provider_native(
+    name: &str,
+    action: &str,
+    base_url: &str,
+    keep_token: bool,
+    token: Option<&str>,
+    model: Option<&str>,
+    small_model: Option<&str>,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> i32 {
+    // Validate against the canonical profile list (mirrors the script's Get-ClaudeProfiles check).
+    let known = profile_names();
+    if !known.iter().any(|n| n == name) {
+        err(&format!("ОШИБКА: профиль '{name}' не найден ({}).", known.join(", ")));
+        return 1;
+    }
+    let home = match std::env::var("USERPROFILE") {
+        Ok(h) => h,
+        Err(_) => {
+            err("USERPROFILE не задан");
+            return 1;
+        }
+    };
+    let settings_path = format!("{home}\\.claude-{name}\\settings.json");
+    apply_provider_env(
+        &settings_path,
+        name,
+        action,
+        base_url,
+        keep_token,
+        token,
+        model,
+        small_model,
+        out,
+        err,
+    )
+}
+
+/// The settings.json merge of `manage_provider_native`, taking an explicit path (testable; no
+/// USERPROFILE/profile-list coupling). See `manage_provider_native` for the parameter semantics.
+#[allow(clippy::too_many_arguments)]
+fn apply_provider_env(
+    settings_path: &str,
+    name: &str,
+    action: &str,
+    base_url: &str,
+    keep_token: bool,
+    token: Option<&str>,
+    model: Option<&str>,
+    small_model: Option<&str>,
+    out: &dyn Fn(&str),
+    err: &dyn Fn(&str),
+) -> i32 {
+    use serde_json::{json, Value};
+    let mut settings: Value = match std::fs::read_to_string(settings_path) {
+        Ok(ref c) if !c.trim().is_empty() => match parse_json_bom(c) {
+            Ok(v) => v,
+            Err(e) => {
+                err(&format!("ОШИБКА: не удалось прочитать settings.json ({e})."));
+                return 1;
+            }
+        },
+        _ => json!({}),
+    };
+    if !settings.is_object() {
+        settings = json!({});
+    }
+    let sobj = settings.as_object_mut().unwrap();
+    if !sobj.get("env").map(|e| e.is_object()).unwrap_or(false) {
+        sobj.insert("env".into(), json!({}));
+    }
+
+    out(&format!("=== Provider: {action} {name} ==="));
+
+    let env_empty = {
+        let env = sobj.get_mut("env").unwrap().as_object_mut().unwrap();
+        if action == "set" {
+            env.insert("ANTHROPIC_BASE_URL".into(), json!(base_url));
+            // Token: keep, set the supplied one, or write a dummy for a keyless endpoint.
+            if keep_token {
+                // leave ANTHROPIC_AUTH_TOKEN as-is
+            } else if let Some(t) = token.filter(|s| !s.is_empty()) {
+                env.insert("ANTHROPIC_AUTH_TOKEN".into(), json!(t));
+            } else {
+                env.insert("ANTHROPIC_AUTH_TOKEN".into(), json!("agenthub-local"));
+            }
+            // Legacy single-value keys are always scrubbed on set (tier vars are the source of truth).
+            env.remove("ANTHROPIC_MODEL");
+            env.remove("ANTHROPIC_SMALL_FAST_MODEL");
+            if let Some(m) = model {
+                if m.is_empty() {
+                    env.remove("ANTHROPIC_DEFAULT_SONNET_MODEL");
+                    env.remove("ANTHROPIC_DEFAULT_OPUS_MODEL");
+                } else {
+                    env.insert("ANTHROPIC_DEFAULT_SONNET_MODEL".into(), json!(m));
+                    env.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), json!(m));
+                }
+            }
+            if let Some(sm) = small_model {
+                if sm.is_empty() {
+                    env.remove("ANTHROPIC_DEFAULT_HAIKU_MODEL");
+                } else {
+                    env.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".into(), json!(sm));
+                }
+            }
+            let token_shown = if keep_token {
+                "(без изменений)"
+            } else if token.filter(|s| !s.is_empty()).is_some() {
+                "(задан)"
+            } else {
+                "(dummy: agenthub-local)"
+            };
+            out(&format!(
+                "  BaseUrl={base_url}  Model={}  SmallModel={}  Token={token_shown}",
+                model.filter(|s| !s.is_empty()).unwrap_or("—"),
+                small_model.filter(|s| !s.is_empty()).unwrap_or("—")
+            ));
+        } else {
+            for k in PROVIDER_ENV_KEYS {
+                env.remove(k);
+            }
+            out("  Провайдер сброшен на стандартный Anthropic-логин.");
+        }
+        env.is_empty()
+    };
+    if env_empty {
+        sobj.remove("env");
+    }
+
+    // Backup then write (UTF-8 no BOM).
+    if let Some(dir) = std::path::Path::new(settings_path).parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if std::path::Path::new(settings_path).exists() {
+        let _ = std::fs::copy(settings_path, format!("{settings_path}.bak"));
+    }
+    let serialized = match serde_json::to_string_pretty(&settings) {
+        Ok(s) => s,
+        Err(e) => {
+            err(&format!("ОШИБКА сериализации settings.json: {e}"));
+            return 1;
+        }
+    };
+    if let Err(e) = write_file_no_bom(settings_path, &serialized) {
+        err(&format!("ОШИБКА записи settings.json: {e}"));
+        return 1;
+    }
+    out(&format!(
+        "  settings.json обновлён (бэкап .bak). Перезапустите профиль '{name}', чтобы провайдер применился."
+    ));
+    0
+}
+
+/// Bind (set) or unbind (clear) a profile's provider (native; was Manage-Provider.ps1).
 #[tauri::command]
 async fn run_provider(
     app: AppHandle,
@@ -2015,35 +2186,28 @@ async fn run_provider(
     if !valid_profile_name(&name) {
         return Err(format!("недопустимое имя профиля: {name}"));
     }
-    let mut args: Vec<String> = vec!["-Action".into(), action.clone(), "-Name".into(), name];
-    if action == "set" {
-        let b = base_url.unwrap_or_default();
-        if b.is_empty() {
-            return Err("для set нужен baseUrl".into());
-        }
-        args.push("-BaseUrl".into());
-        args.push(b);
-        // Model/small are readable → always authoritative (empty removes the override).
-        args.push("-Model".into());
-        args.push(model.unwrap_or_default());
-        args.push("-SmallModel".into());
-        args.push(small_model.unwrap_or_default());
-        // Token: keep the existing one, or hand the new value to the script via STDIN (never argv,
-        // which is world-readable on Windows). An empty value over -TokenStdin → the script writes
-        // its dummy bearer.
-        if keep_token.unwrap_or(false) {
-            args.push("-KeepToken".into());
-        } else {
-            args.push("-TokenStdin".into());
-        }
+    let base_url = base_url.unwrap_or_default();
+    if action == "set" && base_url.is_empty() {
+        return Err("для set нужен baseUrl".into());
     }
-    let stdin = if action == "set" && !keep_token.unwrap_or(false) {
-        Some(token.unwrap_or_default())
-    } else {
-        None
-    };
-    let script = abs(PROVIDER_SCRIPT_REL);
-    spawn_streamed_io(app, state, "provider".to_string(), script, args, stdin).await
+    let keep_token = keep_token.unwrap_or(false);
+    // On set the dialog always supplies Model/SmallModel (empty removes the override) — bind them;
+    // clear ignores them.
+    let model = model.unwrap_or_default();
+    let small_model = small_model.unwrap_or_default();
+    let token = token.unwrap_or_default();
+    run_native_streamed(app, state, "provider".to_string(), move |out, err| {
+        let (model_arg, small_arg) = if action == "set" {
+            (Some(model.as_str()), Some(small_model.as_str()))
+        } else {
+            (None, None)
+        };
+        let token_arg = if keep_token { None } else { Some(token.as_str()) };
+        manage_provider_native(
+            &name, &action, &base_url, keep_token, token_arg, model_arg, small_arg, out, err,
+        )
+    })
+    .await
 }
 
 // --- Custom provider registry (config\myproviders.json + Windows Credential Manager) ---
@@ -2488,27 +2652,28 @@ async fn connect_my_provider(
         .ok_or("для этого провайдера не задан API-ключ")?;
 
     match (via.as_str(), protocol.as_str()) {
-        // Anthropic-native → bind straight to a profile's settings.json (existing Manage-Provider.ps1).
+        // Anthropic-native → bind straight to a profile's settings.json (native Manage-Provider).
         ("direct", "anthropic") => {
             let name = s("targetProfile");
             if !valid_profile_name(&name) {
                 return Err("для прямого подключения укажите корректный целевой профиль".into());
             }
-            let args = vec![
-                "-Action".into(),
-                "set".into(),
-                "-Name".into(),
-                name,
-                "-BaseUrl".into(),
-                base_url,
-                "-Model".into(),
-                s("model"),
-                "-SmallModel".into(),
-                s("smallModel"),
-                "-TokenStdin".into(),
-            ];
-            let script = abs(PROVIDER_SCRIPT_REL);
-            spawn_streamed_io(app, state, "provider".into(), script, args, Some(api_key)).await
+            let model = s("model");
+            let small = s("smallModel");
+            run_native_streamed(app, state, "provider".into(), move |out, err| {
+                manage_provider_native(
+                    &name,
+                    "set",
+                    &base_url,
+                    false,
+                    Some(&api_key),
+                    Some(model.as_str()),
+                    Some(small.as_str()),
+                    out,
+                    err,
+                )
+            })
+            .await
         }
         // OpenAI direct → would need claude-code-router, which is currently broken.
         ("direct", "openai") => Err(
@@ -4808,6 +4973,59 @@ mod tests {
         assert!(v["provider"].get("tgt").is_none());
         assert!(v.get("model").is_none()); // pointed at tgt → removed
         assert_eq!(v["provider"]["other"]["options"]["baseURL"], "http://keep"); // intact
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(format!("{p}.bak"));
+    }
+
+    #[test]
+    fn provider_env_merge_set_and_clear() {
+        let path = std::env::temp_dir().join(format!("castellyn_prov_{}.json", std::process::id()));
+        let p = path.to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&p);
+        // Seed: unrelated setting + legacy keys that `set` must scrub.
+        let seed = serde_json::json!({
+            "theme": "dark",
+            "env": { "ANTHROPIC_MODEL": "legacy", "ANTHROPIC_SMALL_FAST_MODEL": "legacy-s", "FOO": "bar" }
+        });
+        std::fs::write(&p, serde_json::to_string(&seed).unwrap()).unwrap();
+        let noop = |_: &str| {};
+
+        // set with a token + model (no small) → base/token/tier set, legacy scrubbed, others kept.
+        let code = apply_provider_env(
+            &p, "cc1", "set", "http://localhost:4000", false, Some("sk-x"),
+            Some("glm-4.7"), Some(""), &noop, &noop,
+        );
+        assert_eq!(code, 0);
+        let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["theme"], "dark"); // unrelated setting preserved
+        assert_eq!(v["env"]["FOO"], "bar"); // unrelated env preserved
+        assert_eq!(v["env"]["ANTHROPIC_BASE_URL"], "http://localhost:4000");
+        assert_eq!(v["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-x");
+        assert_eq!(v["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-4.7");
+        assert_eq!(v["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-4.7");
+        assert!(v["env"].get("ANTHROPIC_DEFAULT_HAIKU_MODEL").is_none()); // small="" → removed
+        assert!(v["env"].get("ANTHROPIC_MODEL").is_none()); // legacy scrubbed
+        assert!(v["env"].get("ANTHROPIC_SMALL_FAST_MODEL").is_none());
+
+        // set without a token (keyless endpoint) → dummy bearer, never tokenless.
+        let code = apply_provider_env(
+            &p, "cc1", "set", "http://localhost:4000", false, Some(""), None, None, &noop, &noop,
+        );
+        assert_eq!(code, 0);
+        let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["env"]["ANTHROPIC_AUTH_TOKEN"], "agenthub-local");
+        assert_eq!(v["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-4.7"); // model None → untouched
+
+        // clear → all provider keys gone; the empty env block is dropped; unrelated setting kept.
+        let code = apply_provider_env(&p, "cc1", "clear", "", false, None, None, None, &noop, &noop);
+        assert_eq!(code, 0);
+        let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["theme"], "dark");
+        // FOO remained, so env stays; but all ANTHROPIC_* keys are gone.
+        for k in PROVIDER_ENV_KEYS {
+            assert!(v["env"].get(k).is_none(), "{k} should be cleared");
+        }
+        assert_eq!(v["env"]["FOO"], "bar");
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(format!("{p}.bak"));
     }
