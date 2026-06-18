@@ -126,12 +126,12 @@
   }
 
   type Gh = GithubRepo;
-  const GH_COLS: DTColumn[] = [
+  const GH_COLS: DTColumn[] = $derived([
     { key: 'name', label: t('forks.ghColName'), grow: true, sortable: true },
     { key: 'full', label: t('forks.ghColRepo'), width: '300px', sortable: true },
     { key: 'kind', label: t('forks.ghColKind'), width: '150px' },
     { key: 'actions', label: t('forks.ghColActions'), width: '100px', align: 'right', interactive: true }
-  ];
+  ]);
   function ghSort(g: Gh, key: string): string | number {
     if (key === 'full') return g.nameWithOwner.toLowerCase();
     return g.name.toLowerCase();

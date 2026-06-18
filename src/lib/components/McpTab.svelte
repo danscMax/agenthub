@@ -49,12 +49,12 @@
   }
   const sortedSource = $derived([...source].sort((a, b) => rank(a) - rank(b)));
 
-  const COLS: DTColumn[] = [
+  const COLS: DTColumn[] = $derived([
     { key: 'name', label: t('mcp.colName'), grow: true, sortable: true },
     { key: 'command', label: t('mcp.colCommand'), width: '300px' },
     { key: 'deployed', label: t('mcp.colDeployed'), width: '100px', align: 'center', sortable: true },
     { key: 'profiles', label: t('mcp.colProfiles'), width: '240px', interactive: true }
-  ];
+  ]);
   type Srv = (typeof sortedSource)[number];
   function sortVal(s: Srv, key: string): string | number {
     if (key === 'deployed') return rank(s) * 100 + s.deployedIn.length;

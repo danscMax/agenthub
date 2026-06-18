@@ -290,14 +290,14 @@
   }
 
   type Prof = (typeof profiles)[number];
-  const COLS: DTColumn[] = [
+  const COLS: DTColumn[] = $derived([
     { key: 'name', label: t('profiles.colName'), grow: true, sortable: true },
     { key: 'status', label: t('profiles.colStatus'), width: '150px', sortable: true },
     { key: 'usage', label: t('profiles.colUsage'), width: '170px' },
     { key: 'provider', label: t('profiles.colProvider'), width: '200px', interactive: true, sortable: true },
     { key: 'links', label: t('profiles.colLinks'), width: '92px', align: 'center', sortable: true },
     { key: 'actions', label: t('profiles.colActions'), width: '160px', interactive: true }
-  ];
+  ]);
   function linkedCount(p: Prof): number {
     return Object.values(p.sharedLinks).filter(
       (k) => k === 'Junction' || k === 'SymbolicLink' || k === 'HardLink'
