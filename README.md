@@ -1,11 +1,10 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon-master.png" width="120" alt="Castellyn icon" />
+<img src="docs/img/banner.png" alt="Castellyn" width="100%" />
 
 # Castellyn
 
-**One native control center for your whole AI‑coding dev environment.**
-Profiles · providers & routers · MCP · plugins & skills · parallel sessions · fork upkeep — in a single Tauri desktop app instead of a dozen terminals and scripts.
+**One native control center for your whole AI‑coding dev environment** — profiles, providers & routers, MCP, plugins & skills, parallel sessions and fork upkeep in a single Tauri desktop app, instead of a dozen terminals and scripts.
 
 [![Stars](https://img.shields.io/github/stars/danscMax/castellyn?style=for-the-badge&logo=github&color=3b82f6)](https://github.com/danscMax/castellyn/stargazers)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
