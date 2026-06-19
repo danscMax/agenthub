@@ -1,6 +1,7 @@
 <script lang="ts">
   // A styled replacement for the native <select>: app-themed trigger + chevron, a floating panel
   // with hover/keyboard highlight, a check on the current value, optional icons/hints. Bindable.
+  import { anchored } from '$lib/floating';
   type Opt = { value: string; label: string; icon?: string; hint?: string };
 
   let {
@@ -23,7 +24,7 @@
   const selected = $derived(opts.find((o) => o.value === value));
 
   let open = $state(false);
-  let root: HTMLDivElement;
+  let root = $state<HTMLDivElement>();
   let active = $state(-1);
 
   function toggle() {
@@ -85,7 +86,7 @@
     <span class="chev" class:up={open} aria-hidden="true">▾</span>
   </button>
   {#if open}
-    <ul class="panel" role="listbox">
+    <ul class="panel" role="listbox" use:anchored={{ anchor: root!, matchWidth: true }}>
       {#each opts as o, i (o.value)}
         <li>
           <button
@@ -167,11 +168,9 @@
     transform: rotate(180deg);
   }
   .panel {
-    position: absolute;
+    /* position/top/left/width set inline by use:anchored (fixed, escapes modal overflow) */
+    position: fixed;
     z-index: 60;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
     margin: 0;
     padding: 4px;
     list-style: none;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { pickFolder, listSubdirs } from '$lib/ipc';
+  import { anchored } from '$lib/floating';
   import { t } from '$lib/i18n';
 
   // A folder input with a quick-pick dropdown: favourites + recent + a projects root's subfolders,
@@ -16,7 +17,7 @@
   const ROOT = 'cmh-projects-root';
 
   let open = $state(false);
-  let rootEl: HTMLDivElement;
+  let rootEl = $state<HTMLDivElement>();
   let favorites = $state<string[]>([]);
   let recent = $state<string[]>([]);
   let root = $state('');
@@ -88,7 +89,7 @@
   <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
   <button class="icon" onclick={() => (open ? (open = false) : openMenu())} title={t('sessions.folderMenu')} aria-label={t('sessions.folderMenu')}>▾</button>
   {#if open}
-    <div class="menu">
+    <div class="menu" use:anchored={{ anchor: rootEl!, align: 'left' }}>
       {#if favorites.length}
         <div class="sec">{t('sessions.favorites')}</div>
         {#each favorites as f (f)}
@@ -148,10 +149,9 @@
     color: #fbbf24;
   }
   .menu {
-    position: absolute;
+    /* position/top/left set inline by use:anchored (fixed, escapes overflow ancestors) */
+    position: fixed;
     z-index: 60;
-    top: calc(100% + 4px);
-    left: 0;
     min-width: 320px;
     max-width: 560px;
     max-height: 360px;
