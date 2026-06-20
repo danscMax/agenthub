@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (connect_custom_native); kept for reference only.
 <#
 .SYNOPSIS
     Register a custom OpenAI-compatible provider in the freellmapi gateway via its admin API.

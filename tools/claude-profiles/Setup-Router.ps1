@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (setup_router_native / apply_router_config); kept for reference only.
 <#
 .SYNOPSIS
     Install / configure claude-code-router (ccr) — the Anthropic↔OpenAI bridge that lets

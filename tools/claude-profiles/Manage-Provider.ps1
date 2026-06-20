@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (manage_provider_native / apply_provider_env); kept for reference only.
 <#
 .SYNOPSIS
     Bind / unbind an LLM provider to ONE Claude Code profile via its settings.json env.

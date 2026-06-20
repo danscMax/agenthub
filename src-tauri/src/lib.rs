@@ -2829,9 +2829,7 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
         "bearer".to_string()
     };
     let mut list = read_myproviders_raw();
-    let prev = list
-        .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()));
+    let prev = find_provider(&list, &id);
     let created = prev
         .and_then(|e| e.get("createdAt").and_then(|x| x.as_str()))
         .map(|s| s.to_string())
@@ -2871,15 +2869,21 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
     Ok(myprovider_from_entry(&entry))
 }
 
+/// Find a my-provider record by id (read) — shared predicate across the providers block.
+fn find_provider<'a>(list: &'a [serde_json::Value], id: &str) -> Option<&'a serde_json::Value> {
+    list.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+}
+
+/// Index of a my-provider record by id (for in-place mutation).
+fn find_provider_idx(list: &[serde_json::Value], id: &str) -> Option<usize> {
+    list.iter().position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+}
+
 /// Delete a provider record and its Credential Manager entry.
 #[tauri::command]
 fn delete_my_provider(id: String) -> Result<(), String> {
     let mut list = read_myproviders_raw();
-    let (key_count, _) = list
-        .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .map(key_pool_meta)
-        .unwrap_or((0, 0));
+    let (key_count, _) = find_provider(&list, &id).map(key_pool_meta).unwrap_or((0, 0));
     let before = list.len();
     list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
     if list.len() != before {
@@ -2903,10 +2907,7 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
         return Err(tr("err.empty_key", cur_lang()).into());
     }
     let mut list = read_myproviders_raw();
-    let idx = list
-        .iter()
-        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or(tr("err.provider_not_found", cur_lang()))?;
+    let idx = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (mut count, active) = key_pool_meta(&list[idx]);
     // First add: fold the legacy single key (if any) into slot 0 so nothing is orphaned.
     if count == 0 {
@@ -2930,10 +2931,7 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
 #[tauri::command]
 fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
     let mut list = read_myproviders_raw();
-    let pos = list
-        .iter()
-        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or(tr("err.provider_not_found", cur_lang()))?;
+    let pos = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count == 0 || index >= count {
         return Err(tr("err.key_not_found", cur_lang()).into());
@@ -3165,10 +3163,7 @@ async fn connect_my_provider(
     id: String,
 ) -> Result<i32, String> {
     let list = read_myproviders_raw();
-    let e = list
-        .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or(tr("err.provider_not_found", cur_lang()))?;
+    let e = find_provider(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let (protocol, via, base_url) = (s("protocol"), s("connectVia"), s("baseUrl"));
     valid_base_url(&base_url)?;
@@ -3247,10 +3242,7 @@ async fn next_provider_key(
     id: String,
 ) -> Result<i32, String> {
     let mut list = read_myproviders_raw();
-    let pos = list
-        .iter()
-        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or(tr("err.provider_not_found", cur_lang()))?;
+    let pos = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count < 2 {
         return Err(tr("err.single_key", cur_lang()).into());
@@ -3285,6 +3277,21 @@ fn url_has_path(u: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Provider auth headers for a ureq GET: anthropic → x-api-key + anthropic-version; else Bearer.
+/// Empty key → no key header. Extracted so probe_provider and balance_get can't drift apart.
+fn provider_auth_headers(protocol: &str, key: &str) -> Vec<(&'static str, String)> {
+    let mut h: Vec<(&'static str, String)> = Vec::new();
+    if protocol == "anthropic" {
+        if !key.is_empty() {
+            h.push(("x-api-key", key.to_string()));
+        }
+        h.push(("anthropic-version", "2023-06-01".to_string()));
+    } else if !key.is_empty() {
+        h.push(("Authorization", format!("Bearer {key}")));
+    }
+    h
+}
+
 /// Native provider liveness probe (was Check-Provider.ps1). Blocking — call via spawn_blocking.
 /// GET {root}/v1/models with the optional key; returns `{ ok, detail, count? }` (same shape as before).
 fn probe_provider(base_url: &str, protocol: &str, api_key: &str) -> serde_json::Value {
@@ -3298,13 +3305,8 @@ fn probe_provider(base_url: &str, protocol: &str, api_key: &str) -> serde_json::
         .build()
         .into();
     let mut req = agent.get(&url);
-    if protocol == "anthropic" {
-        if !api_key.is_empty() {
-            req = req.header("x-api-key", api_key);
-        }
-        req = req.header("anthropic-version", "2023-06-01");
-    } else if !api_key.is_empty() {
-        req = req.header("Authorization", &format!("Bearer {api_key}"));
+    for (k, v) in provider_auth_headers(protocol, api_key) {
+        req = req.header(k, &v);
     }
 
     match req.call() {
@@ -3383,10 +3385,7 @@ async fn run_provider_check(base_url: &str, protocol: &str, api_key: &str) -> se
 #[tauri::command]
 async fn check_my_provider(id: String) -> serde_json::Value {
     let list = read_myproviders_raw();
-    let entry = list
-        .iter()
-        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .cloned();
+    let entry = find_provider(&list, &id).cloned();
     let Some(e) = entry else {
         return serde_json::json!({ "ok": false, "detail": tr("err.provider_not_found", cur_lang()) });
     };
@@ -3422,13 +3421,8 @@ fn json_f64(v: &serde_json::Value, path: &str) -> Option<f64> {
 /// GET a balance endpoint with the provider's auth header; parse the JSON body.
 fn balance_get(agent: &ureq::Agent, url: &str, protocol: &str, key: &str) -> Option<serde_json::Value> {
     let mut req = agent.get(url);
-    if protocol == "anthropic" {
-        if !key.is_empty() {
-            req = req.header("x-api-key", key);
-        }
-        req = req.header("anthropic-version", "2023-06-01");
-    } else if !key.is_empty() {
-        req = req.header("Authorization", &format!("Bearer {key}"));
+    for (k, v) in provider_auth_headers(protocol, key) {
+        req = req.header(k, &v);
     }
     let body = req.call().ok()?.body_mut().read_to_string().ok()?;
     serde_json::from_str(&body).ok()
@@ -3461,7 +3455,7 @@ fn extract_balance(v: &serde_json::Value) -> Option<(f64, String)> {
 
 fn fetch_provider_balance(id: &str) -> serde_json::Value {
     let list = read_myproviders_raw();
-    let Some(e) = list.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id)) else {
+    let Some(e) = find_provider(&list, id) else {
         return serde_json::json!({ "ok": false, "detail": tr("err.provider_not_found", cur_lang()) });
     };
     let base = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("");
@@ -4054,30 +4048,40 @@ async fn run_mcp(
 }
 
 
-/// Map plugin id → description, read from each installed plugin's .claude-plugin/plugin.json
-/// (the `claude plugin list --json` output has no description).
-fn plugin_descriptions() -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    let Ok(home) = std::env::var("USERPROFILE") else { return map };
+/// Resolve the Claude plugins dir + parsed installed_plugins.json + known_marketplaces.json.
+/// None when USERPROFILE is unset or installed_plugins.json is missing/unparseable.
+fn load_installed_plugins() -> Option<(String, serde_json::Value, serde_json::Value)> {
+    let home = std::env::var("USERPROFILE").ok()?;
     let plugins_dir = format!("{home}\\.claude\\plugins");
     let installed = std::fs::read_to_string(format!("{plugins_dir}\\installed_plugins.json"))
         .ok()
-        .and_then(|c| parse_json_bom(&c).ok());
+        .and_then(|c| parse_json_bom(&c).ok())?;
     let markets = std::fs::read_to_string(format!("{plugins_dir}\\known_marketplaces.json"))
         .ok()
         .and_then(|c| parse_json_bom(&c).ok())
         .unwrap_or(serde_json::Value::Null);
-    let Some(po) = installed.as_ref().and_then(|v| v.get("plugins")).and_then(|v| v.as_object())
-    else {
+    Some((plugins_dir, installed, markets))
+}
+
+/// First entry's `installPath` in an installed_plugins.json plugin array ("" if absent).
+fn first_install_path(arr: &serde_json::Value) -> &str {
+    arr.as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("installPath"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
+/// Map plugin id → description, read from each installed plugin's .claude-plugin/plugin.json
+/// (the `claude plugin list --json` output has no description).
+fn plugin_descriptions() -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let Some((_dir, installed, markets)) = load_installed_plugins() else { return map };
+    let Some(po) = installed.get("plugins").and_then(|v| v.as_object()) else {
         return map;
     };
     for (id, arr) in po {
-        let install_path = arr
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|e| e.get("installPath"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let install_path = first_install_path(arr);
         if let Some(dir) = plugin_content_dir(id, install_path, &markets) {
             let pj = std::path::Path::new(&dir).join(".claude-plugin").join("plugin.json");
             if let Some(d) = std::fs::read_to_string(pj)
@@ -4209,34 +4213,16 @@ fn read_skill_info(skill_dir: &std::path::Path, source: String, mine: bool) -> S
 
 /// Skills bundled inside installed plugins (source = "plugin:<id>").
 fn plugin_bundled_skills() -> Vec<SkillInfo> {
-    let home = match std::env::var("USERPROFILE") {
-        Ok(h) => h,
-        Err(_) => return Vec::new(),
+    let Some((_dir, installed, markets)) = load_installed_plugins() else {
+        return Vec::new();
     };
-    let plugins_dir = format!("{home}\\.claude\\plugins");
-    let installed = match std::fs::read_to_string(format!("{plugins_dir}\\installed_plugins.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-    {
-        Some(v) => v,
-        None => return Vec::new(),
-    };
-    let markets = std::fs::read_to_string(format!("{plugins_dir}\\known_marketplaces.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-        .unwrap_or(serde_json::Value::Null);
     let own = own_marketplaces();
     let mut out: Vec<SkillInfo> = Vec::new();
     let Some(po) = installed.get("plugins").and_then(|v| v.as_object()) else {
         return out;
     };
     for (id, arr) in po {
-        let install_path = arr
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|e| e.get("installPath"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let install_path = first_install_path(arr);
         let Some(dir) = plugin_content_dir(id, install_path, &markets) else {
             continue;
         };
@@ -4311,22 +4297,9 @@ struct PluginUpdate {
 /// against the on-disk marketplace manifests. Fast, read-only, no network.
 #[tauri::command]
 fn list_plugin_updates() -> Vec<PluginUpdate> {
-    let home = match std::env::var("USERPROFILE") {
-        Ok(h) => h,
-        Err(_) => return Vec::new(),
+    let Some((plugins_dir, installed, markets)) = load_installed_plugins() else {
+        return Vec::new();
     };
-    let plugins_dir = format!("{home}\\.claude\\plugins");
-    let installed = match std::fs::read_to_string(format!("{plugins_dir}\\installed_plugins.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-    {
-        Some(v) => v,
-        None => return Vec::new(),
-    };
-    let markets = std::fs::read_to_string(format!("{plugins_dir}\\known_marketplaces.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-        .unwrap_or(serde_json::Value::Null);
 
     let mut out: Vec<PluginUpdate> = Vec::new();
     let Some(po) = installed.get("plugins").and_then(|v| v.as_object()) else {
@@ -4457,34 +4430,16 @@ fn collect_skill_names(skills_root: &std::path::Path) -> Vec<String> {
 /// Read-only filesystem scan; no network, no claude CLI spawn.
 #[tauri::command]
 fn list_plugin_contents() -> Vec<PluginContents> {
-    let home = match std::env::var("USERPROFILE") {
-        Ok(h) => h,
-        Err(_) => return Vec::new(),
+    let Some((_dir, installed, markets)) = load_installed_plugins() else {
+        return Vec::new();
     };
-    let plugins_dir = format!("{home}\\.claude\\plugins");
-    let installed = match std::fs::read_to_string(format!("{plugins_dir}\\installed_plugins.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-    {
-        Some(v) => v,
-        None => return Vec::new(),
-    };
-    let markets = std::fs::read_to_string(format!("{plugins_dir}\\known_marketplaces.json"))
-        .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
-        .unwrap_or(serde_json::Value::Null);
 
     let mut out: Vec<PluginContents> = Vec::new();
     let Some(po) = installed.get("plugins").and_then(|v| v.as_object()) else {
         return out;
     };
     for (id, arr) in po {
-        let install_path = arr
-            .as_array()
-            .and_then(|a| a.first())
-            .and_then(|e| e.get("installPath"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let install_path = first_install_path(arr);
         let Some(dir) = plugin_content_dir(id, install_path, &markets) else {
             continue;
         };

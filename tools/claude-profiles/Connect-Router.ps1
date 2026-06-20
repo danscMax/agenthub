@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (connect_router_native); kept for reference only.
 <#
 .SYNOPSIS
     Turnkey: route a profile's Claude Code through claude-code-router (ccr) to an OpenAI engine.

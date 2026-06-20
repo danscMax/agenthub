@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (probe_provider); kept for reference only.
 <#
 .SYNOPSIS
     Liveness check for an OpenAI/Anthropic-compatible provider: GET {root}/v1/models with the

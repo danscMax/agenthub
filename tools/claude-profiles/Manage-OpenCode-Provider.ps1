@@ -1,3 +1,5 @@
+# DEPRECATED — not invoked by the app. Castellyn runs the native Rust port in
+# src-tauri/src/lib.rs (opencode_provider_native); kept for reference only.
 <#
 .SYNOPSIS
     Bind / unbind a custom OpenAI-compatible LLM provider for the opencode agent,
