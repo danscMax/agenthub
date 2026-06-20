@@ -5012,17 +5012,23 @@ fn migrate_autostart() {
     if !had_old {
         return;
     }
-    if let Ok(exe) = std::env::current_exe() {
-        let exe = exe.display().to_string();
+    // Re-point at the current exe under the new name, and drop the old value ONLY once the new one
+    // is actually in place. If current_exe() or the add fails, leave the old value alone — autostart
+    // is preserved and the migration simply retries next launch (idempotent), never silently lost.
+    let Ok(exe) = std::env::current_exe() else { return };
+    let exe = exe.display().to_string();
+    let added = std::process::Command::new("reg")
+        .args(["add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", &exe, "/f"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if added {
         let _ = std::process::Command::new("reg")
-            .args(["add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", &exe, "/f"])
+            .args(["delete", AUTOSTART_KEY, "/v", LEGACY_AUTOSTART_NAME, "/f"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
-    let _ = std::process::Command::new("reg")
-        .args(["delete", AUTOSTART_KEY, "/v", LEGACY_AUTOSTART_NAME, "/f"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
 }
 
 /// Is the app registered to start with Windows (HKCU Run key)?
