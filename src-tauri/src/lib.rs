@@ -312,7 +312,7 @@ async fn spawn_streamed_prog(
     {
         let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_some() {
-            return Err("Уже идёт другой прогон — дождись завершения или отмени.".into());
+            return Err(tr("err.run_in_progress", cur_lang()).into());
         }
         *g = Some(0);
     }
@@ -333,7 +333,7 @@ async fn spawn_streamed_prog(
         Ok(c) => c,
         Err(e) => {
             *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            return Err(format!("не удалось запустить {program}: {e}"));
+            return Err(trv("err.spawn_failed", cur_lang(), &[("program", &program), ("e", &e)]));
         }
     };
 
@@ -411,7 +411,7 @@ where
     {
         let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_some() {
-            return Err("Уже идёт другой прогон — дождись завершения или отмени.".into());
+            return Err(tr("err.run_in_progress", cur_lang()).into());
         }
         *g = Some(0);
     }
@@ -450,11 +450,11 @@ async fn run_component(
     let comp = raw_components()
         .into_iter()
         .find(|c| c.id == id)
-        .ok_or_else(|| format!("неизвестный компонент {id}"))?;
+        .ok_or_else(|| trv("err.unknown_component", cur_lang(), &[("id", &id)]))?;
 
     let args = if mode == "apply" {
         if !comp.supports_apply {
-            return Err(format!("компонент {} не поддерживает применение", comp.name));
+            return Err(trv("err.component_no_apply", cur_lang(), &[("name", &comp.name)]));
         }
         comp.apply_args.clone()
     } else {
@@ -506,9 +506,9 @@ async fn run_forks(
     let comp = raw_components()
         .into_iter()
         .find(|c| c.id == "forks")
-        .ok_or("компонент forks не найден в манифесте")?;
+        .ok_or(tr("err.forks_missing", cur_lang()))?;
     let mut args =
-        forks_action_args(&action).ok_or_else(|| format!("неизвестное действие forks: {action}"))?;
+        forks_action_args(&action).ok_or_else(|| trv("err.unknown_forks_action", cur_lang(), &[("action", &action)]))?;
     if let Some(p) = path {
         let mut full = vec!["-Paths".to_string(), p];
         full.append(&mut args);
@@ -539,20 +539,20 @@ async fn run_fork_repo(
     path: String,
 ) -> Result<i32, String> {
     let mut args =
-        forks_action_args(&action).ok_or_else(|| format!("неизвестное действие forks: {action}"))?;
+        forks_action_args(&action).ok_or_else(|| trv("err.unknown_forks_action", cur_lang(), &[("action", &action)]))?;
     if !std::path::Path::new(&path).is_dir() {
-        return Err(format!("каталог репозитория не найден: {path}"));
+        return Err(trv("err.repo_dir_missing", cur_lang(), &[("path", &path)]));
     }
     let comp = raw_components()
         .into_iter()
         .find(|c| c.id == "forks")
-        .ok_or("компонент forks не найден в манифесте")?;
+        .ok_or(tr("err.forks_missing", cur_lang()))?;
     let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
     // Reserve this repo (reject a second concurrent run on the same one).
     {
         let mut m = runs.0.lock().unwrap_or_else(|e| e.into_inner());
         if m.contains_key(&path) {
-            return Err("этот форк уже обновляется".into());
+            return Err(tr("err.fork_busy", cur_lang()).into());
         }
         m.insert(path.clone(), 0);
     }
@@ -585,7 +585,7 @@ async fn run_fork_repo(
         Ok(c) => c,
         Err(e) => {
             runs.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
-            return Err(format!("не удалось запустить pwsh: {e}"));
+            return Err(trv("err.pwsh_failed", cur_lang(), &[("e", &e)]));
         }
     };
     if let Some(pid) = child.id() {
@@ -694,7 +694,7 @@ async fn run_backup(
         }
         "restore-preview" => (RESTORE_SCRIPT_REL, vec!["-WhatIf".to_string()]),
         "restore" => (RESTORE_SCRIPT_REL, Vec::new()),
-        _ => return Err(format!("неизвестное действие backup: {action}")),
+        _ => return Err(trv("err.unknown_backup_action", cur_lang(), &[("action", &action)])),
     };
     if action == "restore-preview" || action == "restore" {
         if let Some(t) = timestamp {
@@ -751,11 +751,11 @@ async fn run_profiles(
         "repair" => {
             let n = name.unwrap_or_default();
             if !profile_names().iter().any(|x| x == &n) {
-                return Err(format!("неизвестный профиль: {n}"));
+                return Err(trv("err.unknown_profile", cur_lang(), &[("name", &n)]));
             }
             (REPAIR_SCRIPT_REL, vec!["-Name".to_string(), n])
         }
-        _ => return Err(format!("неизвестное действие profiles: {action}")),
+        _ => return Err(trv("err.unknown_profiles_action", cur_lang(), &[("action", &action)])),
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "profiles".to_string(), script, args).await
@@ -782,7 +782,7 @@ async fn run_config_drift(
         "check" => (INTEGRITY_SCRIPT_REL, Vec::new()),
         "relink" => (RELINK_SCRIPT_REL, vec!["-NonInteractive".to_string()]),
         "sync-now" => (BACKUP_SCRIPT_REL, vec!["-Force".to_string()]),
-        _ => return Err(format!("неизвестное действие config-drift: {action}")),
+        _ => return Err(trv("err.unknown_configdrift_action", cur_lang(), &[("action", &action)])),
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "sync".to_string(), script, args).await
@@ -820,7 +820,7 @@ async fn run_profile_mgmt(
     enabled: Option<Vec<String>>,
 ) -> Result<i32, String> {
     if !valid_profile_name(&name) {
-        return Err(format!("недопустимое имя профиля: {name}"));
+        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
     }
     let mut args: Vec<String> = vec!["-Action".into(), action.clone(), "-Name".into(), name];
     match action.as_str() {
@@ -834,14 +834,14 @@ async fn run_profile_mgmt(
         "rename" => {
             let nn = new_name.unwrap_or_default();
             if !valid_profile_name(&nn) {
-                return Err(format!("недопустимое новое имя: {nn}"));
+                return Err(trv("err.invalid_new_name", cur_lang(), &[("nn", &nn)]));
             }
             args.push("-NewName".into());
             args.push(nn);
         }
         "recolor" => {
             args.push("-Color".into());
-            args.push(color.ok_or("не указан цвет")?);
+            args.push(color.ok_or(tr("err.no_color", cur_lang()))?);
         }
         // Description may be empty (clearing) — pass whatever the dialog sent, as a separate argv.
         "redescribe" => {
@@ -852,7 +852,7 @@ async fn run_profile_mgmt(
             args.push("-Enabled".into());
             args.push(enabled.unwrap_or_default().join(","));
         }
-        _ => return Err(format!("неизвестное действие профиля: {action}")),
+        _ => return Err(trv("err.unknown_profile_action", cur_lang(), &[("action", &action)])),
     }
     let script = abs(PROFILE_MGMT_SCRIPT_REL);
     spawn_streamed(app, state, "profiles".to_string(), script, args).await
@@ -873,10 +873,10 @@ async fn repair_profile_elevated(
     // so a single quote there would be admin-level command injection. valid_profile_name()
     // (mirrors run_profile_mgmt) makes the "name is validated" guarantee real, not assumed.
     if !valid_profile_name(&name) {
-        return Err(format!("недопустимое имя профиля: {name}"));
+        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
     }
     if !profile_names().iter().any(|x| x == &name) {
-        return Err(format!("неизвестный профиль: {name}"));
+        return Err(trv("err.unknown_profile", cur_lang(), &[("name", &name)]));
     }
     let repair = abs(REPAIR_SCRIPT_REL);
     // name is validated ([A-Za-z0-9_-]); repair path carries no single quotes — safe in 'literals'.
@@ -908,12 +908,12 @@ fn relaunch_as_admin(app: AppHandle) -> Result<(), String> {
         .args(["-NoProfile", "-Command", &inner])
         .creation_flags(CREATE_NO_WINDOW)
         .status()
-        .map_err(|e| format!("не удалось запустить pwsh: {e}"))?;
+        .map_err(|e| trv("err.pwsh_failed", cur_lang(), &[("e", &e)]))?;
     if status.success() {
         app.exit(0);
         Ok(())
     } else {
-        Err("Повышение прав отменено.".into())
+        Err(tr("err.elevation_cancelled", cur_lang()).into())
     }
 }
 
@@ -1220,7 +1220,7 @@ async fn run_sync(action: String, enabled: Option<Vec<String>>) -> Result<i32, S
                 .await
                 .map_err(|e| format!("{e}"))?
         }
-        _ => Err(format!("неизвестное действие sync: {action}")),
+        _ => Err(trv("err.unknown_sync_action", cur_lang(), &[("action", &action)])),
     }
 }
 
@@ -1432,7 +1432,7 @@ async fn run_stack(
     let only = only.filter(|s| !s.is_empty());
     if let Some(id) = &only {
         if !valid_stack_id(id) {
-            return Err(format!("недопустимый id сервиса: {id}"));
+            return Err(trv("err.invalid_service_id", cur_lang(), &[("id", &id)]));
         }
     }
     let (script, args) = match action.as_str() {
@@ -1452,7 +1452,7 @@ async fn run_stack(
             };
             (script, args)
         }
-        _ => return Err(format!("неизвестное действие стека: {action}")),
+        _ => return Err(trv("err.unknown_stack_action", cur_lang(), &[("action", &action)])),
     };
     spawn_streamed(app, state, "engine".to_string(), script, args).await
 }
@@ -1732,7 +1732,7 @@ fn update_engine(id: String, base_url: String, port: u16) -> Result<(), String> 
     let arr = v
         .get_mut("engines")
         .and_then(|e| e.as_array_mut())
-        .ok_or("engines.json: нет массива engines")?;
+        .ok_or(tr("err.engines_no_array", cur_lang()))?;
     let mut found = false;
     for e in arr.iter_mut() {
         if e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()) {
@@ -1743,7 +1743,7 @@ fn update_engine(id: String, base_url: String, port: u16) -> Result<(), String> 
         }
     }
     if !found {
-        return Err(format!("движок '{id}' не найден"));
+        return Err(trv("err.engine_not_found", cur_lang(), &[("id", &id)]));
     }
     let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("write engines.json: {e}"))?;
@@ -1837,7 +1837,7 @@ fn spawn_engine_detached(program: &str, args: &[String], cwd: Option<&str>) -> R
     }
     cmd.spawn()
         .map(|_| ())
-        .map_err(|e| format!("не удалось запустить {program}: {e}"))
+        .map_err(|e| trv("err.spawn_failed", cur_lang(), &[("program", &program), ("e", &e)]))
 }
 
 /// Console feedback for a detached engine launch (the launch produced no streamed output here —
@@ -1867,10 +1867,10 @@ async fn run_engine(
     id: String,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "start" | "stop") {
-        return Err(format!("неизвестное действие engine: {action}"));
+        return Err(trv("err.unknown_engine_action", cur_lang(), &[("action", &action)]));
     }
     let Some(cfg) = load_engine_cfg(&id) else {
-        return Err(format!("движок '{id}' не найден в engines.json"));
+        return Err(trv("err.engine_not_found_json", cur_lang(), &[("id", &id)]));
     };
 
     if action == "start" {
@@ -1888,7 +1888,7 @@ async fn run_engine(
             let cmd = expand_manifest(&cfg.command);
             let path = std::path::Path::new(&cmd);
             if !path.is_file() {
-                return Err(format!("файл запуска не найден: {cmd}"));
+                return Err(trv("err.launch_file_missing", cur_lang(), &[("cmd", &cmd)]));
             }
             let dir = path.parent().map(|p| p.display().to_string());
             if cmd.to_lowercase().ends_with(".py") {
@@ -2151,12 +2151,12 @@ async fn run_router(
     name: Option<String>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "install" | "configure") {
-        return Err(format!("неизвестное действие router: {action}"));
+        return Err(trv("err.unknown_router_action", cur_lang(), &[("action", &action)]));
     }
     let backend = backend.unwrap_or_default();
     let model = model.unwrap_or_default();
     if action == "configure" && (backend.is_empty() || model.is_empty()) {
-        return Err("для configure нужны backend и model".into());
+        return Err(tr("err.configure_needs_backend_model", cur_lang()).into());
     }
     // PS default provider name is 'lmstudio'.
     let name = name.filter(|s| !s.is_empty()).unwrap_or_else(|| "lmstudio".to_string());
@@ -2177,10 +2177,10 @@ async fn run_connect_router(
     name: Option<String>,
 ) -> Result<i32, String> {
     if backend.is_empty() || model.is_empty() {
-        return Err("нужны backend и model".into());
+        return Err(tr("err.needs_backend_model", cur_lang()).into());
     }
     if !valid_profile_name(&profile) {
-        return Err(format!("недопустимый профиль: {profile}"));
+        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &profile)]));
     }
     // PS default provider name is 'lmstudio'.
     let name = name.filter(|s| !s.is_empty()).unwrap_or_else(|| "lmstudio".to_string());
@@ -2550,14 +2550,14 @@ async fn run_provider(
     keep_token: Option<bool>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "set" | "clear") {
-        return Err(format!("неизвестное действие provider: {action}"));
+        return Err(trv("err.unknown_provider_action", cur_lang(), &[("action", &action)]));
     }
     if !valid_profile_name(&name) {
-        return Err(format!("недопустимое имя профиля: {name}"));
+        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
     }
     let base_url = base_url.unwrap_or_default();
     if action == "set" && base_url.is_empty() {
-        return Err("для set нужен baseUrl".into());
+        return Err(tr("err.set_needs_baseurl", cur_lang()).into());
     }
     let keep_token = keep_token.unwrap_or(false);
     // On set the dialog always supplies Model/SmallModel (empty removes the override) — bind them;
@@ -2666,7 +2666,7 @@ fn valid_base_url(s: &str) -> Result<(), String> {
     let rest = s
         .strip_prefix("http://")
         .or_else(|| s.strip_prefix("https://"))
-        .ok_or("URL должен начинаться с http:// или https://")?;
+        .ok_or(tr("err.url_scheme", cur_lang()))?;
     let host_port = rest.split('/').next().unwrap_or("");
     // strip an optional :port; handle an IPv6 literal ([::1] / [::1]:port) without mistaking its
     // inner colons for the port separator.
@@ -2676,12 +2676,12 @@ fn valid_base_url(s: &str) -> Result<(), String> {
         host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
     };
     if host.is_empty() {
-        return Err("пустой хост в URL".into());
+        return Err(tr("err.empty_host", cur_lang()).into());
     }
     let hl = host.to_ascii_lowercase();
     let blocked = ["169.254.169.254", "100.100.100.200", "fd00:ec2::254", "metadata.google.internal"];
     if blocked.contains(&hl.as_str()) || hl.starts_with("169.254.") || hl == "metadata" {
-        return Err(format!("адрес заблокирован (SSRF/cloud-metadata): {host}"));
+        return Err(trv("err.blocked_host", cur_lang(), &[("host", &host)]));
     }
     Ok(())
 }
@@ -2814,14 +2814,14 @@ fn list_my_providers() -> Vec<MyProvider> {
 #[tauri::command]
 fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyProvider, String> {
     if !valid_provider_name(&p.name) {
-        return Err("недопустимое имя провайдера (1–64 символа, без управляющих)".into());
+        return Err(tr("err.invalid_provider_name", cur_lang()).into());
     }
     valid_base_url(&p.base_url)?;
     if !matches!(p.protocol.as_str(), "anthropic" | "openai") {
-        return Err("protocol должен быть anthropic или openai".into());
+        return Err(tr("err.invalid_protocol", cur_lang()).into());
     }
     if !matches!(p.connect_via.as_str(), "freellmapi" | "direct") {
-        return Err("connectVia должен быть freellmapi или direct".into());
+        return Err(tr("err.invalid_connectvia", cur_lang()).into());
     }
     let id = p.id.clone().filter(|s| !s.is_empty()).unwrap_or_else(gen_provider_id);
     let auth = if !p.auth_scheme.is_empty() {
@@ -2903,13 +2903,13 @@ fn delete_my_provider(id: String) -> Result<(), String> {
 fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
     let key = api_key.trim();
     if key.is_empty() {
-        return Err("пустой ключ".into());
+        return Err(tr("err.empty_key", cur_lang()).into());
     }
     let mut list = read_myproviders_raw();
     let idx = list
         .iter()
         .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or("провайдер не найден")?;
+        .ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (mut count, active) = key_pool_meta(&list[idx]);
     // First add: fold the legacy single key (if any) into slot 0 so nothing is orphaned.
     if count == 0 {
@@ -2936,10 +2936,10 @@ fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
     let pos = list
         .iter()
         .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or("провайдер не найден")?;
+        .ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count == 0 || index >= count {
-        return Err("ключ не найден".into());
+        return Err(tr("err.key_not_found", cur_lang()).into());
     }
     // Read all surviving secrets in order, then rewrite slots compactly.
     let mut survivors: Vec<String> = Vec::new();
@@ -2992,7 +2992,7 @@ fn set_freellmapi_auth(
         }
     }
     if !any {
-        return Err("укажите email+пароль или токен дашборда freellmapi".into());
+        return Err(tr("err.freellmapi_creds_needed", cur_lang()).into());
     }
     Ok(())
 }
@@ -3173,19 +3173,19 @@ async fn connect_my_provider(
     let e = list
         .iter()
         .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or("провайдер не найден")?;
+        .ok_or(tr("err.provider_not_found", cur_lang()))?;
     let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let (protocol, via, base_url) = (s("protocol"), s("connectVia"), s("baseUrl"));
     valid_base_url(&base_url)?;
     let api_key = active_provider_key(&id, e)
-        .ok_or("для этого провайдера не задан API-ключ")?;
+        .ok_or(tr("err.provider_no_apikey", cur_lang()))?;
 
     match (via.as_str(), protocol.as_str()) {
         // Anthropic-native → bind straight to a profile's settings.json (native Manage-Provider).
         ("direct", "anthropic") => {
             let name = s("targetProfile");
             if !valid_profile_name(&name) {
-                return Err("для прямого подключения укажите корректный целевой профиль".into());
+                return Err(tr("err.direct_needs_profile", cur_lang()).into());
             }
             let model = s("model");
             let small = s("smallModel");
@@ -3216,9 +3216,9 @@ async fn connect_my_provider(
             let email = kr_get(KR_FREELLMAPI, "email").unwrap_or_default();
             let password = kr_get(KR_FREELLMAPI, "password").unwrap_or_default();
             if token.is_empty() && (email.is_empty() || password.is_empty()) {
-                return Err("сначала задайте вход в freellmapi (email+пароль или токен) — кнопка «Вход freellmapi»".into());
+                return Err(tr("err.freellmapi_login_first", cur_lang()).into());
             }
-            let gateway = gateway_base_url().ok_or("не найден gateway в stack.json")?;
+            let gateway = gateway_base_url().ok_or(tr("err.no_gateway", cur_lang()))?;
             let (model, display_name, label) =
                 (s("model"), s("name"), format!("agenthub:{}", s("name")));
             run_native_streamed(app, state, "provider".into(), move |out, err| {
@@ -3238,7 +3238,7 @@ async fn connect_my_provider(
             })
             .await
         }
-        _ => Err(format!("неизвестная комбинация connectVia/protocol: {via}/{protocol}")),
+        _ => Err(trv("err.unknown_connectvia_protocol", cur_lang(), &[("via", &via), ("protocol", &protocol)])),
     }
 }
 
@@ -3255,10 +3255,10 @@ async fn next_provider_key(
     let pos = list
         .iter()
         .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
-        .ok_or("провайдер не найден")?;
+        .ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count < 2 {
-        return Err("у провайдера только один ключ — добавьте ещё для ротации".into());
+        return Err(tr("err.single_key", cur_lang()).into());
     }
     let next = next_key_index(active, count);
     list[pos]["activeKey"] = serde_json::json!(next);
@@ -3849,14 +3849,14 @@ async fn run_opencode_provider(
     keep_key: Option<bool>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "set" | "clear") {
-        return Err(format!("неизвестное действие opencode: {action}"));
+        return Err(trv("err.unknown_opencode_action", cur_lang(), &[("action", &action)]));
     }
     if !valid_profile_name(&provider_id) {
-        return Err(format!("недопустимый provider id: {provider_id}"));
+        return Err(trv("err.invalid_provider_id", cur_lang(), &[("id", &provider_id)]));
     }
     let base_url = base_url.unwrap_or_default();
     if action == "set" && base_url.is_empty() {
-        return Err("для set нужен base_url".into());
+        return Err(tr("err.set_needs_base_url", cur_lang()).into());
     }
     let keep_key = keep_key.unwrap_or(false);
     let cfg_path = opencode_config_path();
@@ -4016,7 +4016,7 @@ async fn run_schedule(
     time: Option<String>,
 ) -> Result<i32, String> {
     if !valid_schedule_action(&action) {
-        return Err(format!("неизвестное действие schedule: {action}"));
+        return Err(trv("err.unknown_schedule_action", cur_lang(), &[("action", &action)]));
     }
     let mut args = vec!["-Action".to_string(), action];
     if let Some(i) = id {
@@ -4046,7 +4046,7 @@ async fn run_mcp(
 ) -> Result<i32, String> {
     let script_rel = match action.as_str() {
         "deploy" => MCP_DEPLOY_SCRIPT_REL,
-        _ => return Err(format!("неизвестное действие mcp: {action}")),
+        _ => return Err(trv("err.unknown_mcp_action", cur_lang(), &[("action", &action)])),
     };
     let script = abs(script_rel);
     // Optional `-Only a,b` limits deployment to specific profiles (Deploy-Mcp.ps1 supports it);
@@ -4106,7 +4106,7 @@ async fn list_plugins() -> Result<serde_json::Value, String> {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .await
-        .map_err(|e| format!("запуск claude: {e}"))?;
+        .map_err(|e| trv("err.claude_launch", cur_lang(), &[("e", &e)]))?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut v = parse_json_bom(stdout.trim()).map_err(|e| format!("parse plugins: {e}"))?;
     let desc = plugin_descriptions();
@@ -4578,7 +4578,7 @@ async fn run_plugin(
         if id.is_empty()
             || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
         {
-            return Err(format!("недопустимый id плагина: {id}"));
+            return Err(trv("err.invalid_plugin_id", cur_lang(), &[("id", &id)]));
         }
         return spawn_streamed_prog(
             app,
@@ -4591,13 +4591,13 @@ async fn run_plugin(
         .await;
     }
     if !matches!(action.as_str(), "enable" | "disable" | "update") {
-        return Err(format!("неизвестное действие plugin: {action}"));
+        return Err(trv("err.unknown_plugin_action", cur_lang(), &[("action", &action)]));
     }
     // id reaches process args natively now — guard it (same rule as the remove branch).
     if id.is_empty()
         || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
     {
-        return Err(format!("недопустимый id плагина: {id}"));
+        return Err(trv("err.invalid_plugin_id", cur_lang(), &[("id", &id)]));
     }
     run_native_streamed(app, state, "plugin-mgr".to_string(), move |out, err| {
         manage_plugin_native(&action, &id, out, err)
@@ -4613,20 +4613,20 @@ fn delete_skill(dir: String) -> Result<(), String> {
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let skills_root = std::path::Path::new(&home).join(".claude").join("skills");
     let target = std::path::Path::new(&dir);
-    let parent = target.parent().ok_or("неверный путь")?;
-    let canon_root = std::fs::canonicalize(&skills_root).map_err(|e| format!("папка скиллов: {e}"))?;
-    let canon_parent = std::fs::canonicalize(parent).map_err(|e| format!("скилл не найден: {e}"))?;
+    let parent = target.parent().ok_or(tr("err.bad_path", cur_lang()))?;
+    let canon_root = std::fs::canonicalize(&skills_root).map_err(|e| trv("err.skills_dir", cur_lang(), &[("e", &e)]))?;
+    let canon_parent = std::fs::canonicalize(parent).map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
     if canon_parent != canon_root {
-        return Err("скилл не в ~/.claude/skills (скиллы из плагинов удаляются вместе с плагином)".into());
+        return Err(tr("err.skill_not_in_skills", cur_lang()).into());
     }
-    let meta = std::fs::symlink_metadata(target).map_err(|e| format!("скилл не найден: {e}"))?;
+    let meta = std::fs::symlink_metadata(target).map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
     if meta.file_type().is_symlink() {
         // Remove only the symlink, never the linked-to source collection.
         std::fs::remove_dir(target)
             .or_else(|_| std::fs::remove_file(target))
-            .map_err(|e| format!("удаление ссылки: {e}"))
+            .map_err(|e| trv("err.remove_link", cur_lang(), &[("e", &e)]))
     } else {
-        std::fs::remove_dir_all(target).map_err(|e| format!("удаление: {e}"))
+        std::fs::remove_dir_all(target).map_err(|e| trv("err.remove", cur_lang(), &[("e", &e)]))
     }
 }
 
@@ -4685,17 +4685,17 @@ fn app_paths() -> serde_json::Value {
 #[tauri::command]
 fn export_config(dest: String) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&read_config_file()).map_err(|e| e.to_string())?;
-    std::fs::write(&dest, json).map_err(|e| format!("запись: {e}"))
+    std::fs::write(&dest, json).map_err(|e| trv("err.write", cur_lang(), &[("e", &e)]))
 }
 
 /// Read + validate a config file (#117); returns the parsed HubConfig (the frontend persists it
 /// via write_config). Invalid JSON / wrong shape → Err.
 #[tauri::command]
 fn import_config(src: String) -> Result<HubConfig, String> {
-    let text = std::fs::read_to_string(&src).map_err(|e| format!("чтение: {e}"))?;
+    let text = std::fs::read_to_string(&src).map_err(|e| trv("err.read", cur_lang(), &[("e", &e)]))?;
     // BOM-tolerant like every other file read (PowerShell-written configs often carry one).
     serde_json::from_str::<HubConfig>(text.trim_start_matches('\u{feff}'))
-        .map_err(|e| format!("неверный файл настроек: {e}"))
+        .map_err(|e| trv("err.bad_config_file", cur_lang(), &[("e", &e)]))
 }
 
 /// A profile's settings.json `env` block as (key, value) pairs. Claude Code (2.1+) applies its
@@ -4872,10 +4872,10 @@ fn set_launch_config(
     claude_md: bool,
 ) -> Result<(), String> {
     if !valid_profile_name(&name) {
-        return Err(format!("недопустимое имя профиля: {name}"));
+        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
     }
     if !matches!(mode.as_str(), "full" | "lean") {
-        return Err(format!("неизвестный режим: {mode}"));
+        return Err(trv("err.unknown_mode", cur_lang(), &[("mode", &mode)]));
     }
     let path = abs(LAUNCH_CONFIG_REL);
     let mut v = std::fs::read_to_string(&path)
@@ -4909,7 +4909,7 @@ fn set_launch_config(
 #[tauri::command]
 async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
     if !valid_profile_name(&name) {
-        return Err(format!("недопустимое имя профиля: {name}"));
+        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let dir = format!("{home}\\.claude-{name}");
@@ -4931,8 +4931,8 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output())
         .await
-        .map_err(|_| "измерение превысило 180с — модель не ответила".to_string())?
-        .map_err(|e| format!("claude не запустился: {e}"))?;
+        .map_err(|_| tr("err.measure_timeout", cur_lang()).to_string())?
+        .map_err(|e| trv("err.claude_failed", cur_lang(), &[("e", &e)]))?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     // claude may print startup/log lines before the single JSON result (esp. with MCP servers),
     // so extract the outermost {...} rather than assuming the whole output is JSON.
@@ -4942,15 +4942,12 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
         _ => raw,
     };
     let v = parse_json_bom(json_str).map_err(|_| {
-        format!(
-            "не удалось разобрать ответ claude: {}",
-            raw.chars().take(200).collect::<String>()
-        )
+        trv("err.parse_claude", cur_lang(), &[("e", &raw.chars().take(200).collect::<String>())])
     })?;
     v.get("usage")
         .and_then(|u| u.get("input_tokens"))
         .and_then(|t| t.as_i64())
-        .ok_or_else(|| "в ответе нет usage.input_tokens".to_string())
+        .ok_or_else(|| tr("err.no_usage_tokens", cur_lang()).to_string())
 }
 
 /// Launch a profile: open a console with CLAUDE_CONFIG_DIR set and `claude` running under it.
@@ -4960,10 +4957,10 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
 #[tauri::command]
 fn launch_profile(name: String, mode: String) -> Result<(), String> {
     if !PROFILE_NAMES.contains(&name.as_str()) && !valid_profile_name(&name) {
-        return Err(format!("недопустимый профиль: {name}"));
+        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &name)]));
     }
     if mode != "terminal" {
-        return Err(format!("неподдерживаемый режим запуска: {mode}"));
+        return Err(trv("err.unsupported_launch_mode", cur_lang(), &[("mode", &mode)]));
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let dir = format!("{home}\\.claude-{name}");
@@ -4988,7 +4985,7 @@ fn launch_profile(name: String, mode: String) -> Result<(), String> {
     }
     cmd.creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("не удалось открыть терминал: {e}"))?;
+        .map_err(|e| trv("err.open_terminal", cur_lang(), &[("e", &e)]))?;
     Ok(())
 }
 
@@ -4996,7 +4993,7 @@ fn launch_profile(name: String, mode: String) -> Result<(), String> {
 #[tauri::command]
 fn open_terminal(path: String) -> Result<(), String> {
     if !std::path::Path::new(&path).is_dir() {
-        return Err(format!("каталог не найден: {path}"));
+        return Err(trv("err.dir_not_found", cur_lang(), &[("path", &path)]));
     }
     // Open the new console directly in `path` via current_dir, rather than inlining the path
     // into a `cmd /k cd /d {path}` string (which an attacker-named dir with cmd metacharacters
@@ -5010,7 +5007,7 @@ fn open_terminal(path: String) -> Result<(), String> {
         .current_dir(&path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("не удалось открыть терминал: {e}"))?;
+        .map_err(|e| trv("err.open_terminal", cur_lang(), &[("e", &e)]))?;
     Ok(())
 }
 
@@ -5021,7 +5018,7 @@ fn open_path(path: String) -> Result<(), String> {
         .arg(&path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("не удалось открыть {path}: {e}"))?;
+        .map_err(|e| trv("err.open_path", cur_lang(), &[("path", &path), ("e", &e)]))?;
     Ok(())
 }
 
@@ -5101,7 +5098,7 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn open_profile_dir(name: String) -> Result<(), String> {
     if !valid_profile_name(&name) {
-        return Err("недопустимое имя профиля".into());
+        return Err(tr("err.invalid_profile_name_plain", cur_lang()).into());
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let path = format!("{home}\\.claude-{name}");
@@ -5109,7 +5106,7 @@ fn open_profile_dir(name: String) -> Result<(), String> {
         .arg(&path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("не удалось открыть {path}: {e}"))?;
+        .map_err(|e| trv("err.open_path", cur_lang(), &[("path", &path), ("e", &e)]))?;
     Ok(())
 }
 
@@ -5125,7 +5122,7 @@ fn cancel_run(state: State<'_, RunState>) -> Result<(), String> {
                 .output();
             Ok(())
         }
-        _ => Err("Нет активного прогона".into()),
+        _ => Err(tr("err.no_active_run", cur_lang()).into()),
     }
 }
 
@@ -5219,7 +5216,7 @@ fn update_tray_tooltip(app: &AppHandle) {
 fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
     use std::str::FromStr;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-    let sc = Shortcut::from_str(accel).map_err(|e| format!("неверная комбинация: {e}"))?;
+    let sc = Shortcut::from_str(accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
     gs.register(sc).map_err(|e| format!("{e}"))
@@ -5278,11 +5275,11 @@ fn session_spawn(
     use portable_pty::{CommandBuilder, PtySize};
     let tool = tool.unwrap_or_else(|| "claude".into());
     if !matches!(tool.as_str(), "claude" | "opencode" | "shell") {
-        return Err(format!("неизвестный инструмент: {tool}"));
+        return Err(trv("err.unknown_tool", cur_lang(), &[("tool", &tool)]));
     }
     // The profile only matters for claude (it picks CLAUDE_CONFIG_DIR = ~/.claude-<name>).
     if tool == "claude" && !valid_profile_name(&profile) {
-        return Err(format!("недопустимый профиль: {profile}"));
+        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &profile)]));
     }
     let size = PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 };
     let pair = portable_pty::native_pty_system()
@@ -5356,7 +5353,7 @@ fn session_spawn(
 fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Result<(), String> {
     use std::io::Write;
     let mut map = state.0.lock().unwrap();
-    let s = map.get_mut(&id).ok_or("сессия не найдена")?;
+    let s = map.get_mut(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
     s.writer.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
     s.writer.flush().map_err(|e| format!("flush: {e}"))
 }
@@ -5366,7 +5363,7 @@ fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Re
 fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     use portable_pty::PtySize;
     let map = state.0.lock().unwrap();
-    let s = map.get(&id).ok_or("сессия не найдена")?;
+    let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
     s.master
         .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
         .map_err(|e| format!("resize: {e}"))
