@@ -19,6 +19,25 @@ npm test               # vitest (i18n parity, outcome, attention)
 npm run check:i18n     # ru/en/zh leaf-key parity (needs tsx, a devDependency)
 ```
 
+### Local CI (run all gates at once)
+
+`verify.ps1` runs every gate in order (i18n parity → svelte-check → vitest → frontend
+build → cargo check → cargo test) and stops at the first failure. It's the single source
+of truth for the gate list.
+
+```bash
+npm run verify         # or: powershell -ExecutionPolicy Bypass -File verify.ps1
+```
+
+A committed **pre-push hook** (`.githooks/pre-push`) runs `verify.ps1` and blocks a push if
+anything is red. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Bypass a single push with `git push --no-verify`.
+
 ## Release build
 
 ```powershell

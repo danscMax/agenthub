@@ -1,0 +1,6 @@
+#!/bin/sh
+# Local CI gate: block the push if any green-gate fails. Enable once with:
+#   git config core.hooksPath .githooks
+# Bypass a single push with: git push --no-verify
+root=$(git rev-parse --show-toplevel)
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root/verify.ps1"
