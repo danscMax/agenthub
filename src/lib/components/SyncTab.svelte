@@ -2,6 +2,7 @@
   import { openPath, type SyncStatus, type SyncItem, type ConfigDriftStatus, type ConfigDriftAction } from '$lib/ipc';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
+  import { relTime } from '$lib/relativeTime';
 
   let {
     data,
@@ -24,18 +25,6 @@
   } = $props();
 
   const busy = $derived(!!running);
-
-  // ISO timestamp (PowerShell Get-Date -Format 'o') -> "N min ago" style label.
-  function fmtAgo(ms?: string) {
-    if (!ms) return '';
-    const then = Date.parse(ms);
-    if (isNaN(then)) return '';
-    const ago = Math.round((Date.now() - then) / 1000);
-    if (ago < 60) return t('common.justNow');
-    if (ago < 3600) return t('common.minutesAgo', { n: Math.floor(ago / 60) });
-    if (ago < 86400) return t('common.hoursAgo', { n: Math.floor(ago / 3600) });
-    return t('common.daysAgo', { n: Math.floor(ago / 86400) });
-  }
 
   // Static descriptors; user-facing label/desc are resolved reactively via t() in markup.
   const ITEMS: { key: SyncItem; labelKey: string; path: string; descKey: string }[] = [
@@ -163,7 +152,7 @@
           {:else}
             <span class="badge badge-ok">{t('sync.configOk')}</span>
           {/if}
-          {#if driftData.generatedAt}<span class="text-sw-xs text-sw-text-muted">{t('sync.checkedAt', { time: fmtAgo(driftData.generatedAt) })}</span>{/if}
+          {#if driftData.generatedAt}<span class="text-sw-xs text-sw-text-muted">{t('sync.checkedAt', { time: relTime(driftData.generatedAt) })}</span>{/if}
         </div>
         <p class="text-sw-sm text-sw-text-secondary mb-sw-3">{t('sync.configDriftDesc')}</p>
         <div class="flex flex-wrap gap-sw-2">

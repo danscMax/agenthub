@@ -13,6 +13,7 @@
   import { pProfile, t } from '$lib/i18n';
   import { readProfileFile } from '$lib/ipc';
   import { copyText } from '$lib/clipboard';
+  import { relTime } from '$lib/relativeTime';
   import ProfileEditDialog from './ProfileEditDialog.svelte';
   import LaunchConfigDialog from './LaunchConfigDialog.svelte';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
@@ -64,19 +65,6 @@
   const profiles = $derived(data?.profiles ?? []);
   const conflicts = $derived(data?.syncConflicts);
   const isAdmin = $derived(data?.isAdmin ?? false);
-
-  // USE-7: ISO timestamp (Get-ProfilesStatus generatedAt) -> "checked N ago" label so a stale
-  // snapshot is obvious rather than read as live.
-  function fmtAgo(ms?: string) {
-    if (!ms) return '';
-    const then = Date.parse(ms);
-    if (isNaN(then)) return '';
-    const ago = Math.round((Date.now() - then) / 1000);
-    if (ago < 60) return t('common.justNow');
-    if (ago < 3600) return t('common.minutesAgo', { n: Math.floor(ago / 60) });
-    if (ago < 86400) return t('common.hoursAgo', { n: Math.floor(ago / 3600) });
-    return t('common.daysAgo', { n: Math.floor(ago / 86400) });
-  }
 
   // Folder symlinks need admin. When elevated, repair inline (streamed); otherwise offer the
   // elevate dialog (one-off UAC repair or relaunch the whole app as admin).
@@ -347,7 +335,7 @@
     <div>
       <h1 class="text-lg font-semibold">{t('profiles.title')}</h1>
       <p class="text-sw-sm text-sw-text-secondary">{t('profiles.health', { n: profiles.length, profiles: pProfile(profiles.length) })}</p>
-      {#if data?.generatedAt}<p class="text-sw-xs text-sw-text-muted mt-0.5">{t('profiles.checkedAt', { time: fmtAgo(data.generatedAt) })}</p>{/if}
+      {#if data?.generatedAt}<p class="text-sw-xs text-sw-text-muted mt-0.5">{t('profiles.checkedAt', { time: relTime(data.generatedAt) })}</p>{/if}
     </div>
     <div class="flex shrink-0 gap-sw-2">
       <button class="sw-btn sw-btn-ghost" disabled={busy} onclick={() => onAction('check')}

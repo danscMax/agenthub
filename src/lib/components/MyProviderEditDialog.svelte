@@ -4,6 +4,7 @@
   import DropdownMenu from './DropdownMenu.svelte';
   import ModalShell from './ModalShell.svelte';
   import SecretInput from './SecretInput.svelte';
+  import { isValidHttpUrl } from '$lib/url';
 
   let {
     open,
@@ -48,18 +49,10 @@
     }
   });
 
-  function isValidUrl(s: string): boolean {
-    try {
-      const u = new URL(s);
-      return u.protocol === 'http:' || u.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  }
   const directOpenaiBlocked = $derived(connectVia === 'direct' && protocol === 'openai');
   const needsProfile = $derived(connectVia === 'direct');
   const canSubmit = $derived(
-    !!name.trim() && isValidUrl(baseUrl.trim()) && (!needsProfile || !!targetProfile)
+    !!name.trim() && isValidHttpUrl(baseUrl.trim()) && (!needsProfile || !!targetProfile)
   );
   const viaLabel = $derived(
     connectVia === 'freellmapi' ? t('myProviders.viaFreellmapi') : t('myProviders.viaDirect')
@@ -96,7 +89,7 @@
       <label class="fld">
         <span>{t('myProviders.baseUrl')}</span>
         <input class="sw-input" bind:value={baseUrl} placeholder="https://api.deepseek.com/v1" spellcheck="false" autocomplete="off" />
-        {#if baseUrl.trim() && !isValidUrl(baseUrl.trim())}
+        {#if baseUrl.trim() && !isValidHttpUrl(baseUrl.trim())}
           <span class="warn">{t('myProviders.errInvalidUrl')}</span>
         {/if}
       </label>

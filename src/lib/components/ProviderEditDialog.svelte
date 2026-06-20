@@ -6,6 +6,7 @@
   import Select from './Select.svelte';
   import ModalShell from './ModalShell.svelte';
   import SecretInput from './SecretInput.svelte';
+  import { isValidHttpUrl } from '$lib/url';
 
   let {
     open,
@@ -66,17 +67,8 @@
       .map((e) => ({ value: e.baseUrl, label: `${e.name} (${e.baseUrl})` })),
     ...(isCustomUrl ? [{ value: baseUrl, label: t('providers.presetCustom', { url: baseUrl }) }] : [])
   ]);
-  // Soft URL check (same pattern as ProfilesTab's host parsing): block obviously malformed
-  // baseUrls from reaching the backend, not just empty ones.
-  function isValidUrl(s: string): boolean {
-    try {
-      new URL(s);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  const canSubmit = $derived(isValidUrl(baseUrl.trim()));
+  // Block obviously malformed baseUrls from reaching the backend (shared strict http(s) check).
+  const canSubmit = $derived(isValidHttpUrl(baseUrl.trim()));
 
   let models = $state<string[]>([]);
   let loadingModels = $state(false);
