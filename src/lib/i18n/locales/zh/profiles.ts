@@ -122,7 +122,6 @@ export default {
   menuDeleteTip: '删除配置及目录 ~/.claude-{name}',
 
   // ProfileEditDialog
-  dlgClose: '关闭',
   dlgAddTitle: '添加配置',
   dlgRenameTitle: '重命名「{name}」',
   dlgRecolorTitle: '配置「{name}」的颜色',
@@ -144,7 +143,6 @@ export default {
   dlgApply: '应用',
 
   // LaunchConfigDialog
-  lcClose: '关闭',
   lcTitle: '工具与大小 · 配置「{name}」',
   lcLeanToggle: '精简模式',
   lcLeanHeading: '精简模式（更少上下文）',

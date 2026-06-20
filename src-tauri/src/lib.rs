@@ -201,16 +201,25 @@ fn parse_json_bom(content: &str) -> Result<serde_json::Value, serde_json::Error>
     serde_json::from_str(content.trim_start_matches('\u{feff}'))
 }
 
+/// Read+parse a JSON file, NotFound -> Ok(None). The single home for the
+/// "read_to_string -> parse_json_bom -> None on missing" envelope (was copy-pasted 5×).
+fn read_json_opt(
+    path: impl AsRef<std::path::Path>,
+    label: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    match std::fs::read_to_string(path.as_ref()) {
+        Ok(c) => parse_json_bom(&c)
+            .map(Some)
+            .map_err(|e| format!("parse {label}: {e}")),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("read {label}: {e}")),
+    }
+}
+
 /// Read and parse a *.last.json status file. Returns null if it doesn't exist yet.
 #[tauri::command]
 fn read_status(path: String) -> Result<Option<serde_json::Value>, String> {
-    match std::fs::read_to_string(&path) {
-        Ok(content) => parse_json_bom(&content)
-            .map(Some)
-            .map_err(|e| format!("parse {path}: {e}")),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("read {path}: {e}")),
-    }
+    read_json_opt(&path, &path)
 }
 
 // Tracks the PID of the currently-running child (Some(0) = reserved/starting).
@@ -705,13 +714,7 @@ const CONFIG_DRIFT_JSON_REL: &str = "!Настройки и MCP\\ClaudeProfiles\
 /// Read the cached profiles health snapshot (profiles.last.json). Null until first check.
 #[tauri::command]
 fn read_profiles() -> Result<Option<serde_json::Value>, String> {
-    match std::fs::read_to_string(abs(PROFILES_JSON_REL)) {
-        Ok(content) => parse_json_bom(&content)
-            .map(Some)
-            .map_err(|e| format!("parse profiles.last.json: {e}")),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("read profiles.last.json: {e}")),
-    }
+    read_json_opt(abs(PROFILES_JSON_REL), "profiles.last.json")
 }
 
 /// Run a Profiles-tab action: refresh status, clean sync-conflict files, reinstall all profiles,
@@ -744,13 +747,7 @@ async fn run_profiles(
 /// Null until the first integrity check has run. Shape: {generatedAt, drifted, unlinked, ok, items}.
 #[tauri::command]
 fn read_config_drift() -> Result<Option<serde_json::Value>, String> {
-    match std::fs::read_to_string(abs(CONFIG_DRIFT_JSON_REL)) {
-        Ok(content) => parse_json_bom(&content)
-            .map(Some)
-            .map_err(|e| format!("parse links.last.json: {e}")),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("read links.last.json: {e}")),
-    }
+    read_json_opt(abs(CONFIG_DRIFT_JSON_REL), "links.last.json")
 }
 
 /// Run a config-drift action: `check` (refresh links.last.json), `relink` (re-establish the shared
@@ -780,13 +777,7 @@ const PROFILE_MGMT_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfile
 /// and each profile's linkedFolders. Null until the file exists.
 #[tauri::command]
 fn read_profiles_config() -> Result<Option<serde_json::Value>, String> {
-    match std::fs::read_to_string(abs(PROFILES_CONFIG_REL)) {
-        Ok(content) => parse_json_bom(&content)
-            .map(Some)
-            .map_err(|e| format!("parse profiles.json: {e}")),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("read profiles.json: {e}")),
-    }
+    read_json_opt(abs(PROFILES_CONFIG_REL), "profiles.json")
 }
 
 /// Profile name validation: `[A-Za-z0-9][A-Za-z0-9_-]{0,31}` — keeps the shell call safe
@@ -3989,11 +3980,7 @@ async fn read_schedules() -> Result<Option<serde_json::Value>, String> {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .await;
-    match std::fs::read_to_string(abs(SCHEDULES_JSON_REL)) {
-        Ok(c) => parse_json_bom(&c).map(Some).map_err(|e| format!("parse schedules: {e}")),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("read schedules: {e}")),
-    }
+    read_json_opt(abs(SCHEDULES_JSON_REL), "schedules")
 }
 
 /// Known schedule actions (whitelist mirrors the ScheduleTab UI + Schedule-Hub.ps1).
@@ -4666,7 +4653,9 @@ fn export_config(dest: String) -> Result<(), String> {
 #[tauri::command]
 fn import_config(src: String) -> Result<HubConfig, String> {
     let text = std::fs::read_to_string(&src).map_err(|e| format!("чтение: {e}"))?;
-    serde_json::from_str::<HubConfig>(&text).map_err(|e| format!("неверный файл настроек: {e}"))
+    // BOM-tolerant like every other file read (PowerShell-written configs often carry one).
+    serde_json::from_str::<HubConfig>(text.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("неверный файл настроек: {e}"))
 }
 
 /// A profile's settings.json `env` block as (key, value) pairs. Claude Code (2.1+) applies its
@@ -4990,6 +4979,7 @@ fn open_terminal(path: String) -> Result<(), String> {
 fn open_path(path: String) -> Result<(), String> {
     std::process::Command::new("explorer")
         .arg(&path)
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("не удалось открыть {path}: {e}"))?;
     Ok(())
@@ -5070,13 +5060,14 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
 /// Open a profile's config dir (%USERPROFILE%\.claude-<name>) in Explorer.
 #[tauri::command]
 fn open_profile_dir(name: String) -> Result<(), String> {
-    if !name.chars().all(|c| c.is_ascii_alphanumeric()) {
+    if !valid_profile_name(&name) {
         return Err("недопустимое имя профиля".into());
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let path = format!("{home}\\.claude-{name}");
     std::process::Command::new("explorer")
         .arg(&path)
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("не удалось открыть {path}: {e}"))?;
     Ok(())
@@ -5549,6 +5540,18 @@ mod tests {
         assert_eq!(v["a"], 1);
         assert_eq!(parse_json_bom("{\"b\":2}").unwrap()["b"], 2);
         assert!(parse_json_bom("{not json").is_err());
+    }
+
+    #[test]
+    fn read_json_opt_missing_is_none() {
+        // The shared reader envelope: a missing file is Ok(None), not Err.
+        let p = std::env::temp_dir().join(format!("castellyn_nope_{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(read_json_opt(&p, "nope").unwrap(), None);
+        // A present file (with BOM) parses through.
+        std::fs::write(&p, "\u{feff}{\"k\":7}").unwrap();
+        assert_eq!(read_json_opt(&p, "nope").unwrap().unwrap()["k"], 7);
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

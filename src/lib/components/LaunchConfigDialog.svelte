@@ -2,6 +2,7 @@
   import type { ProfileLaunch } from '$lib/ipc';
   import { t, locale } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     open,
@@ -81,12 +82,8 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => open && e.key === 'Escape' && onCancel()} />
-
-{#if open && profile}
-  <div class="overlay">
-    <button type="button" class="backdrop" aria-label={t('profiles.lcClose')} onclick={onCancel}></button>
-    <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
+<ModalShell open={open && !!profile} onClose={onCancel} size="md">
+  {#if profile}
       <h3>{t('profiles.lcTitle', { name: profile.name })}</h3>
 
       <div class="chk mb-sw-3">
@@ -162,37 +159,10 @@
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('profiles.lcCancelTip')}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!!measuring} onclick={apply} title={t('profiles.lcApplyTip')}>{t('common.apply')}</button>
       </div>
-    </div>
-  </div>
-{/if}
+  {/if}
+</ModalShell>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
-    cursor: default;
-  }
-  .dialog {
-    position: relative;
-    width: min(520px, 94vw);
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-lg);
-    padding: var(--sw-space-6);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
-  }
   h3 {
     margin: 0 0 var(--sw-space-4);
     font-size: 1rem;

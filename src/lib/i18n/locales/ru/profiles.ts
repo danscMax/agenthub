@@ -129,7 +129,6 @@ export default {
   menuDeleteTip: 'Удалить профиль и каталог ~/.claude-{name}',
 
   // ProfileEditDialog
-  dlgClose: 'Закрыть',
   dlgAddTitle: 'Добавить профиль',
   dlgRenameTitle: 'Переименовать «{name}»',
   dlgRecolorTitle: 'Цвет профиля «{name}»',
@@ -151,7 +150,6 @@ export default {
   dlgApply: 'Применить',
 
   // LaunchConfigDialog
-  lcClose: 'Закрыть',
   lcTitle: 'Инструменты и размер · профиль «{name}»',
   lcLeanToggle: 'Лёгкий режим',
   lcLeanHeading: 'Лёгкий режим (меньше контекста)',

@@ -127,7 +127,6 @@ export default {
   menuDeleteTip: 'Delete the profile and the ~/.claude-{name} directory',
 
   // ProfileEditDialog
-  dlgClose: 'Close',
   dlgAddTitle: 'Add profile',
   dlgRenameTitle: 'Rename “{name}”',
   dlgRecolorTitle: 'Color of “{name}”',
@@ -149,7 +148,6 @@ export default {
   dlgApply: 'Apply',
 
   // LaunchConfigDialog
-  lcClose: 'Close',
   lcTitle: 'Tools and size · profile “{name}”',
   lcLeanToggle: 'Lean mode',
   lcLeanHeading: 'Lean mode (less context)',
