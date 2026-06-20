@@ -851,6 +851,13 @@ async fn repair_profile_elevated(
     state: State<'_, RunState>,
     name: String,
 ) -> Result<i32, String> {
+    // Charset-validate FIRST: `name` gets interpolated into an *elevated* PowerShell string
+    // below, and profile_names() reads names verbatim from profiles.json (no charset check),
+    // so a single quote there would be admin-level command injection. valid_profile_name()
+    // (mirrors run_profile_mgmt) makes the "name is validated" guarantee real, not assumed.
+    if !valid_profile_name(&name) {
+        return Err(format!("недопустимое имя профиля: {name}"));
+    }
     if !profile_names().iter().any(|x| x == &name) {
         return Err(format!("неизвестный профиль: {name}"));
     }
