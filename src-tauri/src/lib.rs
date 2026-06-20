@@ -24,7 +24,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 // the PowerShell tooling never desync.
 const MANIFEST_FALLBACK: &str = include_str!("../../manifest/maintenance-manifest.json");
 
-/// Persistent hub settings (%APPDATA%\agenthub\config.json).
+/// Persistent hub settings (%APPDATA%\castellyn\config.json).
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct HubConfig {
     #[serde(rename = "scriptsRoot", default, skip_serializing_if = "Option::is_none")]
@@ -46,11 +46,18 @@ struct HubConfig {
 fn config_path() -> Option<String> {
     std::env::var("APPDATA")
         .ok()
+        .map(|a| format!("{a}\\castellyn\\config.json"))
+}
+
+/// Pre-Castellyn config location (the `agenthub` rename tier). Read as a fallback so a user's
+/// saved scriptsRoot/timeouts survive the rename; the first write_config migrates it forward.
+fn agenthub_config_path() -> Option<String> {
+    std::env::var("APPDATA")
+        .ok()
         .map(|a| format!("{a}\\agenthub\\config.json"))
 }
 
-/// Legacy config location from before the AgentHub rename; read as a fallback so a
-/// user's saved scriptsRoot/timeouts survive the rename. Writes always go to config_path().
+/// Oldest legacy config location (pre-AgentHub `claude-maintenance-hub`). Read-only fallback.
 fn legacy_config_path() -> Option<String> {
     std::env::var("APPDATA")
         .ok()
@@ -65,6 +72,7 @@ fn read_config_at(path: Option<String>) -> Option<HubConfig> {
 
 fn read_config_file() -> HubConfig {
     read_config_at(config_path())
+        .or_else(|| read_config_at(agenthub_config_path()))
         .or_else(|| read_config_at(legacy_config_path()))
         .unwrap_or_default()
 }
@@ -1605,7 +1613,7 @@ fn http_health_ok(port: u16, path: &str) -> bool {
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(400)));
     let p = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
     let req = format!(
-        "GET {p} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: AgentHub\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+        "GET {p} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: Castellyn\r\nAccept: */*\r\nConnection: close\r\n\r\n"
     );
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
@@ -2569,11 +2577,26 @@ async fn run_provider(
 const MYPROVIDERS_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\myproviders.json";
 /// Credential Manager service names. One entry per provider key (`provider:<id>`) + a single
 /// freellmapi dashboard-session token (`dashboard`) used by the "connect via freellmapi" path.
-const KR_PROVIDERS: &str = "agenthub.providers";
-const KR_FREELLMAPI: &str = "agenthub.freellmapi";
+const KR_PROVIDERS: &str = "castellyn.providers";
+const KR_FREELLMAPI: &str = "castellyn.freellmapi";
+
+/// Pre-Castellyn keyring service for a current one: `castellyn.X` → `agenthub.X`. Used only for
+/// one-time lazy migration of secrets stored under the old brand. None for non-castellyn services.
+fn legacy_kr_service(service: &str) -> Option<String> {
+    service.strip_prefix("castellyn.").map(|s| format!("agenthub.{s}"))
+}
 
 fn kr_get(service: &str, user: &str) -> Option<String> {
-    keyring::Entry::new(service, user).ok()?.get_password().ok()
+    if let Some(v) = keyring::Entry::new(service, user).ok().and_then(|e| e.get_password().ok()) {
+        return Some(v);
+    }
+    // Lazy migration: a secret stored under the old `agenthub.*` service is re-homed under the new
+    // name and returned, so the rename never loses stored API keys / dashboard tokens. No recursion
+    // (kr_set hits keyring::Entry directly).
+    let old = legacy_kr_service(service)?;
+    let v = keyring::Entry::new(&old, user).ok()?.get_password().ok()?;
+    let _ = kr_set(service, user, &v);
+    Some(v)
 }
 fn kr_set(service: &str, user: &str, secret: &str) -> Result<(), String> {
     keyring::Entry::new(service, user)
@@ -2584,6 +2607,12 @@ fn kr_set(service: &str, user: &str, secret: &str) -> Result<(), String> {
 fn kr_delete(service: &str, user: &str) {
     if let Ok(e) = keyring::Entry::new(service, user) {
         let _ = e.delete_credential();
+    }
+    // Also clear any pre-rename copy so deleting a key never leaves an orphaned `agenthub.*` secret.
+    if let Some(old) = legacy_kr_service(service) {
+        if let Ok(e) = keyring::Entry::new(&old, user) {
+            let _ = e.delete_credential();
+        }
     }
 }
 
@@ -2935,7 +2964,7 @@ fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
 }
 
 /// Persist freellmapi dashboard credentials in the Credential Manager: email+password (preferred —
-/// AgentHub logs in programmatically via /api/auth/login) and/or a pasted session token (fallback).
+/// Castellyn logs in programmatically via /api/auth/login) and/or a pasted session token (fallback).
 /// Empty/None fields are left untouched. Secrets never touch JSON.
 #[tauri::command]
 fn set_freellmapi_auth(
@@ -4624,7 +4653,7 @@ fn app_paths() -> serde_json::Value {
     })
 }
 
-/// Export the current AgentHub config to a user-chosen path (#117). Serializes HubConfig so the
+/// Export the current Castellyn config to a user-chosen path (#117). Serializes HubConfig so the
 /// file is always valid even if config.json was never written.
 #[tauri::command]
 fn export_config(dest: String) -> Result<(), String> {
@@ -4967,7 +4996,34 @@ fn open_path(path: String) -> Result<(), String> {
 }
 
 const AUTOSTART_KEY: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-const AUTOSTART_NAME: &str = "AgentHub";
+const AUTOSTART_NAME: &str = "Castellyn";
+const LEGACY_AUTOSTART_NAME: &str = "AgentHub";
+
+/// One-time migration of the autostart Run entry from the old `AgentHub` value to `Castellyn`.
+/// If autostart was on, re-point it at the current exe under the new name and drop the old value;
+/// otherwise do nothing. Idempotent — a no-op once the old value is gone.
+fn migrate_autostart() {
+    let had_old = std::process::Command::new("reg")
+        .args(["query", AUTOSTART_KEY, "/v", LEGACY_AUTOSTART_NAME])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !had_old {
+        return;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let exe = exe.display().to_string();
+        let _ = std::process::Command::new("reg")
+            .args(["add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", &exe, "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+    let _ = std::process::Command::new("reg")
+        .args(["delete", AUTOSTART_KEY, "/v", LEGACY_AUTOSTART_NAME, "/f"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+}
 
 /// Is the app registered to start with Windows (HKCU Run key)?
 #[tauri::command]
@@ -5403,6 +5459,8 @@ pub fn run() {
         ])
         .setup(|app| {
             build_tray(app.handle())?;
+            // One-time brand-rename migration of the autostart Run entry (AgentHub → Castellyn).
+            migrate_autostart();
             let cfg = read_config_file();
             // Start minimized to tray if configured.
             if cfg.start_hidden {

@@ -95,7 +95,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$exe = Join-Path $root 'src-tauri\target\release\agenthub.exe'
+$exe = Join-Path $root 'src-tauri\target\release\castellyn.exe'
 if (-not (Test-Path -LiteralPath $exe)) {
     Write-Host "  [FAIL] exe не найден: $exe" -ForegroundColor Red
     exit 1

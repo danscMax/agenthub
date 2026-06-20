@@ -3,11 +3,17 @@
 Project-specific guidance for Claude Code working in this repository. Supplements the
 user's global `~/.claude/CLAUDE.md` (security, PowerShell-Cyrillic, DRY, workflow rules).
 
-> Display brand **Castellyn** (renamed from AgentHub 2026-06-18). Folder renamed too:
-> `E:\Scripts\Castellyn` (code/manifest path-literals now resolve `<SCRIPTS_ROOT>\Castellyn\tools\…`).
-> These internal identifiers are deliberately KEPT on the old `agenthub` name to preserve user
-> data: npm/crate name `agenthub` (registries require lowercase) + binary `agenthub.exe`, Tauri
-> identifier `com.danscmax.agenthub`, config dir `%APPDATA%\agenthub`, keyring keys `agenthub.*`.
+> Display brand **Castellyn** (renamed from AgentHub 2026-06-18). Folder: `E:\Scripts\Castellyn`
+> (code/manifest path-literals resolve `<SCRIPTS_ROOT>\Castellyn\tools\…`).
+> Internal identifiers were renamed `agenthub` → `castellyn` 2026-06-20: npm/crate name `castellyn`,
+> binary `castellyn.exe`, Tauri id `com.danscmax.castellyn`, config dir `%APPDATA%\castellyn`,
+> keyring keys `castellyn.*`, autostart Run value `Castellyn`. The old `agenthub`/`AgentHub` names are
+> still **read as a migration fallback** so existing user data survives — do NOT remove these:
+> config-path chain (`config_path` → `agenthub_config_path` → `legacy_config_path`), lazy keyring
+> re-home in `kr_get`/`kr_delete` (`legacy_kr_service`), one-time `migrate_autostart` in `setup()`.
+> Sentinels deliberately KEPT on the old name (internal, not brand-visible; must stay in sync with PS
+> / tests): `agenthub-local` dummy auth token (matches `Manage-Provider.ps1`), `agenthub:<name>`
+> freellmapi label, `agenthub-pty-probe` test string.
 
 ## What this is
 
@@ -31,9 +37,9 @@ output; the Svelte UI renders their `*.last.json` status envelopes.
     `port_listening`, plugin/skill scans.
   - **All process spawns set `CREATE_NO_WINDOW`** (0x08000000) — otherwise a black console
     flashes. Keep this on every new `Command`.
-  - Config: `HubConfig` in `%APPDATA%\agenthub\config.json` (`config_path()`), with a
+  - Config: `HubConfig` in `%APPDATA%\castellyn\config.json` (`config_path()`), with a
     legacy-path read fallback (`legacy_config_path`) kept for the pre-rename location.
-  - Autostart: HKCU\…\Run value `AgentHub` (`AUTOSTART_NAME`).
+  - Autostart: HKCU\…\Run value `Castellyn` (`AUTOSTART_NAME`); migrated once from `AgentHub`.
   - Tray menu strings are **hardcoded Russian** and NOT internationalized (separate surface).
 - **Frontend** (`src/`):
   - `routes/+page.svelte` — the orchestrator: tab state, all `run_*`/`read_*` calls,
@@ -84,7 +90,7 @@ npm run check          # svelte-check (type + i18n shape gate) — keep 0/0
 npm test               # vitest (i18n parity, outcome, attention)
 npm run check:i18n     # ru/en/zh leaf-key parity (tsx)
 npm run build          # frontend → build/
-.\build_all.ps1        # release exe (agenthub.exe) + desktop shortcut (Castellyn.lnk)
+.\build_all.ps1        # release exe (castellyn.exe) + desktop shortcut (Castellyn.lnk)
 ```
 
 Green gates before declaring done: `npm run check` (0/0), `npm test`, `npm run build`, and a

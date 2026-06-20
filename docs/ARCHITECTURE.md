@@ -39,12 +39,12 @@ One file holds all commands. Key pieces:
 - **`CREATE_NO_WINDOW`** is set on every `Command` (pwsh/reg/taskkill/explorer) so no console
   window flashes. Required.
 - **Config** — `HubConfig { scriptsRoot, startHidden, fetchTimeoutSec, ghTimeoutSec }` at
-  `%APPDATA%\agenthub\config.json`. `read_config_file()` reads the current path and falls back
-  to `legacy_config_path()` (pre-rename location) so settings survive the rename. Writes always
-  go to the new path (`write_config` → `config_path()`).
+  `%APPDATA%\castellyn\config.json`. `read_config_file()` reads the current path and falls back
+  through `agenthub_config_path()` then `legacy_config_path()` (pre-rename locations) so settings
+  survive the renames. Writes always go to the new path (`write_config` → `config_path()`).
 - **`scripts_root()`** — `$SCRIPTS_ROOT` env → `config.scriptsRoot` → default `E:\Scripts`.
 - **Tray / window** — `build_tray` (Show / Check-all / Quit), close-to-tray, autostart via
-  HKCU\…\Run value `AgentHub`. Tray menu strings are hardcoded Russian (not i18n'd).
+  HKCU\…\Run value `Castellyn` (migrated once from the old `AgentHub` value). Tray menu strings are hardcoded Russian (not i18n'd).
 
 **Registered commands** — the canonical, authoritative list is the `tauri::generate_handler![…]`
 block at the bottom of `lib.rs` (~80 commands; frontend calls them via typed wrappers in
