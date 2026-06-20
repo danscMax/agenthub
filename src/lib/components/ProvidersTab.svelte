@@ -43,7 +43,7 @@
     stack?: StackService[] | null;
     running: string | null;
     onEngine: (action: 'start' | 'stop', id: string) => void;
-    onStack?: (action: 'start' | 'stop', only?: string) => void;
+    onStack?: (action: 'start' | 'stop' | 'restart', only?: string) => void;
     onProviderSet: (args: ProviderArgs) => void;
     onProviderClear: (name: string) => void;
     onRouterInstall: () => void;
@@ -326,6 +326,8 @@
               {#if s.running}
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('stop', s.id)}
                   title={t('providers.stackStopOneTip', { name: s.name })}>{t('providers.stop')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('restart', s.id)}
+                  title={t('providers.stackRestartOneTip', { name: s.name })}>{t('providers.restart')}</button>
               {:else}
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onStack?.('start', s.id)}
                   title={t('providers.stackStartOneTip', { name: s.name })}>{t('providers.start')}</button>

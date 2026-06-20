@@ -136,6 +136,7 @@ export default {
   stack_log: '▶ LLM 栈：{verb}…',
   stack_verb_start: '启动',
   stack_verb_stop: '停止',
+  stack_verb_restart: '重启',
   confirm_stack_stop_title: '停止整个栈？',
   confirm_stack_stop_msg: '将停止所有 LLM 栈服务（网关与后端）。已打开的仪表板将无法响应。',
   confirm_stack_stop_btn: '全部停止',

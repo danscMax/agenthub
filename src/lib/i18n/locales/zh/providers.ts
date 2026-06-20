@@ -40,6 +40,8 @@ export default {
   startRouterTitle: '启动路由器（ccr start）',
   startEngineTitle: '在单独窗口中启动引擎',
   start: '启动',
+  restart: '重启',
+  stackRestartOneTip: '重启「{name}」(先停止再启动)',
   manualStart: '手动启动',
   bindReadyTitle: '将此 Anthropic 原生引擎直接绑定到配置：选择模型和配置。',
   bindNotReadyTitle: '请先启动引擎（并加载模型），然后再绑定。',

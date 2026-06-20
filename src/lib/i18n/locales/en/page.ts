@@ -138,6 +138,7 @@ export default {
   stack_log: '▶ LLM stack: {verb}…',
   stack_verb_start: 'starting',
   stack_verb_stop: 'stopping',
+  stack_verb_restart: 'restarting',
   confirm_stack_stop_title: 'Stop the whole stack?',
   confirm_stack_stop_msg:
     'All LLM-stack services (gateway and backends) will be stopped. Open dashboards will stop responding.',

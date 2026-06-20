@@ -40,6 +40,8 @@ export default {
   startRouterTitle: 'Start the router (ccr start)',
   startEngineTitle: 'Start the engine in a separate window',
   start: 'Start',
+  restart: 'Restart',
+  stackRestartOneTip: 'Restart “{name}” (stop then start)',
   manualStart: 'manual start',
   bindReadyTitle:
     'Bind this Anthropic-native engine to a profile directly: pick a model and profile.',

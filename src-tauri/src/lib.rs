@@ -355,6 +355,44 @@ async fn spawn_streamed_prog(
     Ok(code)
 }
 
+/// Run one pwsh script under an ALREADY-reserved run slot, streaming to "run-log" and emitting
+/// `done_event` at the end. Pass an event the UI ignores (e.g. "run-restart-stop") to suppress a
+/// premature run-done — the two-phase stack restart uses this so only the final phase signals
+/// completion. Sets the live PID so cancel_run can kill whichever phase is running.
+async fn spawn_pwsh_phase(
+    app: &AppHandle,
+    state: &State<'_, RunState>,
+    id: &str,
+    script: String,
+    args: Vec<String>,
+    done_event: &'static str,
+) -> i32 {
+    let mut full = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script,
+    ];
+    full.extend(args);
+    let mut cmd = Command::new("pwsh");
+    for a in &full {
+        cmd.arg(a);
+    }
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.env("SCRIPTS_ROOT", scripts_root());
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(_) => return -1,
+    };
+    if let Some(pid) = child.id() {
+        *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+    }
+    pump_and_wait(app.clone(), id.to_string(), child, "run-log", done_event).await
+}
+
 /// The single shared streaming path: pump a child's stdout/stderr to `log_event`
 /// (component = `id`), wait for exit, then emit `done_event`. Used by both the single-slot
 /// runner (spawn_streamed_io) and the concurrent per-repo fork runner — only slot/registry
@@ -1442,6 +1480,32 @@ async fn run_stack(
             return Err(trv("err.invalid_service_id", cur_lang(), &[("id", &id)]));
         }
     }
+
+    // Restart = stop then start under ONE run slot, with a single run-done at the end. The stop
+    // phase emits an event the UI ignores so it doesn't read as a completed run mid-way.
+    if action == "restart" {
+        {
+            let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
+            if g.is_some() {
+                return Err(tr("err.run_in_progress", cur_lang()).into());
+            }
+            *g = Some(0);
+        }
+        let (stop_args, start_args) = match &only {
+            Some(id) => (
+                vec!["-Only".to_string(), id.clone()],
+                vec!["-Only".to_string(), id.clone()],
+            ),
+            None => (vec!["-All".to_string()], vec!["-Router".to_string()]),
+        };
+        // Start even if stop failed — the goal is a running service.
+        // ponytail: a cancel during the stop phase still proceeds to start; fine for a restart.
+        let _ = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_STOP_REL), stop_args, "run-restart-stop").await;
+        let code = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_START_REL), start_args, "run-done").await;
+        *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        return Ok(code);
+    }
+
     let (script, args) = match action.as_str() {
         "start" => {
             let script = abs(STACK_START_REL);

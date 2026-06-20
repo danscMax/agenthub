@@ -40,6 +40,8 @@ export default {
   startRouterTitle: 'Запустить роутер (ccr start)',
   startEngineTitle: 'Запустить движок в отдельном окне',
   start: 'Запустить',
+  restart: 'Перезапустить',
+  stackRestartOneTip: 'Перезапустить «{name}» (остановить и снова запустить)',
   manualStart: 'запуск вручную',
   bindReadyTitle:
     'Привязать этот Anthropic-нативный движок к профилю напрямую: выбрать модель и профиль.',

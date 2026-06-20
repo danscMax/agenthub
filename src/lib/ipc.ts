@@ -238,7 +238,7 @@ export type StackService = {
 };
 export const readStack = () => invoke<StackService[]>('read_stack');
 // `only` = a single service id → act on just that service (per-card start/stop); omit for whole stack.
-export const runStack = (action: 'start' | 'stop', only?: string) =>
+export const runStack = (action: 'start' | 'stop' | 'restart', only?: string) =>
   invoke<number>('run_stack', { action, only });
 
 // --- stack health (TCP port probe + real HTTP /health when configured in stack.json) ---

@@ -138,6 +138,7 @@ export default {
   stack_log: '▶ LLM-стек: {verb}…',
   stack_verb_start: 'запуск',
   stack_verb_stop: 'остановка',
+  stack_verb_restart: 'перезапуск',
   confirm_stack_stop_title: 'Остановить весь стек?',
   confirm_stack_stop_msg:
     'Будут остановлены все сервисы LLM-стека (шлюз и бэкенды). Открытые дашборды перестанут отвечать.',

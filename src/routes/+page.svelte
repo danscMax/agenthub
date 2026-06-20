@@ -712,15 +712,17 @@
   });
 
   // Start (-Router, incl. paid GLM) or stop (-All) the whole LLM stack via stack scripts.
-  function onStack(action: 'start' | 'stop', only?: string) {
+  function onStack(action: 'start' | 'stop' | 'restart', only?: string) {
     if (running) return;
+    const verb =
+      action === 'start'
+        ? t('page.stack_verb_start')
+        : action === 'restart'
+          ? t('page.stack_verb_restart')
+          : t('page.stack_verb_stop');
     const go = () => {
       running = 'engine';
-      log = [
-        t('page.stack_log', {
-          verb: action === 'start' ? t('page.stack_verb_start') : t('page.stack_verb_stop')
-        })
-      ];
+      log = [t('page.stack_log', { verb })];
       runStack(action, only).catch((e) => {
         log = [...log, t('page.log_error', { e })];
         running = null;
