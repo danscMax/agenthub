@@ -11,6 +11,7 @@
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
   import ProfileUsageBadge from './ProfileUsageBadge.svelte';
+  import { copyText } from '$lib/clipboard';
 
   let {
     profile,
@@ -123,13 +124,7 @@
 
   async function copySelection() {
     const sel = term?.getSelection();
-    if (sel) {
-      try {
-        await navigator.clipboard.writeText(sel);
-      } catch {
-        /* clipboard blocked */
-      }
-    }
+    if (sel) await copyText(sel);
   }
   async function paste() {
     try {

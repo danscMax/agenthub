@@ -3,6 +3,7 @@
   import { openTerminal } from '$lib/ipc';
   import { pConflict, pBranch, pCommit, outcomeLabel, t } from '$lib/i18n';
   import DropdownMenu from './DropdownMenu.svelte';
+  import { copyText } from '$lib/clipboard';
 
   let {
     repo,
@@ -73,17 +74,14 @@
     ].join('\n');
   }
 
-  async function copyText(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
+  async function flashCopy(text: string) {
+    if (await copyText(text)) {
       copied = true;
       setTimeout(() => (copied = false), 1500);
-    } catch {
-      copied = false;
     }
   }
-  const copyPrompt = () => copyText(aiPrompt());
-  const copyDirtyPrompt = () => copyText(dirtyPrompt());
+  const copyPrompt = () => flashCopy(aiPrompt());
+  const copyDirtyPrompt = () => flashCopy(dirtyPrompt());
   const isDirty = $derived(repo.dirty || repo.untracked);
   const hasMerged = $derived(branches.some((b) => b.outcome === 'merged'));
   const hasClean = $derived(branches.some((b) => b.outcome === 'clean'));

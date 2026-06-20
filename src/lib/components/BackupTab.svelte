@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import type { BackupList, BackupAction, RestoreOpts } from '$lib/ipc';
   import RestoreDialog from './RestoreDialog.svelte';
-  import { t, locale } from '$lib/i18n';
+  import { t } from '$lib/i18n';
+  import { formatAbsTime } from '$lib/relativeTime';
 
   let {
     data,
@@ -52,20 +53,9 @@
     return snapToReadable(name) ?? name;
   }
 
-  // Absolute timestamp formatter that tolerates BOTH ISO strings and snapshot-name format
-  // (lastWeekly/lastSnapshot use the latter). `new Date('2026-06-08_030000')` yields an
-  // Invalid Date WITHOUT throwing, so the old try/catch never caught it → "Invalid Date" leaked.
-  function fmtAbs(ts?: string | null) {
-    if (!ts) return '—';
-    const d = new Date(ts);
-    if (!Number.isNaN(d.getTime())) {
-      const fmtLocale =
-        locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
-      return d.toLocaleString(fmtLocale);
-    }
-    // Not a parseable Date — try the snapshot-name format; else show a dash, never "Invalid Date".
-    return snapToReadable(ts) ?? '—';
-  }
+  // Absolute timestamp — see formatAbsTime in $lib/relativeTime (guards the Invalid-Date leak).
+  // snapToReadable covers the snapshot-name format (e.g. lastWeekly) that isn't ISO-parseable.
+  const fmtAbs = (ts?: string | null) => formatAbsTime(ts, snapToReadable);
 
   const freshness = $derived.by(() => {
     if (!bstate?.lastRun) return { label: t('common.noData'), cls: 'badge-muted', rel: '' };

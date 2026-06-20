@@ -3,6 +3,7 @@
 // mapping logic stays deterministic given the current locale (unit-tested with a fixed locale).
 
 import { t } from '$lib/i18n';
+import { countOf } from '$lib/envelope';
 
 export type OutcomeKind = 'success' | 'warn' | 'error' | 'info';
 export type OutcomeAction = { kind: 'log' | 'tab'; label: string; target?: string };
@@ -20,15 +21,6 @@ export type DeriveInput = {
   mode: 'check' | 'apply';
   status: any;
 };
-
-// Read the unified status envelope (counts) with legacy fallbacks, mirroring ComponentCard.
-function countOf(s: any, key: 'changed' | 'failed'): number {
-  if (s?.counts && typeof s.counts[key] === 'number') return s.counts[key] as number;
-  const arr = s?.[key];
-  if (Array.isArray(arr)) return arr.length;
-  const num = s?.[`plugins_${key}`];
-  return typeof num === 'number' ? num : 0;
-}
 
 function durationText(s: any): string | undefined {
   if (typeof s?.durationSec === 'number') {

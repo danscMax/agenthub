@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ForkStatus, ForkAction, GithubRepo } from '$lib/ipc';
-  import { forkMode, t, locale, plural, pRepo, pConflict } from '$lib/i18n';
-  import { relTime } from '$lib/relativeTime';
+  import { forkMode, t, plural, pRepo, pConflict } from '$lib/i18n';
+  import { relTime, formatAbsTime } from '$lib/relativeTime';
   import ForkRepoCard from './ForkRepoCard.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
 
@@ -100,15 +100,7 @@
     )
   );
 
-  function fmtTime(ts?: string) {
-    if (!ts) return t('common.dash');
-    try {
-      const tag = locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
-      return new Date(ts).toLocaleString(tag);
-    } catch {
-      return ts;
-    }
-  }
+  const fmtTime = (ts?: string) => formatAbsTime(ts);
 
   const kpis = $derived.by(() => {
     const s = summary;

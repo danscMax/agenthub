@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { t } from '$lib/i18n';
   import { opName } from '$lib/running.svelte';
+  import { copyText } from '$lib/clipboard';
 
   let {
     log,
@@ -25,12 +26,9 @@
   let copied = $state(false);
 
   async function copyLog() {
-    try {
-      await navigator.clipboard.writeText(log.join('\n'));
+    if (await copyText(log.join('\n'))) {
       copied = true;
       setTimeout(() => (copied = false), 1500);
-    } catch {
-      copied = false;
     }
   }
 

@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Component } from '$lib/ipc';
   import { glossaryText } from '$lib/glossary';
-  import { t, locale, pUpdate, plural } from '$lib/i18n';
-  import { relTime } from '$lib/relativeTime';
+  import { t, pUpdate, plural } from '$lib/i18n';
+  import { relTime, formatAbsTime } from '$lib/relativeTime';
+  import { countOf } from '$lib/envelope';
 
   let {
     comp,
@@ -37,25 +38,9 @@
     };
   });
 
-  function fmtTime(ts?: string) {
-    if (!ts) return t('common.dash');
-    try {
-      const loc = locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
-      return new Date(ts).toLocaleString(loc);
-    } catch {
-      return ts;
-    }
-  }
+  const fmtTime = (ts?: string) => formatAbsTime(ts);
 
-  // Read the unified status envelope (schemaVersion/status/counts), falling back
-  // to the legacy plugins/forks field names for any not-yet-migrated writer.
-  function countOf(s: any, key: 'changed' | 'failed') {
-    if (s?.counts && typeof s.counts[key] === 'number') return s.counts[key] as number;
-    const legacyArr = s?.[key];
-    if (Array.isArray(legacyArr)) return legacyArr.length;
-    const legacyNum = s?.[`plugins_${key}`];
-    return typeof legacyNum === 'number' ? legacyNum : 0;
-  }
+  // countOf() now imported from $lib/envelope (shared with outcome.ts + UpdatesTab).
 
   // Coarse health from the unified envelope.
   let health = $derived.by(() => {

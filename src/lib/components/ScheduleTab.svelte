@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SchedulesStatus, ScheduleAction } from '$lib/ipc';
-  import { t, locale } from '$lib/i18n';
+  import { t } from '$lib/i18n';
+  import { formatAbsTime } from '$lib/relativeTime';
 
   let {
     data,
@@ -23,15 +24,7 @@
     for (const tk of tasks) if (times[tk.id] === undefined) times[tk.id] = tk.time ?? tk.defaultTime;
   });
 
-  function fmtNext(ts: string | null) {
-    if (!ts) return '—';
-    try {
-      const loc = locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
-      return new Date(ts).toLocaleString(loc);
-    } catch {
-      return ts;
-    }
-  }
+  const fmtNext = (ts: string | null) => formatAbsTime(ts);
 </script>
 
 <div class="p-sw-6">

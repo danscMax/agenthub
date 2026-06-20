@@ -2,6 +2,7 @@
   import type { Component } from '$lib/ipc';
   import ComponentCard from './ComponentCard.svelte';
   import { t } from '$lib/i18n';
+  import { countOf } from '$lib/envelope';
 
   let {
     components,
@@ -23,13 +24,7 @@
   function hasUpdate(c: Component): boolean {
     const s = statuses[c.id];
     if (!s || c.lastJson === null) return false;
-    const changed =
-      typeof s?.counts?.changed === 'number'
-        ? s.counts.changed
-        : Array.isArray(s?.changed)
-          ? s.changed.length
-          : (s?.plugins_changed ?? 0);
-    return s.status === 'changes' || changed > 0;
+    return s.status === 'changes' || countOf(s, 'changed') > 0;
   }
   const withUpdates = $derived(components.filter(hasUpdate));
   const upToDate = $derived(components.filter((c) => !hasUpdate(c)));
