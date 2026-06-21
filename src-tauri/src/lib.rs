@@ -6,6 +6,7 @@
 // Paths resolve from $SCRIPTS_ROOT (fallback E:\Scripts) so the app survives a disk move.
 
 use std::os::windows::process::CommandExt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -309,6 +310,12 @@ async fn spawn_streamed_prog(
     stdin_payload: Option<String>,
 ) -> Result<i32, String> {
     // Reserve the single run slot (guard dropped before any await).
+    // ponytail (R1-02): between this `Some(0)` reservation and `child.id()` setting the real pid
+    // below, the run can't be cancelled — cancel_run treats pid 0 (and None) as "no active run", and
+    // the real pid simply doesn't exist until cmd.spawn() returns. Closing this sub-spawn window
+    // cleanly would need a cancel-flag the spawn re-checks (then kills the just-spawned child), i.e.
+    // extra RunState and a kill path that races spawn — risk to a working cancel for a window of a
+    // few ms before any process exists. Deliberately left as-is; cancel works the instant a pid lands.
     {
         let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_some() {
@@ -788,6 +795,12 @@ async fn run_profiles(
         "reinstall" => (INSTALL_SCRIPT_REL, vec!["-Force".to_string()]),
         "repair" => {
             let n = name.unwrap_or_default();
+            // Charset gate (R1-04): mirror the elevated sibling repair_profile_elevated — validate
+            // the name's charset before the membership check, since profile_names() reads names
+            // verbatim from profiles.json (no charset guarantee) and `n` becomes a -Name argv.
+            if !valid_profile_name(&n) {
+                return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &n)]));
+            }
             if !profile_names().iter().any(|x| x == &n) {
                 return Err(trv("err.unknown_profile", cur_lang(), &[("name", &n)]));
             }
@@ -2850,6 +2863,11 @@ struct MyProviderInput {
     balance_url: String,
 }
 
+/// Serializes the read-modify-write of myproviders.json (R2-02). save/delete/add_key/remove_key
+/// each read the list, mutate it, and write it back; without this they could interleave and lose an
+/// update (last writer wins). Poison-tolerant at the call sites via unwrap_or_else(|e| e.into_inner()).
+static MYPROVIDERS_LOCK: Mutex<()> = Mutex::new(());
+
 fn read_myproviders_raw() -> Vec<serde_json::Value> {
     std::fs::read_to_string(abs(MYPROVIDERS_CONFIG_REL))
         .ok()
@@ -2903,6 +2921,7 @@ fn list_my_providers() -> Vec<MyProvider> {
 /// and is written to the Credential Manager; an empty/None key keeps any existing one.
 #[tauri::command]
 fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyProvider, String> {
+    let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if !valid_provider_name(&p.name) {
         return Err(tr("err.invalid_provider_name", cur_lang()).into());
     }
@@ -2975,6 +2994,7 @@ fn find_provider_idx(list: &[serde_json::Value], id: &str) -> Option<usize> {
 /// Delete a provider record and its Credential Manager entry.
 #[tauri::command]
 fn delete_my_provider(id: String) -> Result<(), String> {
+    let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut list = read_myproviders_raw();
     let (key_count, _) = find_provider(&list, &id).map(key_pool_meta).unwrap_or((0, 0));
     let before = list.len();
@@ -2995,6 +3015,7 @@ fn delete_my_provider(id: String) -> Result<(), String> {
 /// become active — rotation is explicit via next_provider_key). `api_key` arrives over Tauri IPC.
 #[tauri::command]
 fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
+    let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let key = api_key.trim();
     if key.is_empty() {
         return Err(tr("err.empty_key", cur_lang()).into());
@@ -3023,6 +3044,7 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
 /// updated provider. Removing the last key collapses the pool back to "no key".
 #[tauri::command]
 fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
+    let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut list = read_myproviders_raw();
     let pos = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
@@ -3564,8 +3586,12 @@ fn fetch_provider_balance(id: &str) -> serde_json::Value {
         .build()
         .into();
 
-    // 1) User-configured balance URL — most reliable.
+    // 1) User-configured balance URL — most reliable. SSRF-guard it like baseUrl (R2-01): it is
+    // queried WITH the provider's key, so a link-local / cloud-metadata host must be rejected.
     if !balance_url.is_empty() {
+        if let Err(detail) = valid_base_url(balance_url) {
+            return serde_json::json!({ "ok": false, "detail": detail });
+        }
         return match balance_get(&agent, balance_url, protocol, &key) {
             Some(v) => match extract_balance(&v) {
                 Some((amt, cur)) => serde_json::json!({ "ok": true, "amount": amt, "currency": cur, "detail": "" }),
@@ -4838,7 +4864,21 @@ fn write_temp_mcp_config(name: &str, servers: &[String]) -> Option<String> {
         return None;
     }
     let out = serde_json::json!({ "mcpServers": chosen });
-    let tmp = std::env::temp_dir().join(format!("claude-hub-mcp-{name}.json"));
+    // R3-03: previously a fixed `claude-hub-mcp-<name>.json` in the shared temp dir — predictable and
+    // never cleaned, so two profiles launching at once could collide on it. Best-effort sweep this
+    // profile's stale temp configs from prior launches, then write a uniquely-suffixed fresh one.
+    let dir = std::env::temp_dir();
+    let prefix = format!("claude-hub-mcp-{name}-");
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            if n.starts_with(&prefix) && n.ends_with(".json") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let tmp = dir.join(format!("{prefix}{}.json", gen_session_id()));
     std::fs::write(&tmp, serde_json::to_string_pretty(&out).ok()?).ok()?;
     Some(tmp.to_string_lossy().to_string())
 }
@@ -5045,9 +5085,13 @@ fn open_terminal(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Open an arbitrary folder/file in Explorer.
+/// Open a folder/file in Explorer. Guard (R3-05): only launch for a path that actually exists, so
+/// a missing/odd target can't be handed to Explorer (single-user local app — existence is the bar).
 #[tauri::command]
 fn open_path(path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err(trv("err.dir_not_found", cur_lang(), &[("path", &path)]));
+    }
     std::process::Command::new("explorer")
         .arg(&path)
         .creation_flags(CREATE_NO_WINDOW)
@@ -5291,11 +5335,15 @@ struct PtySession {
 struct SessionState(Mutex<std::collections::HashMap<String, PtySession>>);
 
 fn gen_session_id() -> String {
+    // R3-04: time-only ids (nanos masked) could collide on a same-instant spawn and overwrite a
+    // live session. Mix in a process-wide monotonic counter so two ids in the same tick differ.
+    static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("s{:015x}", (n as u64) & 0x000f_ffff_ffff_ffff)
+    let seq = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("s{:013x}{:03x}", (n as u64) & 0x0000_ffff_ffff_ffff, seq & 0xfff)
 }
 
 /// Spawn a tool (claude / opencode / shell) inside a real PTY and stream its output. Returns the

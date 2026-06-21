@@ -1,22 +1,24 @@
-# Vendored ClaudeProfiles binding scripts
+# ClaudeProfiles binding scripts (superseded by native Rust)
 
-Version-controlled copies of the provider/router binding scripts that AgentHub runs.
+The provider/router/engine binding logic that Castellyn once shelled out to PowerShell for is now
+implemented **natively in Rust** in `src-tauri/src/lib.rs`:
 
-**Runtime still loads them from `SCRIPTS_ROOT\!Настройки и MCP\ClaudeProfiles\`** (see
-`abs(...)` / the `*_SCRIPT_REL` consts in `src-tauri/src/lib.rs`). These copies exist so the
-binding logic has git history and is reviewable in the repo — the live copies under
-`SCRIPTS_ROOT` remain the source the app executes.
+| Former script | Native replacement |
+|---|---|
+| `Manage-Provider.ps1` | `manage_provider_native` |
+| `Connect-Router.ps1` | `connect_router_native` |
+| `Setup-Router.ps1` | `setup_router_native` |
+| `Connect-CustomProvider.ps1` | `connect_custom_native` |
+| `Manage-OpenCode-Provider.ps1` | `opencode_provider_native` |
+| `Manage-Engine.ps1` | `run_engine` |
+| `Check-Provider.ps1` | `probe_provider` |
 
-Scope: only the generic binding scripts are vendored. `config/` (machine-specific
-`engines.json` / `profiles.json` with local paths) and `ProfileLib.ps1` are intentionally
-**not** mirrored here — they carry machine paths that don't belong in a public repo.
+The app **no longer spawns any of these scripts**. The seven files now live under `legacy/` for
+historical reference only — see `legacy/README.md`. `Manage-Provider.ps1` additionally dot-sources a
+`ProfileLib.ps1` that isn't in the repo, so it can't run standalone.
 
-When you change a script under `SCRIPTS_ROOT`, copy it here too (and vice-versa) so the
-history stays meaningful. A drift check / sync helper can be added later, mirroring
-`tools/Sync-ScriptKit.ps1`.
+The `agenthub-local` dummy-token sentinel that these scripts used to set is implemented natively in
+`lib.rs` and asserted by the Rust test suite, independent of the legacy scripts.
 
-Files:
-- `Manage-Provider.ps1` — bind/unbind a profile's provider (settings.json env; dummy token; tiers)
-- `Connect-Router.ps1` — route a profile through ccr to an OpenAI backend
-- `Setup-Router.ps1` — install/configure claude-code-router (ccr)
-- `Manage-OpenCode-Provider.ps1` — bind a custom provider for the opencode agent
+> `config/` (machine-specific `engines.json` / `profiles.json`) and `ProfileLib.ps1` were never
+> mirrored here — they carry machine paths that don't belong in a public repo.

@@ -22,8 +22,19 @@
   } = $props();
 
   const pad = 2; // keep the stroke off the edges
-  const max = $derived(points.length ? Math.max(...points) : 0);
-  const min = $derived(points.length ? Math.min(...points) : 0);
+  // Reduce-based min/max (no `...points` spread) so a very large series can't blow the call
+  // stack with a RangeError. Behaviour-identical to Math.min/Math.max for finite arrays.
+  const extent = $derived.by(() => {
+    let mn = Infinity;
+    let mx = -Infinity;
+    for (const v of points) {
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    return points.length ? { min: mn, max: mx } : { min: 0, max: 0 };
+  });
+  const max = $derived(extent.max);
+  const min = $derived(extent.min);
 
   // Map each value to an (x, y) inside the padded box. A flat series (max === min) sits on a
   // mid-line rather than collapsing to the top or bottom.
@@ -51,6 +62,14 @@
       : ''
   );
   const last = $derived(coords.length ? coords[coords.length - 1] : null);
+
+  // Accessible summary: screen readers get magnitude (min / max / last value) instead of just the
+  // title, since the visual y-scale is otherwise only legible on hover. Kept tiny, no redesign.
+  const ariaSummary = $derived(
+    points.length
+      ? `${title ? title + ': ' : ''}min ${min}, max ${max}, last ${points[points.length - 1]}`
+      : title
+  );
 </script>
 
 {#if points.length}
@@ -59,7 +78,7 @@
     {height}
     viewBox="0 0 {width} {height}"
     role="img"
-    aria-label={title}
+    aria-label={ariaSummary}
     style="color: {color}; overflow: visible"
   >
     {#if title}<title>{title}</title>{/if}
@@ -76,11 +95,11 @@
     {#if peakLabel}
       <text x={width} y="9" text-anchor="end" font-size="10" fill="currentColor" opacity="0.7">{peakLabel}</text>
     {/if}
-    {#if labels.length === coords.length}
+    {#if coords.length}
       {#each coords as c, i (i)}
         <rect class="hit" x={Math.max(0, c.x - width / coords.length / 2)} y="0"
           width={width / coords.length} {height}>
-          <title>{labels[i]}</title>
+          <title>{labels[i] ?? `#${i + 1}`}</title>
         </rect>
       {/each}
     {/if}

@@ -62,11 +62,14 @@
     empty?: Snippet;
   } = $props();
 
+  const colKeys = $derived(new Set(columns.map((c) => c.key)));
   function readSort(): { k: string; d: 'asc' | 'desc' } {
     if (storageKey) {
       try {
         const s = JSON.parse(localStorage.getItem(`dt-sort-${storageKey}`) ?? 'null');
-        if (s && typeof s.k === 'string') return { k: s.k, d: s.d === 'desc' ? 'desc' : 'asc' };
+        // Drop a persisted sort key that no longer matches a current column (columns renamed/removed
+        // across an upgrade) — otherwise sorting silently no-ops. Fall back to the default sort.
+        if (s && typeof s.k === 'string' && colKeys.has(s.k)) return { k: s.k, d: s.d === 'desc' ? 'desc' : 'asc' };
       } catch {
         /* ignore */
       }
@@ -86,7 +89,12 @@
   function readWidths(): Record<string, string> {
     if (!storageKey) return {};
     try {
-      return JSON.parse(localStorage.getItem(`dt-w-${storageKey}`) ?? '{}') ?? {};
+      const raw = JSON.parse(localStorage.getItem(`dt-w-${storageKey}`) ?? '{}') ?? {};
+      // Prune persisted width entries whose column no longer exists (dead keys after a column-set
+      // change), so stale localStorage can't accumulate or shadow renamed columns.
+      const out: Record<string, string> = {};
+      for (const k of Object.keys(raw)) if (colKeys.has(k)) out[k] = raw[k];
+      return out;
     } catch {
       return {};
     }
@@ -173,9 +181,22 @@
   });
   const visibleKeys = $derived(sorted.map(rowKey));
   const allSelected = $derived(visibleKeys.length > 0 && visibleKeys.every((k) => selected.has(k)));
-  const selectedList = $derived(visibleKeys.filter((k) => selected.has(k)));
+  // Bulk actions operate on EVERY selected row, not just the visible ones — so selecting rows and
+  // then narrowing the search/filter does not silently drop them from the batch. Preserve order:
+  // visible (sorted) keys first, then any selected-but-hidden keys appended.
+  const selectedList = $derived([
+    ...visibleKeys.filter((k) => selected.has(k)),
+    ...[...selected].filter((k) => !visibleKeys.includes(k))
+  ]);
   function toggleAll() {
-    selected = allSelected ? new Set() : new Set(visibleKeys);
+    if (allSelected) {
+      // Deselect only the visible rows; keep any selected-but-hidden rows intact.
+      const n = new Set(selected);
+      for (const k of visibleKeys) n.delete(k);
+      selected = n;
+    } else {
+      selected = new Set([...selected, ...visibleKeys]);
+    }
   }
   const colSpan = $derived(columns.length + (expand ? 1 : 0) + (selectable ? 1 : 0));
   const rowExpandable = (r: any) => !!expand && (!canExpand || canExpand(r));

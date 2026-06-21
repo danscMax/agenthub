@@ -76,7 +76,12 @@
   // Export the per-model table to a CSV file (client-side blob download; no backend).
   function exportCsv() {
     const head = ['model', 'platform', 'modelId', 'requests', 'successRate', 'avgLatencyMs', 'tokens', 'estimatedCost'];
-    const esc = (c: string) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
+    // CSV-injection guard (OWASP): a cell starting with = + - @ or a tab/CR is treated as a
+    // formula by Excel/Sheets — neutralise it with a leading apostrophe before quoting.
+    const esc = (c: string) => {
+      const s = /^[=+\-@\t\r]/.test(c) ? `'${c}` : c;
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const rows = [head.join(',')];
     for (const m of models) {
       rows.push(
@@ -138,17 +143,30 @@
     selectedKey = selectedKey === k ? null : k;
   }
 
+  // Shared trend axis (global min bucket + step + bucket count) computed once, so the trend
+  // values and their hover labels can't drift apart. n is clamped to the <=1000 render budget.
+  const trendAxis = $derived.by(() => {
+    const series = data?.series ?? [];
+    const step = data?.stepSec ?? 0;
+    if (!series.length || step <= 0) return null;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const s of series) {
+      if (s.bucket < lo) lo = s.bucket;
+      if (s.bucket > hi) hi = s.bucket;
+    }
+    const n = Math.floor((hi - lo) / step) + 1;
+    if (n <= 0 || n > 1000) return null;
+    return { lo, step, n };
+  });
+
   // Trend: zero-filled requests-per-bucket over a stable axis (global min..max bucket), optionally
   // scoped to the selected model. Axis is global so the shape stays put when filtering.
   const trend = $derived.by(() => {
+    const axis = trendAxis;
     const series = data?.series ?? [];
-    const step = data?.stepSec ?? 0;
-    if (!series.length || step <= 0) return [] as number[];
-    const buckets = series.map((s) => s.bucket);
-    const lo = Math.min(...buckets);
-    const hi = Math.max(...buckets);
-    const n = Math.floor((hi - lo) / step) + 1;
-    if (n <= 0 || n > 1000) return [];
+    if (!axis) return [] as number[];
+    const { lo, step, n } = axis;
     const sums = new Array(n).fill(0);
     for (const s of series) {
       if (selectedKey && keyOf(s) !== selectedKey) continue;
@@ -166,10 +184,9 @@
     return new Intl.DateTimeFormat(fmtLocale, opts);
   });
   const trendLabels = $derived.by(() => {
-    const series = data?.series ?? [];
-    const step = data?.stepSec ?? 0;
-    if (!series.length || step <= 0) return [] as string[];
-    const lo = Math.min(...series.map((s) => s.bucket));
+    const axis = trendAxis;
+    if (!axis) return [] as string[];
+    const { lo, step } = axis;
     return trend.map((v, i) => `${tf.format(new Date((lo + i * step) * 1000))} · ${fmt(v)}`);
   });
 

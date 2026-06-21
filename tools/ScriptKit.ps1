@@ -22,7 +22,15 @@
 $script:SK_Version = 2   # drift marker -- Sync-ScriptKit.ps1 compares this
 
 # --- UTF-8 console (box glyphs + check marks render instead of mojibake) ----
-try { chcp 65001 | Out-Null } catch { }
+# Non-intrusive: merely dot-sourcing this helper must NOT permanently flip the
+# caller's console code page. Only run `chcp` when the active code page isn't
+# already 65001 (UTF-8); skipping the call avoids mutating a host that's already
+# UTF-8, and the console encoding objects below are idempotent.
+try {
+    $sk_cp = try { [System.Console]::OutputEncoding.CodePage } catch { -1 }
+    if ($sk_cp -ne 65001) { chcp 65001 | Out-Null }
+    Remove-Variable sk_cp -ErrorAction SilentlyContinue
+} catch { }
 try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
@@ -251,7 +259,18 @@ function Write-StatusJson {
             counts        = [ordered]@{ changed = [int]$Changed; failed = [int]$Failed; total = [int]$Total }
             summary       = $Summary
         }
-        if ($Extra) { foreach ($k in $Extra.Keys) { $payload[$k] = $Extra[$k] } }
+        # -Extra adds component-specific fields, but must NOT clobber the contract:
+        # skip any key that collides with a reserved envelope key (case-insensitive).
+        if ($Extra) {
+            $reserved = @('schemaVersion','component','status','timestamp','mode','durationSec','counts','summary')
+            foreach ($k in $Extra.Keys) {
+                if ($reserved -contains $k) {
+                    try { Write-Log ("Write-StatusJson: ignoring -Extra key '{0}' (reserved envelope key)" -f $k) -Level 'WARN' -Color 'Yellow' } catch { }
+                    continue
+                }
+                $payload[$k] = $Extra[$k]
+            }
+        }
         if (-not (Test-Path -LiteralPath $Root)) { New-Item -ItemType Directory -Path $Root -Force | Out-Null }
         $path = Join-Path $Root ("{0}.last.json" -f $Component)
         [System.IO.File]::WriteAllText($path, ($payload | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))

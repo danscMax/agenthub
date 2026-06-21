@@ -60,7 +60,16 @@ function Invoke-GitLocal {
     param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string[]]$GitArgs)
     # -c core.autocrlf=false: avoid Windows CRLF false positives in analysis.
     $full = @('-c', 'core.autocrlf=false', '-C', $RepoPath) + $GitArgs
-    $out = (& git @full 2>&1 | Out-String)
+    # Reset $LASTEXITCODE to a sentinel so a launch failure (git not executable)
+    # is never mistaken for a previous command's exit code. try/catch maps an
+    # actual spawn exception to Ok=$false; stderr text alone does NOT throw here
+    # (the 2>&1 merge just captures it), so failed-to-run is distinguished from ran-and-failed.
+    $global:LASTEXITCODE = -1
+    try {
+        $out = (& git @full 2>&1 | Out-String)
+    } catch {
+        return @{ Ok = $false; Code = $null; Out = "git не запустился: $($_.Exception.Message)" }
+    }
     return @{ Ok = ($LASTEXITCODE -eq 0); Code = $LASTEXITCODE; Out = $out.Trim() }
 }
 
@@ -490,6 +499,11 @@ function Get-RepoReport {
     if (-not $health.MidOp -and -not $health.Detached) {
         $prs = Get-RepoPrs -UpstreamOwnerRepo $roles.ParentOwnerRepo -GhTimeoutSec $Config.GhTimeoutSec -GhAvailable:$GhAvailable
         $skip = @($roles.DefaultBranch, 'wip-local')
+        # PERF (P1-06, accepted as-is): each branch costs ~5 separate local git spawns
+        # (ahead/cherry/merge-tree/fork-divergence + PR lookup), i.e. N_branches × ~5
+        # processes per repo — merge-tree being the heaviest. Fine for typical fork
+        # repos (few topic branches). If branch counts ever grow, batch the
+        # ahead/cherry passes and reserve merge-tree for branches with ahead>0.
         foreach ($b in (Get-LocalBranches -RepoPath $RepoPath)) {
             if ($b -in $skip) { continue }
             $ahead   = Get-BranchAhead       -RepoPath $RepoPath -UpstreamRef $upstreamRef -Branch $b
@@ -586,8 +600,12 @@ function Write-ForkSyncJson {
 
 # ── Mutations (Phase 2 — safe, backed-up, confirmed; never auto force-push) ──
 
-# Snapshot every local branch HEAD into refs/fork-sync/pre-sync/<stamp>/<branch>
-# so any mutation is reversible: `git update-ref refs/heads/<b> <backup-sha>`.
+# Snapshot every LOCAL branch HEAD into refs/fork-sync/pre-sync/<stamp>/<branch>
+# so a local-branch mutation is reversible: `git update-ref refs/heads/<b> <backup-sha>`.
+# SCOPE: local branch heads ONLY. This does NOT back up remote-tracking refs, the
+# remote configuration (see Invoke-NormalizeRemotes, which logs `git remote -v`
+# separately), or branches deleted on the fork (a `push --delete` is undone by
+# re-pushing the backed-up SHA, not by this snapshot).
 function New-BackupRefs {
     param([string]$RepoPath, [string]$Stamp)
     if (-not $Stamp) { $Stamp = (Get-Date -Format 'yyyyMMdd_HHmmss') }
@@ -637,15 +655,33 @@ function Invoke-FfDefault {
         if ($Rep.forkOwnerRepo -and -not $Rep.isOwn) { $m += "; gh repo sync $($Rep.forkOwnerRepo) -b $default" }
         return $m
     }
+    $ffDone = $false
     if ($Rep.currentBranch -eq $default) {
+        # git itself refuses a non-fast-forward here, so this path is TOCTOU-safe.
         $g = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('merge', '--ff-only', $upstreamRef)
+        $ffDone = $g.Ok
         $res = if ($g.Ok) { "ff '$default' (+$($Rep.behindBy))" } else { "ОШИБКА ff: $(($g.Out -split "`n")[0])" }
     } else {
-        $sha = (Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse', $upstreamRef)).Out.Trim()
-        $g = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('update-ref', "refs/heads/$default", $sha)
-        $res = if ($g.Ok) { "ff '$default' до $upstreamRef (+$($Rep.behindBy))" } else { "ОШИБКА update-ref: $(($g.Out -split "`n")[0])" }
+        # Off-branch: raw update-ref does NOT check fast-forwardness, and $Rep.ffSafe was
+        # computed in the read phase (TOCTOU). Re-verify ancestry + resolve the SHA now,
+        # and use update-ref's compare-and-swap (<newvalue> <oldvalue>) so a concurrent
+        # move of the local default aborts the update instead of silently rewinding it.
+        $oldRef = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$default")
+        $newRef = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse', '--verify', '--quiet', "$upstreamRef^{commit}")
+        $anc    = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('merge-base', '--is-ancestor', $default, $upstreamRef)
+        if (-not $oldRef.Ok -or -not $newRef.Ok) {
+            $res = "ОШИБКА ff: не удалось разрешить '$default'/$upstreamRef — пропуск"
+        } elseif (-not $anc.Ok) {
+            $res = "$default больше не предок $upstreamRef (изменился после анализа) — ff отменён"
+        } else {
+            $sha = $newRef.Out.Trim(); $old = $oldRef.Out.Trim()
+            $g = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('update-ref', "refs/heads/$default", $sha, $old)
+            $ffDone = $g.Ok
+            $res = if ($g.Ok) { "ff '$default' до $upstreamRef (+$($Rep.behindBy))" } else { "ОШИБКА update-ref: $(($g.Out -split "`n")[0])" }
+        }
     }
-    if ($Rep.forkOwnerRepo -and -not $Rep.isOwn) {
+    # Don't sync the fork's remote default off a ff that did not actually happen.
+    if ($ffDone -and $Rep.forkOwnerRepo -and -not $Rep.isOwn) {
         $s = Invoke-TimedCommand -FilePath 'gh' -TimeoutSec 60 -ArgList @('repo', 'sync', $Rep.forkOwnerRepo, '-b', $default)
         $res += if ($s.Ok) { "; форк-remote синхронизирован" } else { "; форк-remote: $(($s.Out -split "`n")[0])" }
     }
@@ -660,10 +696,12 @@ function Remove-MergedBranch {
         if ($DeleteRemote -and $ForkRemote) { $m += " и на форке ($ForkRemote)" }
         return $m
     }
-    $d = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('branch', '-D', $Branch)
+    # `--` ends option parsing so a (pathological) branch name starting with '-' is
+    # treated as a ref, not a flag (argv option-injection hardening; git supports `--` here).
+    $d = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('branch', '-D', '--', $Branch)
     $res = if ($d.Ok) { "удалена локально '$Branch'" } else { "ОШИБКА удаления '$Branch': $(($d.Out -split "`n")[0])" }
     if ($DeleteRemote -and $ForkRemote) {
-        $p = Invoke-TimedCommand -FilePath 'git' -TimeoutSec 60 -ArgList @('-C', $RepoPath, 'push', $ForkRemote, '--delete', $Branch)
+        $p = Invoke-TimedCommand -FilePath 'git' -TimeoutSec 60 -ArgList @('-C', $RepoPath, 'push', $ForkRemote, '--delete', '--', $Branch)
         $res += if ($p.Ok) { "; удалена на форке" } else { "; форк: $(($p.Out -split "`n")[0])" }
     }
     return $res
@@ -678,12 +716,36 @@ function Invoke-NormalizeRemotes {
     if (-not $forkName -or -not $upName) { return "нет пары fork/upstream — пропуск" }
     if ($forkName -eq 'origin' -and $upName -eq 'upstream') { return "уже канон (origin=форк, upstream=оригинал)" }
     if ($DryRun) { return "БУДЕТ: '$upName'→upstream, '$forkName'→origin; default отслеживает upstream/$default" }
+    # The branch-head backup (New-BackupRefs) does NOT cover the remote config, so
+    # snapshot the prior remote set to the log → reconstructable if rename misbehaves.
+    $remBefore = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', '-v')
+    if ($remBefore.Ok -and $remBefore.Out) {
+        Write-Log -Msg "normalize $($Rep.Name): remote ДО выравнивания:`n$($remBefore.Out)" -Level 'INFO' -NoConsole
+    }
+    # Stage 1: park both remotes under temp names (collision-free).
     $r1 = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', $upName, '__fs_up')
     if (-not $r1.Ok) { return "ОШИБКА rename ${upName}: $(($r1.Out -split "`n")[0])" }
     $r2 = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', $forkName, '__fs_fork')
     if (-not $r2.Ok) { Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_up', $upName) | Out-Null; return "ОШИБКА rename ${forkName}: $(($r2.Out -split "`n")[0])" }
-    Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_up', 'upstream') | Out-Null
-    Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_fork', 'origin') | Out-Null
+    # Stage 2: temp → canon. Check each rename; on a collision (e.g. a stray
+    # 'upstream'/'origin' already exists) roll the temp names back to their
+    # originals so the repo is never left with __fs_* remotes.
+    $r3 = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_up', 'upstream')
+    if (-not $r3.Ok) {
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_fork', $forkName) | Out-Null
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_up', $upName) | Out-Null
+        Write-Status "$($Rep.Name): не удалось переименовать в 'upstream' (занято?) — remote откатан к ($upName,$forkName)" 'WARN'
+        return "ОШИБКА выравнивания: $(($r3.Out -split "`n")[0]) — remote возвращён как был"
+    }
+    $r4 = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_fork', 'origin')
+    if (-not $r4.Ok) {
+        # 'upstream' is already applied; undo it, then restore both originals.
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', 'upstream', '__fs_up') | Out-Null
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_fork', $forkName) | Out-Null
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('remote', 'rename', '__fs_up', $upName) | Out-Null
+        Write-Status "$($Rep.Name): не удалось переименовать в 'origin' (занято?) — remote откатан к ($upName,$forkName)" 'WARN'
+        return "ОШИБКА выравнивания: $(($r4.Out -split "`n")[0]) — remote возвращён как был"
+    }
     $dchk = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$default")
     if ($dchk.Ok) { Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('branch', "--set-upstream-to=upstream/$default", $default) | Out-Null }
     return "выровнено: origin=форк, upstream=оригинал; default → upstream/$default"
@@ -709,7 +771,7 @@ function Invoke-RebaseBranch {
     $res = "перебазирована '$Branch' на $UpstreamRef"
     if ($Push -and $ForkRemote) {
         if (Confirm-Step "Обновить PR ветки '$Branch' через force-with-lease ($ForkRemote)?" -Yes:$Yes) {
-            $p = Invoke-TimedCommand -FilePath 'git' -TimeoutSec 60 -ArgList @('-C', $RepoPath, 'push', $ForkRemote, '--force-with-lease', $Branch)
+            $p = Invoke-TimedCommand -FilePath 'git' -TimeoutSec 60 -ArgList @('-C', $RepoPath, 'push', $ForkRemote, '--force-with-lease', '--', $Branch)
             $res += if ($p.Ok) { "; PR обновлён (force-with-lease)" } else { "; push: $(($p.Out -split "`n")[0])" }
         } else { $res += "; PR не обновлён (по твоему выбору)" }
     } else {
@@ -753,10 +815,24 @@ function Invoke-RepoActions {
     if ($Ff) { $did.Add((Invoke-FfDefault -RepoPath $Rep.Path -Rep $Rep -DryRun:$DryRun)) }
     if ($Del) {
         foreach ($b in @($Rep.branches | Where-Object { $_.outcome -eq 'merged' })) {
-            if ($DryRun) { $did.Add((Remove-MergedBranch -RepoPath $Rep.Path -Branch $b.name -ForkRemote $Rep.forkRemote -DeleteRemote -DryRun)) }
-            elseif (Confirm-Step "Удалить влитую '$($b.name)' в $($Rep.Name) (локально+форк)?" -Yes:$Yes) {
-                $did.Add((Remove-MergedBranch -RepoPath $Rep.Path -Branch $b.name -ForkRemote $Rep.forkRemote -DeleteRemote))
-            } else { $did.Add("пропущено '$($b.name)'") }
+            # A MERGED PR is hard evidence → fork-side delete is allowed and -Yes may
+            # auto-confirm. A 'merged' classification WITHOUT a MERGED PR rests only on
+            # the cherry heuristic (git cherry is blind to patch-rewriting squashes),
+            # so: never push --delete the fork branch on that evidence, and require an
+            # explicit confirmation even under -Yes (cherry-only must not be unattended).
+            $prConfirmed = ($b.prState -eq 'MERGED')
+            if ($DryRun) {
+                $did.Add((Remove-MergedBranch -RepoPath $Rep.Path -Branch $b.name -ForkRemote $Rep.forkRemote -DeleteRemote:$prConfirmed -DryRun))
+            } elseif ($prConfirmed) {
+                if (Confirm-Step "Удалить влитую '$($b.name)' в $($Rep.Name) (локально+форк)?" -Yes:$Yes) {
+                    $did.Add((Remove-MergedBranch -RepoPath $Rep.Path -Branch $b.name -ForkRemote $Rep.forkRemote -DeleteRemote))
+                } else { $did.Add("пропущено '$($b.name)'") }
+            } else {
+                # Cherry-heuristic-only: local delete, no fork push, ALWAYS prompt (ignore -Yes).
+                if (Confirm-Step "Удалить '$($b.name)' в $($Rep.Name) ЛОКАЛЬНО? (нет влитого PR — только эвристика cherry; форк не трогаем)") {
+                    $did.Add((Remove-MergedBranch -RepoPath $Rep.Path -Branch $b.name -ForkRemote $Rep.forkRemote))
+                } else { $did.Add("пропущено '$($b.name)' (эвристика cherry без влитого PR — требует подтверждения)") }
+            }
         }
     }
     if ($Reb) {

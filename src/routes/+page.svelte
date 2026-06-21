@@ -207,6 +207,14 @@
     pushToast({ kind: 'error', title: title ?? t('page.toast_generic_error'), detail: msg });
   }
 
+  // Shared spawn-rejection handler for the start* runners: a backend spawn that rejects (busy
+  // slot / script-not-found) only logs operationally, so clear the run lock and append the error
+  // line in one place. String(e) so the typed t() slot receives a string, not a raw Error.
+  function onSpawnErr(e: unknown) {
+    running = null;
+    log = [...log, t('page.log_error', { e: String(e) })].slice(-MAX_LOG);
+  }
+
   // Bumped to force-expand the console (toast "Open log" action).
   let consoleReveal = $state(0);
   // Last fork action, so run-done can auto-recheck after a mutating one.
@@ -235,10 +243,7 @@
     const verb = mode === 'apply' ? t('page.verb_apply') : t('page.verb_check');
     const line = t('page.log_component', { name: comp?.name ?? id, verb });
     log = (append ? [...log, line] : [line]).slice(-MAX_LOG);
-    runComponent(id, mode).catch((e) => {
-      log = [...log, t('page.log_error', { e })].slice(-MAX_LOG);
-      running = null;
-    });
+    runComponent(id, mode).catch(onSpawnErr);
   }
 
   function onCheck(id: string) {
@@ -313,10 +318,7 @@
             ? t('page.forks_verb_syncwip')
             : t('page.forks_verb_action', { action });
     log = [t('page.forks_log', { verb, path: path ? ` — ${path}` : '' })];
-    runForks(action, path).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runForks(action, path).catch(onSpawnErr);
   }
 
   // Deep-link a folder (e.g. a fork repo) into the Sessions launcher: switch tabs, seed the dialog.
@@ -386,10 +388,7 @@
           ? t('page.backup_verb_restore_preview')
           : t('page.backup_verb_restore');
     log = [t('page.backup_log', { verb })];
-    runBackup(action, opts).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runBackup(action, opts).catch(onSpawnErr);
   }
 
   function onBackupAction(action: BackupAction, opts?: RestoreOpts) {
@@ -456,10 +455,7 @@
         'set-links': t('page.prof_verb_setlinks', { name: args.name })
       };
       log = [t('page.prof_log', { verb: verb[args.action] ?? args.action })];
-      runProfileMgmt(args).catch((e) => {
-        log = [...log, t('page.log_error', { e })];
-        running = null;
-      });
+      runProfileMgmt(args).catch(onSpawnErr);
     };
     if (args.action === 'remove') {
       askConfirm(
@@ -485,10 +481,7 @@
             ? t('page.prof_verb_repair', { name: name ?? '' })
             : t('page.prof_verb_reinstall');
     log = [t('page.prof_log', { verb })];
-    runProfiles(action, name).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runProfiles(action, name).catch(onSpawnErr);
   }
 
   function onProfileAction(action: ProfileAction, name?: string) {
@@ -521,10 +514,7 @@
     if (running) return;
     running = 'profiles';
     log = [t('page.prof_log', { verb: t('page.prof_verb_repair', { name }) })];
-    repairProfileElevated(name).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    repairProfileElevated(name).catch(onSpawnErr);
   }
 
   // Relaunch the whole app elevated. On UAC-decline the Rust command returns an error
@@ -554,10 +544,7 @@
     if (running) return;
     running = 'mcp';
     log = [t('page.mcp_log')];
-    runMcp(action, only).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runMcp(action, only).catch(onSpawnErr);
   }
 
   // No arg → deploy to all profiles (confirm). A profile name or array → deploy just those.
@@ -608,10 +595,7 @@
     if (running) return;
     running = 'sync';
     log = [action === 'set' ? t('page.sync_log_set') : t('page.sync_log_query')];
-    runSync(action, enabled).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runSync(action, enabled).catch(onSpawnErr);
   }
 
   // Lazy-load on first open + run a fresh query to fetch live Syncthing status.
@@ -651,10 +635,7 @@
           ? t('page.drift_verb_sync')
           : t('page.drift_verb_check');
     log = [t('page.drift_log', { verb })];
-    runConfigDrift(action).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runConfigDrift(action).catch(onSpawnErr);
   }
 
   function onSyncDrift(action: ConfigDriftAction) {
@@ -728,10 +709,7 @@
     const go = () => {
       running = 'engine';
       log = [t('page.stack_log', { verb })];
-      runStack(action, only).catch((e) => {
-        log = [...log, t('page.log_error', { e })];
-        running = null;
-      });
+      runStack(action, only).catch(onSpawnErr);
     };
     // Confirm only the destructive "stop the whole stack"; single-service stop is cheap to undo.
     if (action === 'stop' && !only) {
@@ -756,10 +734,7 @@
           verb: action === 'start' ? t('page.engine_verb_start') : t('page.engine_verb_stop')
         })
       ];
-      runEngine(action, id).catch((e) => {
-        log = [...log, t('page.log_error', { e })];
-        running = null;
-      });
+      runEngine(action, id).catch(onSpawnErr);
     };
     if (action === 'stop') {
       askConfirm(
@@ -782,10 +757,7 @@
         verb: args.action === 'set' ? t('page.provider_verb_set') : t('page.provider_verb_clear')
       })
     ];
-    runProvider(args).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runProvider(args).catch(onSpawnErr);
   }
 
   function onProviderSet(args: ProviderArgs) {
@@ -828,10 +800,7 @@
     if (running) return;
     running = 'provider';
     log = [t('myProviders.connectLog')];
-    connectMyProvider(id).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    connectMyProvider(id).catch(onSpawnErr);
   }
   function onMyProviderAddKey(id: string, apiKey: string) {
     addProviderKey(id, apiKey)
@@ -847,10 +816,7 @@
     if (running) return;
     running = 'provider';
     log = [t('myProviders.nextKeyLog')];
-    nextProviderKey(id).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    nextProviderKey(id).catch(onSpawnErr);
   }
   function onSetFreellmapiAuth(email: string, password: string, token: string) {
     setFreellmapiAuth(email || undefined, password || undefined, token || undefined)
@@ -862,10 +828,7 @@
     if (running) return;
     running = 'engine';
     log = [t('page.router_install_log')];
-    runRouter('install').catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runRouter('install').catch(onSpawnErr);
   }
 
   function onConnectRouter(engine: EngineStatus, model: string, profile: string) {
@@ -877,10 +840,7 @@
       () => {
         running = 'provider';
         log = [t('page.router_log', { engine: engine.name, model, profile })];
-        runConnectRouter(engine.baseUrl, model, profile, engine.id).catch((e) => {
-          log = [...log, t('page.log_error', { e })];
-          running = null;
-        });
+        runConnectRouter(engine.baseUrl, model, profile, engine.id).catch(onSpawnErr);
       }
     );
   }
@@ -909,10 +869,7 @@
       () => {
         running = 'provider';
         log = [t('page.opencode_log', { engine: engine.name, model })];
-        runOpencodeProvider(args).catch((e) => {
-          log = [...log, t('page.log_error', { e })];
-          running = null;
-        });
+        runOpencodeProvider(args).catch(onSpawnErr);
       }
     );
   }
@@ -946,10 +903,7 @@
       delete: t('page.sched_verb_delete')
     };
     log = [t('page.sched_log', { id, verb: verb[action] })];
-    runSchedule(action, id, time).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runSchedule(action, id, time).catch(onSpawnErr);
   }
 
   function onScheduleAction(action: ScheduleAction, id: string, time?: string) {
@@ -1056,10 +1010,7 @@
             ? t('page.plugin_verb_remove')
             : t('page.plugin_verb_disable');
     log = [t('page.plugin_log', { id, verb })];
-    runPlugin(action, id).catch((e) => {
-      log = [...log, t('page.log_error', { e })];
-      running = null;
-    });
+    runPlugin(action, id).catch(onSpawnErr);
   }
 
   function onPluginAction(action: PluginAction, id: string) {
@@ -1395,6 +1346,10 @@
     );
     unlisten.push(
       await listen('tray-check-all', () => {
+        // A run is already in flight: startRun would no-op anyway, so don't force-switch the tab
+        // or emit the diag line for a request we can't honor (silent busy — the active run's own
+        // progress/outcome is the feedback).
+        if (running) return;
         // DIAGNOSTIC: this is the ONLY code path that force-switches to Updates. If the tab jumps
         // without you clicking the tray's "Проверить всё", this line will show in the log — proving
         // a spurious tray event is the source.
@@ -1407,10 +1362,14 @@
     // Refresh statuses when the window regains focus.
     const onFocus = () => {
       if (running) return; // don't reload statuses mid-run (avoids extra pwsh spawns + flicker)
+      // Cheap: re-read the on-disk *.last.json envelopes (back the Updates tab + sidebar badges).
       components.forEach(loadStatus);
-      reloadBackup();
-      reloadProfiles();
-      reloadMcp();
+      // Heavy (each spawns pwsh / the claude CLI): only refresh the dataset whose tab is visible —
+      // off-screen tabs re-fetch lazily on next open, so don't burst N pwsh spawns on every alt-tab.
+      if (active === 'backup') reloadBackup();
+      if (active === 'profiles' || active === 'home' || active === 'sync') reloadProfiles();
+      if (active === 'mcp') reloadMcp();
+      // pluginUpdates also feeds the sidebar "extensions" badge, so keep it fresh app-wide.
       reloadPluginUpdates();
     };
     window.addEventListener('focus', onFocus);

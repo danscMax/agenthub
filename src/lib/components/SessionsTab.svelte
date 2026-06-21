@@ -183,6 +183,7 @@
   function closePane(key: string) {
     const closed = panes.find((p) => p.key === key);
     panes = panes.filter((p) => p.key !== key);
+    delete paneRefs[key]; // drop the unmounted pane's ref so the map doesn't retain stale keys
     if (maximized === key) maximized = null;
     // Broadcast is meaningless with one pane and its toggle is hidden — reset so input doesn't
     // keep getting mirrored invisibly.
@@ -205,6 +206,7 @@
     panes = [];
     maximized = null;
     broadcast = false;
+    for (const k in paneRefs) delete paneRefs[k]; // clear all refs (const map — delete keys in place)
   }
   // Resizable columns/rows: per-track fraction weights + draggable dividers. Explicit equal
   // fractions (not grid-auto-rows) guarantee equal default sizes.
@@ -365,6 +367,14 @@
   function searchAll(next = true) {
     for (const k in paneRefs) paneRefs[k]?.runExternalSearch(searchAllText, next);
   }
+  // Debounce the per-keystroke incremental scan (#Fsess-09): each call fans a full-buffer
+  // SearchAddon scan across every pane (scrollback up to 50k lines), so fast typing with several
+  // panes open fires N heavy searches per character. Enter/arrow buttons still search immediately.
+  let searchAllTimer: ReturnType<typeof setTimeout> | undefined;
+  function searchAllDebounced() {
+    clearTimeout(searchAllTimer);
+    searchAllTimer = setTimeout(() => searchAll(true), 150);
+  }
 
   // Synced zoom: push one font size to every pane (#60). Persisted in the shared font key so new
   // panes open at the same size.
@@ -442,7 +452,7 @@
       {#if panes.length > 1}
         <input class="sw-input text-sw-xs" style="width:120px" bind:value={searchAllText}
           placeholder={t('sessions.searchAllPlaceholder')} title={t('sessions.searchAllTip')} spellcheck="false"
-          oninput={() => searchAll(true)} onkeydown={(e) => e.key === 'Enter' && searchAll(!e.shiftKey)} />
+          oninput={searchAllDebounced} onkeydown={(e) => e.key === 'Enter' && searchAll(!e.shiftKey)} />
         <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => searchAll(false)} title={t('sessions.findPrev')} aria-label={t('sessions.findPrev')}>↑</button>
         <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => searchAll(true)} title={t('sessions.findNext')} aria-label={t('sessions.findNext')}>↓</button>
         <input class="sw-input text-sw-xs" style="width:130px" bind:value={sendAllText}

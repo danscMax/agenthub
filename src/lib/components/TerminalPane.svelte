@@ -246,7 +246,14 @@
     unlisteners.forEach((u) => u());
     unlisteners = [];
     if (id) {
-      sessionKill(id);
+      // Await the kill before reusing the pane: the old PTY's reader thread drains asynchronously,
+      // so spawning a fresh session without waiting can briefly intermix trailing stale bytes into
+      // the reset terminal. The invoke resolves once the backend has killed the child (no deadlock).
+      try {
+        await sessionKill(id);
+      } catch {
+        /* already gone / backend error — proceed to relaunch regardless */
+      }
       id = null;
     }
     term?.reset();
@@ -282,7 +289,15 @@
     // GPU renderer for smooth output across many panes; fall back to canvas if the context drops.
     try {
       const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      // On a runtime GPU context loss (driver reset, suspend/resume, browser reclaiming contexts
+      // when many panes are open) dispose the dead WebGL addon so xterm reverts to its DOM renderer,
+      // then force a reflow/redraw so this pane keeps repainting instead of freezing until reopened.
+      // We do NOT re-load WebGL — the DOM renderer keeps the pane alive without a GPU context.
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        term?.refresh(0, term.rows - 1);
+        refit();
+      });
       term.loadAddon(webgl);
     } catch {
       /* WebGL unavailable → xterm uses its default renderer */

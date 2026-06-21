@@ -121,6 +121,27 @@
     skillList.filter((s) => s.source.startsWith('plugin:') && !s.mine).length
   );
 
+  // Semver-aware sort key for the version column. DataTable compares with </<> on the accessor
+  // value, so we map a version to a zero-padded, comparable string: each dot-group is right-aligned
+  // numerically (v10 > v9, 0.10.0 > 0.9.0). A trailing pre-release/non-numeric tag (e.g. "-rc.1")
+  // sorts BEFORE the same release (1.0.0-rc < 1.0.0) per semver; missing versions sort first.
+  function semverKey(v: string | null | undefined): string {
+    const s = (v ?? '').trim().replace(/^v/i, '');
+    if (!s) return '';
+    const [core, ...rest] = s.split('-');
+    const pre = rest.join('-');
+    const nums = core
+      .split('.')
+      .map((g) => {
+        const n = parseInt(g, 10);
+        return Number.isNaN(n) ? g.toLowerCase().padStart(10, '0') : String(n).padStart(10, '0');
+      })
+      .join('.');
+    // A release (no pre-release) must sort AFTER its pre-releases → append '~' (high ASCII) when
+    // there's no tag, and the lowercased tag otherwise (so '1.0.0' > '1.0.0-rc').
+    return `${nums}|${pre ? pre.toLowerCase() : '~'}`;
+  }
+
   const PLUGIN_COLS: DTColumn[] = $derived([
     { key: 'name', label: t('plugins.colName'), sortable: true, grow: true },
     { key: 'market', label: t('plugins.colMarket'), sortable: true, width: '140px' },
@@ -133,7 +154,7 @@
   function pluginSort(p: PluginInfo, key: string): string | number {
     if (key === 'name') return split(p.id).name.toLowerCase();
     if (key === 'market') return shortMarket(split(p.id).market).toLowerCase();
-    if (key === 'version') return p.version ?? '';
+    if (key === 'version') return semverKey(p.version);
     if (key === 'status') return p.enabled ? 1 : 0;
     return '';
   }
@@ -148,7 +169,7 @@
   const SRANK: Record<string, number> = { own: 0, default: 1, plugin: 2 };
   function skillSort(s: SkillInfo, key: string): string | number {
     if (key === 'name') return s.name.toLowerCase();
-    if (key === 'version') return s.version ?? '';
+    if (key === 'version') return semverKey(s.version);
     if (key === 'source') return `${SRANK[skillKind(s)]}${sourceLabel(s).toLowerCase()}`;
     return '';
   }
