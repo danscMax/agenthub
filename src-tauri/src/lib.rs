@@ -5323,7 +5323,6 @@ fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 // ===================== Parallel terminal sessions (real PTYs) =====================
 // Each session runs a profile's `claude` in a true PTY (portable-pty) so its TUI renders in an
 // xterm.js pane. Output streams to the frontend as base64 frames on a per-session event; input and
@@ -5502,6 +5501,7 @@ fn list_subdirs(path: String) -> Vec<String> {
     out
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

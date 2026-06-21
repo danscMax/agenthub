@@ -89,7 +89,7 @@
       <div class="chk mb-sw-3">
         <Toggle bind:checked={lean} title={t('profiles.lcLeanToggle')} />
         <div>
-          <div class="text-sw-sm text-sw-text-primary">{t('profiles.lcLeanHeading')}</div>
+          <div class="text-sw-sm text-sw-text">{t('profiles.lcLeanHeading')}</div>
           <div class="text-sw-xs text-sw-text-muted">
             {t('profiles.lcLeanDesc')}
           </div>
@@ -144,8 +144,8 @@
           </div>
         </div>
         <div class="grid grid-cols-2 gap-sw-2 text-sw-sm">
-          <div>{t('profiles.lcLeanResult')}<span class="font-mono text-sw-text-primary">{fmt(leanSize)}</span> {t('profiles.lcTokensUnit')}</div>
-          <div>{t('profiles.lcFullResult')}<span class="font-mono text-sw-text-primary">{fmt(fullSize)}</span> {t('profiles.lcTokensUnit')}</div>
+          <div>{t('profiles.lcLeanResult')}<span class="font-mono text-sw-text">{fmt(leanSize)}</span> {t('profiles.lcTokensUnit')}</div>
+          <div>{t('profiles.lcFullResult')}<span class="font-mono text-sw-text">{fmt(fullSize)}</span> {t('profiles.lcTokensUnit')}</div>
         </div>
         {#if measureErr}
           <p class="mt-sw-2 text-sw-xs" style="color:var(--sw-warn)">{measureErr}</p>

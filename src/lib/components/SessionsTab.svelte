@@ -461,7 +461,7 @@
         <span class="text-sw-text-muted">·</span>
         <label class="flex cursor-pointer items-center gap-1" title={t('sessions.broadcastTip')}>
           <Toggle bind:checked={broadcast} />
-          <span class="text-sw-xs" class:text-sw-text-primary={broadcast} class:text-sw-text-secondary={!broadcast}>{t('sessions.broadcast')}</span>
+          <span class="text-sw-xs" class:text-sw-text={broadcast} class:text-sw-text-secondary={!broadcast}>{t('sessions.broadcast')}</span>
         </label>
         <span class="text-sw-text-muted">·</span>
       {/if}

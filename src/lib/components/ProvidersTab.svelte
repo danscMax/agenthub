@@ -622,7 +622,7 @@
             <p class="text-sw-xs text-sw-text-muted">{bal.detail}</p>
           {/if}
           {#if keysOpen[p.id]}
-            <div class="flex flex-col gap-sw-2 rounded border border-sw-border bg-sw-bg-subtle p-sw-2">
+            <div class="flex flex-col gap-sw-2 rounded border border-sw-border bg-sw-bg-secondary p-sw-2">
               <p class="text-sw-xs text-sw-text-muted">{t('myProviders.keysHint')}</p>
               {#if p.hasKey}
                 <!-- Show the slot list whenever a key exists; legacy single keys report keyCount 0,
