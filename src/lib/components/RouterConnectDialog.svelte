@@ -69,7 +69,7 @@
 
 <ModalShell open={open && !!engine} onClose={onCancel} size="md">
     {#if engine}
-      <h3>
+      <h3 class="dlg-h sub-gap">
         {#if isOpencode}{t('providers.rcOpencodeTitle', { name: engine.name })}
         {:else if direct}{t('providers.rcBindTitle', { name: engine.name })}
         {:else}{t('providers.rcConnectTitle', { name: engine.name })}{/if}
@@ -84,7 +84,7 @@
         {/if}
       </p>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{loading ? t('providers.rcModelLoading') : models.length ? t('providers.rcModelAvailable', { n: models.length }) : t('providers.rcModelManual')}</span>
         <input class="sw-input" list="rc-models" bind:value={model} placeholder={t('providers.rcModelPlaceholder')} spellcheck="false" title={t('providers.rcModelInputTip')} />
         <datalist id="rc-models">
@@ -92,19 +92,19 @@
         </datalist>
       </label>
 
-      <div class="fld">
+      <div class="dlg-fld">
         <span>{t('providers.rcProfileLabel')}</span>
         <Select bind:value={profile} options={profileOptions} placeholder={t('providers.rcProfileLabel')} />
       </div>
 
       {#if isOpencode}
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{t('providers.rcOpencodeKeyLabel')}</span>
           <SecretInput bind:value={apiKey} placeholder={t('providers.rcOpencodeKeyPlaceholder')} title={t('providers.rcOpencodeKeyTip')} />
         </label>
       {/if}
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => { onSubmit({ model: model.trim(), profile, key: apiKey.trim() }); apiKey = ''; }}
           title={isOpencode ? t('providers.rcOpencodeTip') : direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
@@ -115,32 +115,14 @@
 </ModalShell>
 
 <style>
-  h3 {
-    margin: 0 0 var(--sw-space-2);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
+  /* Tighter h3 margin than the shared .dlg-h: this title is immediately followed by .sub. */
+  .sub-gap {
+    margin-bottom: var(--sw-space-2);
   }
   .sub {
     margin: 0 0 var(--sw-space-4);
     font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
     line-height: 1.5;
-  }
-  .fld {
-    display: block;
-    margin-bottom: var(--sw-space-3);
-  }
-  .fld > span {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

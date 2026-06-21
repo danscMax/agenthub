@@ -27,15 +27,17 @@
   const remain = (pct: number | null | undefined) =>
     pct == null ? null : Math.max(0, Math.min(100, Math.round(100 - pct)));
 
+  // Remaining time until reset, as a localized duration. Reuses the providers.uptime* keys
+  // (same {d}{h} / {h}{m} shape) so en/zh render correctly instead of hardcoded Russian units.
   function until(iso: string | null): string {
     if (!iso) return '';
     const ms = new Date(iso).getTime() - Date.now();
     if (!(ms > 0)) return '';
     const h = Math.floor(ms / 3_600_000);
     const d = Math.floor(h / 24);
-    if (d >= 1) return `${d}д ${h % 24}ч`;
+    if (d >= 1) return t('providers.uptimeD', { d, h: h % 24 });
     const m = Math.floor((ms % 3_600_000) / 60_000);
-    return `${h}ч ${m}м`;
+    return t('providers.uptimeH', { h, m });
   }
 
   // Low remaining = warn/danger color.

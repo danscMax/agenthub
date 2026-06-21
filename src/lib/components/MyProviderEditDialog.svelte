@@ -51,8 +51,17 @@
 
   const directOpenaiBlocked = $derived(connectVia === 'direct' && protocol === 'openai');
   const needsProfile = $derived(connectVia === 'direct');
+  // Mirror the backend `valid_provider_name` (src-tauri/src/lib.rs): after trim, non-empty,
+  // <= 64 chars, and no control chars (Unicode Cc: U+0000-001F, U+007F-009F). Keeps the UI from
+  // accepting a name the backend will then reject.
+  // eslint-disable-next-line no-control-regex
+  const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+  const nameValid = $derived.by(() => {
+    const n = name.trim();
+    return n.length > 0 && n.length <= 64 && !CONTROL_CHARS.test(n);
+  });
   const canSubmit = $derived(
-    !!name.trim() && isValidHttpUrl(baseUrl.trim()) && (!needsProfile || !!targetProfile)
+    nameValid && isValidHttpUrl(baseUrl.trim()) && (!needsProfile || !!targetProfile)
   );
   const viaLabel = $derived(
     connectVia === 'freellmapi' ? t('myProviders.viaFreellmapi') : t('myProviders.viaDirect')
@@ -79,22 +88,22 @@
 </script>
 
 <ModalShell {open} onClose={onCancel} size="md">
-      <h3>{current?.id ? t('myProviders.editTitle') : t('myProviders.addTitle')}</h3>
+      <h3 class="dlg-h">{current?.id ? t('myProviders.editTitle') : t('myProviders.addTitle')}</h3>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('myProviders.name')}</span>
         <input class="sw-input" bind:value={name} placeholder="DeepSeek" autocomplete="off" />
       </label>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('myProviders.baseUrl')}</span>
         <input class="sw-input" bind:value={baseUrl} placeholder="https://api.deepseek.com/v1" spellcheck="false" autocomplete="off" />
         {#if baseUrl.trim() && !isValidHttpUrl(baseUrl.trim())}
-          <span class="warn">{t('myProviders.errInvalidUrl')}</span>
+          <span class="dlg-warn">{t('myProviders.errInvalidUrl')}</span>
         {/if}
       </label>
 
-      <div class="fld">
+      <div class="dlg-fld">
         <span>{t('myProviders.connectVia')}</span>
         <div class="ddwrap">
           <DropdownMenu
@@ -106,11 +115,11 @@
             ]}
           />
         </div>
-        <span class="hint">{t('myProviders.connectViaHint')}</span>
+        <span class="dlg-hint">{t('myProviders.connectViaHint')}</span>
       </div>
 
       {#if needsProfile}
-        <div class="fld">
+        <div class="dlg-fld">
           <span>{t('myProviders.targetProfile')}</span>
           <div class="ddwrap">
             <DropdownMenu
@@ -123,15 +132,15 @@
       {/if}
 
       {#if directOpenaiBlocked}
-        <p class="warn">{t('myProviders.openaiNeedsRouter')}</p>
+        <p class="dlg-warn">{t('myProviders.openaiNeedsRouter')}</p>
       {/if}
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('myProviders.model')}</span>
         <input class="sw-input" bind:value={model} placeholder="deepseek-chat" spellcheck="false" />
       </label>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('myProviders.apiKey')}</span>
         <SecretInput bind:value={apiKey}
           placeholder={current?.hasKey ? t('myProviders.apiKeyKeep') : t('myProviders.apiKeyPlaceholder')} />
@@ -143,7 +152,7 @@
       </button>
       {#if advanced}
         <div class="adv">
-          <div class="fld">
+          <div class="dlg-fld">
             <span>{t('myProviders.protocol')}</span>
             <div class="ddwrap">
               <DropdownMenu
@@ -155,44 +164,28 @@
                 ]}
               />
             </div>
-            <span class="hint">{t('myProviders.protocolHint')}</span>
+            <span class="dlg-hint">{t('myProviders.protocolHint')}</span>
           </div>
-          <label class="fld">
+          <label class="dlg-fld">
             <span>{t('myProviders.smallModel')}</span>
             <input class="sw-input" bind:value={smallModel} placeholder={t('myProviders.smallModelPlaceholder')} spellcheck="false" />
-            <span class="hint">{t('myProviders.smallModelHint')}</span>
+            <span class="dlg-hint">{t('myProviders.smallModelHint')}</span>
           </label>
-          <label class="fld">
+          <label class="dlg-fld">
             <span>{t('myProviders.balanceUrl')}</span>
             <input class="sw-input" bind:value={balanceUrl} placeholder="https://api.deepseek.com/user/balance" spellcheck="false" autocomplete="off" />
-            <span class="hint">{t('myProviders.balanceUrlHint')}</span>
+            <span class="dlg-hint">{t('myProviders.balanceUrlHint')}</span>
           </label>
         </div>
       {/if}
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('myProviders.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}>{t('myProviders.save')}</button>
       </div>
 </ModalShell>
 
 <style>
-  h3 {
-    margin: 0 0 var(--sw-space-4);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
-  }
-  .fld {
-    display: block;
-    margin-bottom: var(--sw-space-3);
-  }
-  .fld > span:first-child {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
-  }
   .ddwrap :global(.dd),
   .ddwrap :global(.dd > button) {
     width: 100%;
@@ -200,18 +193,6 @@
   .ddwrap :global(.dd > button) {
     justify-content: space-between;
     display: flex;
-  }
-  .hint {
-    display: block;
-    margin-top: 4px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-muted);
-  }
-  .warn {
-    display: block;
-    margin-top: 4px;
-    color: var(--sw-warn);
-    font-size: var(--sw-text-xs);
   }
   .adv-toggle {
     background: none;
@@ -233,11 +214,5 @@
     border-left: 2px solid var(--sw-border);
     padding-left: var(--sw-space-3);
     margin-bottom: var(--sw-space-2);
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

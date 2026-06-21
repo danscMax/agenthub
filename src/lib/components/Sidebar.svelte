@@ -95,14 +95,34 @@
     cur.splice(to, 0, cur.splice(from, 1)[0]);
     order = cur;
   }
-  function onDrop() {
+  function persistOrder() {
     try {
       localStorage.setItem(ORD_KEY, JSON.stringify(order));
       localStorage.setItem(ORD_VER_KEY, ORD_VER);
     } catch {
       /* ignore */
     }
+  }
+  function onDrop() {
+    persistOrder();
     dragId = null;
+  }
+
+  // Keyboard reorder (Alt+ArrowUp/Down on a focused item) — same splice + persist as drag,
+  // so AT/keyboard users can personalize the order too (drag is pointer-only). Keeps focus
+  // on the moved item by re-focusing its button after the DOM updates.
+  function moveItem(e: KeyboardEvent, id: string) {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    const cur = [...order];
+    const from = cur.indexOf(id);
+    const to = from + (e.key === 'ArrowUp' ? -1 : 1);
+    if (from < 0 || to < 0 || to >= cur.length) return;
+    e.preventDefault();
+    cur.splice(to, 0, cur.splice(from, 1)[0]);
+    order = cur;
+    persistOrder();
+    const btn = e.currentTarget as HTMLButtonElement;
+    requestAnimationFrame(() => btn.focus());
   }
 </script>
 
@@ -110,7 +130,8 @@
   <div class="brand">
     <div class="brand-dot"></div>
     <span class="brand-name">{t('nav.brand')}</span>
-    <button class="collapse-btn" onclick={toggleCollapse} title={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}
+    <button class="collapse-btn" onclick={toggleCollapse}
+      title={`${collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')} · ${t('nav.reorderHint')}`}
       aria-label={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{collapsed ? '»' : '«'}</button>
   </div>
   {#each orderedItems as it (it.id)}
@@ -121,9 +142,11 @@
       disabled={!it.enabled}
       title={collapsed ? t(it.labelKey) : t(it.tipKey)}
       draggable="true"
+      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       ondragstart={(e) => onDragStart(e, it.id)}
       ondragover={(e) => onDragOver(e, it.id)}
       ondrop={onDrop}
+      onkeydown={(e) => moveItem(e, it.id)}
       onclick={() => it.enabled && onSelect(it.id)}
     >
       <span class="nav-icon">{it.icon}</span>
@@ -228,9 +251,13 @@
     color: var(--sw-text-secondary);
     font-size: 0.92rem;
     font-family: inherit;
-    cursor: pointer;
+    /* grab cursor hints the items are draggable/reorderable (see collapse-btn tooltip) */
+    cursor: grab;
     text-align: left;
     transition: all 0.15s ease;
+  }
+  .nav-item:active {
+    cursor: grabbing;
   }
   .nav-item:hover:not(:disabled) {
     background: var(--sw-sidebar-item-hover);

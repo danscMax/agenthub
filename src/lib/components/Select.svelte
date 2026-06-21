@@ -25,6 +25,7 @@
 
   let open = $state(false);
   let root = $state<HTMLDivElement>();
+  let triggerEl = $state<HTMLButtonElement>();
   let listEl = $state<HTMLUListElement>();
   let active = $state(-1);
   const listboxId = `sel-${Math.random().toString(36).slice(2, 9)}`;
@@ -35,10 +36,16 @@
     open = !open;
     if (open) active = opts.findIndex((o) => o.value === value);
   }
+  // Close and return focus to the trigger (so Esc/select from inside the panel doesn't strand focus).
+  function close() {
+    if (!open) return;
+    open = false;
+    triggerEl?.focus();
+  }
   function choose(v: string) {
     value = v;
     onChange?.(v);
-    open = false;
+    close();
   }
   function onKey(e: KeyboardEvent) {
     if (disabled) return;
@@ -49,7 +56,7 @@
       }
       return;
     }
-    if (e.key === 'Escape') open = false;
+    if (e.key === 'Escape') close();
     else if (e.key === 'ArrowDown') {
       e.preventDefault();
       active = Math.min(opts.length - 1, active + 1);
@@ -76,11 +83,14 @@
   });
 </script>
 
+<svelte:window onkeydown={(e) => open && e.key === 'Escape' && close()} />
+
 <div class="select" bind:this={root}>
   <button
     type="button"
     class="trigger"
     class:open
+    bind:this={triggerEl}
     {disabled}
     onclick={toggle}
     onkeydown={onKey}

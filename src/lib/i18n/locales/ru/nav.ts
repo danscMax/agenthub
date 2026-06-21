@@ -18,6 +18,7 @@ export default {
   soon: 'скоро',
   collapseSidebar: 'Свернуть панель',
   expandSidebar: 'Развернуть панель',
+  reorderHint: 'Перетащите пункты для смены порядка или Alt+↑/↓ при фокусе',
   attention: 'Требует внимания',
   attentionCount: 'Требует внимания: {count}',
 

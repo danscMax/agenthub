@@ -58,10 +58,10 @@
 </script>
 
 <ModalShell {open} onClose={onCancel} onEnter={submit} size="sm">
-      <h3>{title}</h3>
+      <h3 class="dlg-h">{title}</h3>
 
       {#if mode === 'add' || mode === 'rename'}
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{mode === 'rename' ? t('profiles.dlgNewName') : t('profiles.dlgName')}</span>
           <input
             class="sw-input"
@@ -78,7 +78,7 @@
       {/if}
 
       {#if mode === 'add' || mode === 'recolor'}
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{t('profiles.dlgColor')}</span>
           <div class="colors">
             {#each PROFILE_COLORS as c (c)}
@@ -97,13 +97,13 @@
       {/if}
 
       {#if mode === 'add' || mode === 'redescribe'}
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{t('profiles.dlgDescription')}</span>
           <input class="sw-input" bind:value={description} placeholder={t('profiles.dlgDescriptionPlaceholder')} title={t('profiles.dlgDescriptionTip')} spellcheck="false" />
         </label>
       {/if}
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('profiles.dlgCancelTip')}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit} title={t('profiles.dlgSubmitTip')}>
           {mode === 'add' ? t('profiles.dlgAdd') : mode === 'rename' ? t('profiles.dlgRename') : t('common.apply')}
@@ -112,21 +112,9 @@
 </ModalShell>
 
 <style>
-  h3 {
-    margin: 0 0 var(--sw-space-4);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
-  }
-  .fld {
-    display: block;
+  /* This dialog spaces its fields a touch wider than the shared default. */
+  .dlg-fld {
     margin-bottom: var(--sw-space-4);
-  }
-  .fld > span {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
   }
   .err {
     margin-top: 4px;
@@ -149,11 +137,5 @@
   .swatch.sel {
     border-color: var(--sw-text-primary);
     box-shadow: 0 0 0 2px var(--sw-bg-secondary);
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

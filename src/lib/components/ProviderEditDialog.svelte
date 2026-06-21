@@ -96,9 +96,9 @@
 </script>
 
 <ModalShell {open} onClose={onCancel} onEnter={submit} size="md">
-      <h3>{t('providers.dialogTitle', { name: profileName })}</h3>
+      <h3 class="dlg-h">{t('providers.dialogTitle', { name: profileName })}</h3>
 
-      <div class="fld">
+      <div class="dlg-fld">
         <span>{t('providers.presetLabel')}</span>
         <Select bind:value={baseUrl} options={presetOptions} placeholder={t('providers.presetPlaceholder')} onChange={onPresetChange} />
       </div>
@@ -106,7 +106,7 @@
         {t('providers.presetHint')}
       </p>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('providers.baseUrlLabel')}</span>
         <input class="sw-input" bind:value={baseUrl} placeholder="http://localhost:4000" spellcheck="false" autocomplete="off" title={t('providers.baseUrlInputTip')} />
         {#if matchedOpenAI}
@@ -114,7 +114,7 @@
         {/if}
       </label>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('providers.tokenLabel')}</span>
         <SecretInput bind:value={token} disabled={keepToken}
           placeholder={current?.hasToken ? t('providers.tokenSavedPlaceholder') : t('providers.tokenLocalPlaceholder')} title={t('providers.tokenInputTip')} />
@@ -140,44 +140,29 @@
         {#each models as m (m)}<option value={m}></option>{/each}
       </datalist>
       <div class="two">
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{t('providers.modelLabel')}</span>
           <input class="sw-input" list="engine-models" bind:value={model} placeholder="glm-4.7" spellcheck="false" title={t('providers.modelInputTip')} />
         </label>
-        <label class="fld">
+        <label class="dlg-fld">
           <span>{t('providers.smallModelLabel')}</span>
           <input class="sw-input" list="engine-models" bind:value={smallModel} placeholder="glm-4.5-air" spellcheck="false" title={t('providers.smallModelInputTip')} />
         </label>
       </div>
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit} title={t('providers.applyProviderTip')}>{t('providers.apply')}</button>
       </div>
 </ModalShell>
 
 <style>
-  h3 {
-    margin: 0 0 var(--sw-space-4);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
-  }
-  .fld {
-    display: block;
-    margin-bottom: var(--sw-space-3);
-  }
-  .fld > span {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
-  }
   .two {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--sw-space-3);
   }
+  /* Inline (not block) warning, shown right under the base-URL input. */
   .warn {
     margin-top: 4px;
     color: var(--sw-warn);
@@ -190,11 +175,5 @@
     margin-top: 6px;
     font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

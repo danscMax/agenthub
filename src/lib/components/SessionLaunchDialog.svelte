@@ -65,9 +65,9 @@
 </script>
 
 <ModalShell {open} onClose={onCancel} size="md">
-      <h3>{t('sessions.dlgTitle')}</h3>
+      <h3 class="dlg-h">{t('sessions.dlgTitle')}</h3>
 
-      <label class="fld">
+      <label class="dlg-fld">
         <span>{t('sessions.dlgTool')}</span>
         <div class="seg">
           {#each TOOLS as tl (tl.id)}
@@ -80,20 +80,20 @@
       </label>
 
       {#if tool === 'claude'}
-        <div class="fld">
-          <span class="lbl">{t('sessions.dlgProfile')}</span>
+        <div class="dlg-fld">
+          <span>{t('sessions.dlgProfile')}</span>
           <Select bind:value={profile} options={profiles} placeholder={t('sessions.dlgProfile')} />
         </div>
       {/if}
 
-      <div class="fld">
-        <span class="lbl">{t('sessions.cwd')}</span>
+      <div class="dlg-fld">
+        <span>{t('sessions.cwd')}</span>
         <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
       </div>
 
       {#if tool !== 'shell'}
-        <div class="fld">
-          <span class="lbl">{t('sessions.dlgArgs')}</span>
+        <div class="dlg-fld">
+          <span>{t('sessions.dlgArgs')}</span>
           <input class="sw-input grow font-mono text-sw-xs" bind:value={args} placeholder={t('sessions.dlgArgsPlaceholder')} spellcheck="false" autocomplete="off" />
           {#if presets.length}
             <div class="chips">
@@ -106,18 +106,16 @@
         </div>
       {/if}
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}>{t('sessions.dlgLaunch')}</button>
       </div>
 </ModalShell>
 
 <style>
-  .lbl {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
+  /* This dialog spaces its fields a touch wider than the shared default. */
+  .dlg-fld {
+    margin-bottom: var(--sw-space-4);
   }
   .grow {
     flex: 1;
@@ -148,22 +146,7 @@
     color: var(--sw-text-primary);
     border-color: var(--sw-accent-text);
   }
-  h3 {
-    margin: 0 0 var(--sw-space-4);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
-  }
-  .fld {
-    display: block;
-    margin-bottom: var(--sw-space-4);
-  }
-  .fld > span {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
-  }
+  /* Inline (not block) hint, shown right under the tool segmented control / args input. */
   .hint {
     margin-top: 4px;
     color: var(--sw-text-muted);
@@ -187,11 +170,5 @@
     background: var(--sw-accent-glow);
     color: var(--sw-text-primary);
     border-color: var(--sw-accent-text);
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

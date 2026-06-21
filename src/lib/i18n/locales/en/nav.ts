@@ -18,6 +18,7 @@ export default {
   soon: 'soon',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
+  reorderHint: 'Drag items to reorder, or Alt+↑/↓ when focused',
   attention: 'Needs attention',
   attentionCount: 'Needs attention: {count}',
 

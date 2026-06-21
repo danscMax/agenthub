@@ -15,6 +15,7 @@
   import DropdownMenu from './DropdownMenu.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
   import StackHealthCard from './StackHealthCard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
 
   let {
     engines,
@@ -137,11 +138,17 @@
   // Stack process info (PID + uptime per port), refreshed whenever the stack list changes.
   let procs = $state<StackProc[]>([]);
   const procByPort = $derived(new Map(procs.map((p) => [p.port, p])));
+  let procsSeq = 0; // generation token: ignore a probe that a newer one has superseded.
   $effect(() => {
     stackList.length; // re-probe when the set of services changes
+    const seq = ++procsSeq;
     readStackProcs()
-      .then((r) => (procs = r))
-      .catch(() => (procs = []));
+      .then((r) => {
+        if (seq === procsSeq) procs = r;
+      })
+      .catch(() => {
+        if (seq === procsSeq) procs = [];
+      });
   });
   function fmtUptime(sec: number): string {
     if (sec <= 0) return '';
@@ -244,6 +251,18 @@
     onMyProviderAddKey(id, k);
     newKey = { ...newKey, [id]: '' };
   }
+  // Removing a key deletes it from Credential Manager (irreversible) — gate behind a confirm,
+  // consistent with the provider Delete/Clear actions. The parent owns the global confirm dialog,
+  // but key removal is local to this surface, so confirm here via the canonical ConfirmDialog.
+  let removeKeyTarget = $state<{ id: string; index: number } | null>(null);
+  function confirmRemoveKey(id: string, index: number) {
+    removeKeyTarget = { id, index };
+  }
+  function doRemoveKey() {
+    const tgt = removeKeyTarget;
+    removeKeyTarget = null;
+    if (tgt) onMyProviderRemoveKey(tgt.id, tgt.index);
+  }
 </script>
 
 <div class="p-sw-6">
@@ -274,6 +293,16 @@
     profiles={profileNames}
     onSubmit={mpDlgSubmit}
     onCancel={() => (mpDlgOpen = false)}
+  />
+
+  <ConfirmDialog
+    open={removeKeyTarget !== null}
+    title={t('myProviders.removeKey')}
+    message={t('myProviders.removeKeyTitle')}
+    confirmLabel={t('myProviders.removeKey')}
+    danger={true}
+    onConfirm={doRemoveKey}
+    onCancel={() => (removeKeyTarget = null)}
   />
 
   <!-- System health (real /health probes of the stack services) -->
@@ -572,11 +601,11 @@
                 {t('myProviders.nextKey')}
               </button>
             {/if}
-            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!p.hasKey || h === 'checking'}
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !p.hasKey || h === 'checking'}
               onclick={() => check(p.id)} title={t('myProviders.checkTitle')}>
               {h === 'checking' ? t('myProviders.checking') : t('myProviders.check')}
             </button>
-            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!p.hasKey || bal === 'checking'}
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !p.hasKey || bal === 'checking'}
               onclick={() => checkBalance(p.id)} title={t('myProviders.balanceTitle')}>
               {bal === 'checking' ? t('myProviders.checking') : t('myProviders.balance')}
             </button>
@@ -595,15 +624,18 @@
           {#if keysOpen[p.id]}
             <div class="flex flex-col gap-sw-2 rounded border border-sw-border bg-sw-bg-subtle p-sw-2">
               <p class="text-sw-xs text-sw-text-muted">{t('myProviders.keysHint')}</p>
-              {#if p.keyCount > 1}
+              {#if p.hasKey}
+                <!-- Show the slot list whenever a key exists; legacy single keys report keyCount 0,
+                     so normalize to at least one slot so the lone key is still manageable. -->
+                {@const slotCount = Math.max(1, p.keyCount)}
                 <ul class="flex flex-col gap-1">
-                  {#each Array(p.keyCount) as _, i (i)}
+                  {#each Array(slotCount) as _, i (i)}
                     <li class="flex items-center justify-between gap-sw-2 text-sw-xs">
                       <span class={i === p.activeKey ? 'font-medium text-sw-text' : 'text-sw-text-secondary'}>
                         {t('myProviders.keySlot')} {i + 1}{i === p.activeKey ? ` — ${t('myProviders.keyActive')}` : ''}
                       </span>
                       <button class="sw-btn sw-btn-ghost text-[11px]" disabled={busy}
-                        onclick={() => onMyProviderRemoveKey(p.id, i)} title={t('myProviders.removeKeyTitle')}>
+                        onclick={() => confirmRemoveKey(p.id, i)} title={t('myProviders.removeKeyTitle')}>
                         {t('myProviders.removeKey')}
                       </button>
                     </li>

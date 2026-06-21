@@ -84,7 +84,7 @@
 
 <ModalShell open={open && !!profile} onClose={onCancel} size="md">
   {#if profile}
-      <h3>{t('profiles.lcTitle', { name: profile.name })}</h3>
+      <h3 class="dlg-h">{t('profiles.lcTitle', { name: profile.name })}</h3>
 
       <div class="chk mb-sw-3">
         <Toggle bind:checked={lean} title={t('profiles.lcLeanToggle')} />
@@ -106,7 +106,7 @@
         </p>
 
         {#if tokenAuth}
-          <div class="fld">
+          <div class="dlg-fld">
             <span>{t('profiles.lcMcpLabel')}</span>
             {#if availableMcp.length}
               <div class="grid grid-cols-2 gap-1">
@@ -155,7 +155,7 @@
         </p>
       </div>
 
-      <div class="row">
+      <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('profiles.lcCancelTip')}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!!measuring} onclick={apply} title={t('profiles.lcApplyTip')}>{t('common.apply')}</button>
       </div>
@@ -163,31 +163,9 @@
 </ModalShell>
 
 <style>
-  h3 {
-    margin: 0 0 var(--sw-space-4);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--sw-text-primary);
-  }
-  .fld {
-    display: block;
-    margin-bottom: var(--sw-space-3);
-  }
-  .fld > span {
-    display: block;
-    margin-bottom: 6px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
-  }
   .chk {
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  .row {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--sw-space-2);
-    margin-top: var(--sw-space-6);
   }
 </style>

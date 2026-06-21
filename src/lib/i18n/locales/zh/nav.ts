@@ -18,6 +18,7 @@ export default {
   soon: '即将推出',
   collapseSidebar: '收起侧栏',
   expandSidebar: '展开侧栏',
+  reorderHint: '拖动项目可重新排序，或聚焦时按 Alt+↑/↓',
   attention: '需要关注',
   attentionCount: '需要关注：{count}',
 

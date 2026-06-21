@@ -280,6 +280,45 @@
   .card-grid > .grid-head {
     grid-column: 1 / -1;
   }
+
+  /* Shared modal-form primitives (used by the ModalShell dialogs: provider/profile/session
+     editors). One canonical set so each dialog stops re-declaring identical h3/field/row/warn/hint
+     CSS. Dialogs override only genuinely-specific tweaks locally (e.g. a tighter h3 margin). */
+  .dlg-h {
+    margin: 0 0 var(--sw-space-4);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--sw-text-primary);
+  }
+  .dlg-fld {
+    display: block;
+    margin-bottom: var(--sw-space-3);
+  }
+  /* Field label = the field's first span only; trailing .dlg-hint/.dlg-warn spans style themselves. */
+  .dlg-fld > span:first-child {
+    display: block;
+    margin-bottom: 6px;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-secondary);
+  }
+  .dlg-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sw-space-2);
+    margin-top: var(--sw-space-6);
+  }
+  .dlg-warn {
+    display: block;
+    margin-top: 4px;
+    color: var(--sw-warn);
+    font-size: var(--sw-text-xs);
+  }
+  .dlg-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-muted);
+  }
 }
 
 /* Custom scrollbar */

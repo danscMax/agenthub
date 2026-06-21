@@ -860,6 +860,8 @@ fn valid_profile_name(s: &str) -> bool {
 
 /// Profile lifecycle: add / remove / rename / recolor / redescribe / set-links via Manage-Profiles.ps1.
 #[tauri::command]
+// command handler: args come from the JS invoke boundary
+#[allow(clippy::too_many_arguments)]
 async fn run_profile_mgmt(
     app: AppHandle,
     state: State<'_, RunState>,
@@ -2023,7 +2025,7 @@ async fn run_engine(
             }
             let dir = path.parent().map(|p| p.display().to_string());
             if cmd.to_lowercase().ends_with(".py") {
-                spawn_engine_detached("python", &[cmd.clone()], dir.as_deref())?;
+                spawn_engine_detached("python", std::slice::from_ref(&cmd), dir.as_deref())?;
             } else {
                 spawn_engine_detached(&cmd, &[], dir.as_deref())?;
             }
@@ -2647,6 +2649,8 @@ fn apply_provider_env(
 
 /// Bind (set) or unbind (clear) a profile's provider (native; was Manage-Provider.ps1).
 #[tauri::command]
+// command handler: args come from the JS invoke boundary
+#[allow(clippy::too_many_arguments)]
 async fn run_provider(
     app: AppHandle,
     state: State<'_, RunState>,
@@ -3940,6 +3944,8 @@ fn opencode_provider_native(
 /// Manage-OpenCode-Provider (native): merge-patch of opencode.json. apiKey: literal `key`, else
 /// `{env:env_key}`, else keep existing.
 #[tauri::command]
+// command handler: args come from the JS invoke boundary
+#[allow(clippy::too_many_arguments)]
 async fn run_opencode_provider(
     app: AppHandle,
     state: State<'_, RunState>,
@@ -5322,7 +5328,6 @@ fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String
 // Each session runs a profile's `claude` in a true PTY (portable-pty) so its TUI renders in an
 // xterm.js pane. Output streams to the frontend as base64 frames on a per-session event; input and
 // resize flow back via commands. The live sessions live in Tauri-managed state.
-
 struct PtySession {
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
@@ -5349,6 +5354,8 @@ fn gen_session_id() -> String {
 /// Spawn a tool (claude / opencode / shell) inside a real PTY and stream its output. Returns the
 /// session id. Output → event `pty:data:<id>` (base64); termination → `pty:exit:<id>` (exit i32).
 #[tauri::command]
+// command handler: args come from the JS invoke boundary
+#[allow(clippy::too_many_arguments)]
 fn session_spawn(
     app: AppHandle,
     state: State<'_, SessionState>,

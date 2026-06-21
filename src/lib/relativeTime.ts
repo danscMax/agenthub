@@ -6,13 +6,25 @@ export function localeTag(): string {
   return locale.current === 'ru' ? 'ru-RU' : locale.current === 'zh' ? 'zh-CN' : 'en-US';
 }
 
+// One RelativeTimeFormat per locale tag — constructing the formatter is the expensive part,
+// and a 50-row table calls relTime() once per row, so we cache and rebuild only on tag change.
+const rtfCache = new Map<string, Intl.RelativeTimeFormat>();
+function relTimeFormat(tag: string): Intl.RelativeTimeFormat {
+  let rtf = rtfCache.get(tag);
+  if (!rtf) {
+    rtf = new Intl.RelativeTimeFormat(tag, { numeric: 'auto' });
+    rtfCache.set(tag, rtf);
+  }
+  return rtf;
+}
+
 // Locale-aware "2 hours ago" / "через 3 дня" formatter, shared across tabs so relative
 // timestamps read the same everywhere. Returns '' for missing/unparseable input.
 export function relTime(ts?: string | null, now = Date.now()): string {
   if (!ts) return '';
   const d = new Date(ts).getTime();
   if (Number.isNaN(d)) return '';
-  const rtf = new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' });
+  const rtf = relTimeFormat(localeTag());
   const sec = Math.round((d - now) / 1000);
   const abs = Math.abs(sec);
   if (abs < 60) return rtf.format(sec, 'second');
