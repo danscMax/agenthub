@@ -398,6 +398,8 @@
     height: 100%;
     cursor: col-resize;
     z-index: 2;
+    /* Persistent faint 1px divider at the column boundary so it's clear where to grab. */
+    background: linear-gradient(to right, transparent 3px, var(--sw-border) 3px, var(--sw-border) 4px, transparent 4px);
   }
   .dt-resize:hover {
     background: linear-gradient(to right, transparent 3px, var(--sw-accent-text) 3px, var(--sw-accent-text) 5px, transparent 5px);
