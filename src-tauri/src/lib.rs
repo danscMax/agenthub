@@ -5348,7 +5348,8 @@ fn gen_session_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let seq = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
-    format!("s{:013x}{:03x}", (n as u64) & 0x0000_ffff_ffff_ffff, seq & 0xfff)
+    // 12 hex of (48-bit) nanos + 3 hex of counter = 15 hex → "s" + 15 = 16-char id (shape contract).
+    format!("s{:012x}{:03x}", (n as u64) & 0x0000_ffff_ffff_ffff, seq & 0xfff)
 }
 
 /// Spawn a tool (claude / opencode / shell) inside a real PTY and stream its output. Returns the
