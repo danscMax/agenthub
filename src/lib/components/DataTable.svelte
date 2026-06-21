@@ -105,8 +105,11 @@
   function startResize(e: PointerEvent, key: string) {
     e.preventDefault();
     e.stopPropagation();
-    const th = (e.currentTarget as HTMLElement).closest('th') as HTMLElement | null;
+    const handle = e.currentTarget as HTMLElement;
+    const th = handle.closest('th') as HTMLElement | null;
     if (!th) return;
+    // Capture the pointer so move/up keep firing even if the cursor outruns the 8px handle.
+    handle.setPointerCapture?.(e.pointerId);
     const startX = e.clientX;
     const startW = th.offsetWidth;
     resizing = true;
@@ -114,6 +117,7 @@
       colW = { ...colW, [key]: `${Math.max(60, startW + (ev.clientX - startX))}px` };
     };
     const up = () => {
+      handle.releasePointerCapture?.(e.pointerId);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       if (storageKey) {
@@ -198,7 +202,12 @@
       selected = new Set([...selected, ...visibleKeys]);
     }
   }
-  const colSpan = $derived(columns.length + (expand ? 1 : 0) + (selectable ? 1 : 0));
+  // +1 for the trailing flex spacer column (the sole slack absorber → predictable resize, no reflow).
+  const colSpan = $derived(columns.length + (expand ? 1 : 0) + (selectable ? 1 : 0) + 1);
+  // Column width source of truth, applied via <colgroup> (best practice for table-layout:fixed). A
+  // resized width wins; else the configured width; else a default so the SPACER is the only auto col.
+  const colWidth = (c: { key: string; width?: string; grow?: boolean }): string =>
+    colW[c.key] ?? c.width ?? (c.grow ? '260px' : '160px');
   const rowExpandable = (r: any) => !!expand && (!canExpand || canExpand(r));
 </script>
 
@@ -221,6 +230,12 @@
 
   <div class="dt-scroll">
     <table class="dt">
+      <colgroup>
+        {#if selectable}<col style="width:36px" />{/if}
+        {#if expand}<col style="width:28px" />{/if}
+        {#each columns as c (c.key)}<col style={`width:${colWidth(c)}`} />{/each}
+        <col class="dt-col-spacer" />
+      </colgroup>
       <thead>
         <tr>
           {#if selectable}
@@ -235,7 +250,6 @@
               class:sortable={c.sortable}
               class:active={sortKey === c.key}
               class:grow={c.grow}
-              style={colW[c.key] ?? c.width ? `width:${colW[c.key] ?? c.width}` : ''}
               onclick={() => { if (!resizing) toggleSort(c); }}
               aria-sort={sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
             >
@@ -243,6 +257,7 @@
               {#if i < columns.length - 1}<span class="dt-resize" onpointerdown={(e) => startResize(e, c.key)} onclick={(e) => e.stopPropagation()} role="separator" aria-hidden="true"></span>{/if}
             </th>
           {/each}
+          <th class="dt-spacer" aria-hidden="true"></th>
         </tr>
       </thead>
       <tbody>
@@ -268,6 +283,7 @@
             {#each columns as c (c.key)}
               <td class="align-{c.align ?? 'left'}" onclick={c.interactive ? (e) => e.stopPropagation() : undefined}>{@render cell(row, c)}</td>
             {/each}
+            <td class="dt-spacer"></td>
           </tr>
           {#if expand && exp && openKeys.has(k)}
             <tr class="dt-detail">
@@ -325,6 +341,14 @@
     font-size: var(--sw-text-sm);
     font-variant-numeric: tabular-nums;
     table-layout: fixed;
+  }
+  /* Trailing flex column: the ONLY auto-width column, so it absorbs all slack (data columns stay
+     compact, no bloat) and absorbs resize deltas (the dragged border tracks the cursor 1:1). */
+  .dt-col-spacer {
+    width: auto;
+  }
+  .dt-spacer {
+    padding: 0;
   }
   /* fixed layout → cells never widen the table; long text truncates via the cell content */
   .dt tbody td > :global(.truncate),
