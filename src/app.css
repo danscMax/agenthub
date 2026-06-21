@@ -204,6 +204,30 @@
   .light .badge-info {
     @apply text-sky-700;
   }
+  /* Status TEXT colours (shared via lib/statusColor.ts → statusTextClass). Same canon as the
+     badges: *-400 in dark, darkened to *-600/700 in light so normal text clears WCAG 4.5:1 on
+     the near-white card (dark *-400 is ~1.7-2.9:1 there). Dark values are unchanged. */
+  .status-ok {
+    @apply text-emerald-400;
+  }
+  .status-warn {
+    @apply text-amber-400;
+  }
+  .status-bad {
+    @apply text-red-400;
+  }
+  .status-muted {
+    @apply text-sw-text-muted;
+  }
+  .light .status-ok {
+    @apply text-emerald-700;
+  }
+  .light .status-warn {
+    @apply text-amber-700;
+  }
+  .light .status-bad {
+    @apply text-red-700;
+  }
   .sw-input {
     @apply rounded-md px-3 py-2 text-sw-sm;
     background: var(--sw-bg-secondary);

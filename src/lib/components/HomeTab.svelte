@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { statusTextClass } from '$lib/statusColor';
   import type { SyncStatus, ConfigDriftStatus, ProfilesStatus, SchedulesStatus } from '$lib/ipc';
 
   // USE-1: single-pane "is my Claude setup healthy?" overview. Pure aggregation of data the
@@ -90,15 +91,8 @@
     chips.some((c) => c.level === 'bad' || c.level === 'warn') ? 'warn' : chips.some((c) => c.level === 'ok') ? 'ok' : 'muted'
   );
 
-  function color(level: Level) {
-    return level === 'ok'
-      ? 'text-emerald-400'
-      : level === 'warn'
-        ? 'text-amber-400'
-        : level === 'bad'
-          ? 'text-red-400'
-          : 'text-sw-text-muted';
-  }
+  // Theme-aware status text colour (shared source; light theme darkens to meet WCAG contrast).
+  const color = (level: Level) => statusTextClass(level);
 </script>
 
 <div class="p-sw-6">

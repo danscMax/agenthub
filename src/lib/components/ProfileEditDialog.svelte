@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
+  import { PROFILE_COLORS, PROFILE_SWATCH } from '$lib/statusColor';
   import ModalShell from './ModalShell.svelte';
 
   type Mode = 'add' | 'rename' | 'recolor' | 'redescribe';
@@ -21,39 +22,6 @@
     onSubmit: (v: { name: string; color: string; description: string }) => void;
     onCancel: () => void;
   } = $props();
-
-  const COLORS = [
-    'Cyan',
-    'Green',
-    'Yellow',
-    'Magenta',
-    'Blue',
-    'Red',
-    'White',
-    'Gray',
-    'DarkCyan',
-    'DarkGreen',
-    'DarkYellow',
-    'DarkMagenta',
-    'DarkBlue',
-    'DarkRed'
-  ];
-  const SWATCH: Record<string, string> = {
-    Cyan: '#22d3ee',
-    Green: '#34d399',
-    Yellow: '#fbbf24',
-    Magenta: '#e879f9',
-    Blue: '#60a5fa',
-    Red: '#f87171',
-    White: '#e5e7eb',
-    Gray: '#9ca3af',
-    DarkCyan: '#0e7490',
-    DarkGreen: '#15803d',
-    DarkYellow: '#a16207',
-    DarkMagenta: '#a21caf',
-    DarkBlue: '#1d4ed8',
-    DarkRed: '#b91c1c'
-  };
 
   let name = $state('');
   let color = $state('White');
@@ -113,12 +81,12 @@
         <label class="fld">
           <span>{t('profiles.dlgColor')}</span>
           <div class="colors">
-            {#each COLORS as c (c)}
+            {#each PROFILE_COLORS as c (c)}
               <button
                 type="button"
                 class="swatch"
                 class:sel={color === c}
-                style="background:{SWATCH[c]}"
+                style="background:{PROFILE_SWATCH[c]}"
                 title={c}
                 aria-label={c}
                 onclick={() => (color = c)}

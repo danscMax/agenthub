@@ -14,6 +14,7 @@
   import { readProfileFile } from '$lib/ipc';
   import { copyText } from '$lib/clipboard';
   import { relTime } from '$lib/relativeTime';
+  import { profileDotColor } from '$lib/statusColor';
   import ProfileEditDialog from './ProfileEditDialog.svelte';
   import LaunchConfigDialog from './LaunchConfigDialog.svelte';
   import ProviderEditDialog from './ProviderEditDialog.svelte';
@@ -215,16 +216,8 @@
   const conflictCount = $derived(conflicts?.count ?? 0);
   const hasIssues = $derived(brokenLinks.length > 0 || missing.length > 0 || conflictCount > 0);
 
-  const COLORS: Record<string, string> = {
-    Cyan: '#22d3ee',
-    Green: '#34d399',
-    Yellow: '#fbbf24',
-    Magenta: '#e879f9',
-    Red: '#f87171'
-  };
-  function dot(c: string) {
-    return COLORS[c] ?? '#94a3b8';
-  }
+  // Profile colour-name -> dot hex (shared source; falls back to neutral slate for unknown names).
+  const dot = (c: string) => profileDotColor(c);
 
   function linkLabel(kind: string | null) {
     if (kind === 'Junction') return t('profiles.linkJunction');

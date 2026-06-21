@@ -1051,7 +1051,7 @@ fn run_attrib(flags: &[&str], path: &str) {
     let _ = c.status();
 }
 
-/// Write UTF-8 without BOM, tolerating a Hidden/ReadOnly target (clear attrs, write, restore Hidden).
+/// Write UTF-8 without BOM, tolerating a Hidden/ReadOnly target (clear attrs, write, restore both).
 fn write_file_no_bom(path: &str, content: &str) -> std::io::Result<()> {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
@@ -1065,8 +1065,58 @@ fn write_file_no_bom(path: &str, content: &str) -> std::io::Result<()> {
         run_attrib(&["-h", "-r"], path);
     }
     std::fs::write(path, content)?;
+    // Restore whatever attrs the target carried; previously +r was dropped on every write.
     if was_hidden {
         run_attrib(&["+h"], path);
+    }
+    if was_ro {
+        run_attrib(&["+r"], path);
+    }
+    Ok(())
+}
+
+/// Durable config write: back up the existing target to `<path>.bak`, write the new content to a
+/// temp file in the same directory (UTF-8 **no BOM**, attribute-aware via `write_file_no_bom`),
+/// then atomically rename it over the target (`std::fs::rename` replaces on Windows). A crash mid-
+/// write leaves either the old file or the temp behind — never a half-written/blanked target.
+/// Single DRY entry for every Castellyn config writer (myproviders/engines/router/opencode/config).
+fn write_json_atomic(path: &str, content: &str) -> std::io::Result<()> {
+    let p = std::path::Path::new(path);
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    // Snapshot the target's Hidden/ReadOnly so the rename can replace a RO/Hidden file (a plain
+    // rename onto a ReadOnly target fails on Windows) and we can re-stamp the attrs afterwards —
+    // preserving the attr-tolerance the direct no-BOM writer gave every target before this helper.
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    let meta = std::fs::metadata(path).ok();
+    let was_hidden = meta
+        .as_ref()
+        .map(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
+        .unwrap_or(false);
+    let was_ro = meta.as_ref().map(|m| m.permissions().readonly()).unwrap_or(false);
+    // Back up the prior good copy before we touch anything (best-effort, mirrors the old writers).
+    if p.exists() {
+        let _ = std::fs::copy(path, format!("{path}.bak"));
+    }
+    if was_hidden || was_ro {
+        run_attrib(&["-h", "-r"], path);
+    }
+    // Temp in the SAME dir so the rename is a same-volume atomic replace.
+    let tmp = format!("{path}.tmp");
+    write_file_no_bom(&tmp, content)?;
+    // rename() overwrites the destination on Windows (unlike POSIX hard semantics, std handles this).
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp); // don't leave a stray .tmp on failure
+        return Err(e);
+    }
+    // Re-stamp the attributes the caller's file carried before the swap.
+    if was_hidden {
+        run_attrib(&["+h"], path);
+    }
+    if was_ro {
+        run_attrib(&["+r"], path);
     }
     Ok(())
 }
@@ -1228,11 +1278,8 @@ fn sync_set(enabled: &[String]) -> Result<i32, String> {
         .collect();
     let content = build_stignore(&items);
 
-    // Backup + write the source-of-truth config.
+    // Backup + atomic write of the source-of-truth config.
     let cfg = abs(SYNC_CONFIG_REL);
-    if std::path::Path::new(&cfg).exists() {
-        let _ = std::fs::copy(&cfg, format!("{cfg}.bak"));
-    }
     let items_obj: serde_json::Map<String, serde_json::Value> =
         items.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect();
     let payload = serde_json::json!({
@@ -1241,19 +1288,13 @@ fn sync_set(enabled: &[String]) -> Result<i32, String> {
         "items": items_obj,
     });
     let cfg_json = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
-    write_file_no_bom(&cfg, &cfg_json).map_err(|e| format!("write sync-config.json: {e}"))?;
+    write_json_atomic(&cfg, &cfg_json).map_err(|e| format!("write sync-config.json: {e}"))?;
 
     // Regenerate canonical (config\.stignore, backed up) + live (~/.claude/.stignore).
     let canon = abs(SYNC_CANON_STIGNORE_REL);
-    if std::path::Path::new(&canon).exists() {
-        let _ = std::fs::copy(&canon, format!("{canon}.bak"));
-    }
-    write_file_no_bom(&canon, &content).map_err(|e| format!("write config\\.stignore: {e}"))?;
+    write_json_atomic(&canon, &content).map_err(|e| format!("write config\\.stignore: {e}"))?;
     let live = live_stignore_path();
-    if let Some(dir) = std::path::Path::new(&live).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    write_file_no_bom(&live, &content).map_err(|e| format!("write ~/.claude/.stignore: {e}"))?;
+    write_json_atomic(&live, &content).map_err(|e| format!("write ~/.claude/.stignore: {e}"))?;
 
     syncthing_rescan();
     Ok(0)
@@ -1822,7 +1863,8 @@ fn update_engine(id: String, base_url: String, port: u16) -> Result<(), String> 
         return Err(trv("err.engine_not_found", cur_lang(), &[("id", &id)]));
     }
     let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("write engines.json: {e}"))?;
+    // Atomic temp+rename (+ .bak): a crash mid-write must never blank the engines tab.
+    write_json_atomic(&path, &json).map_err(|e| format!("write engines.json: {e}"))?;
     Ok(())
 }
 
@@ -2084,13 +2126,7 @@ fn apply_router_config(
         .unwrap()
         .insert("default".into(), json!(format!("{name},{model}")));
 
-    // Backup then write (UTF-8 no BOM).
-    if let Some(dir) = std::path::Path::new(cfg_path).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if std::path::Path::new(cfg_path).exists() {
-        let _ = std::fs::copy(cfg_path, format!("{cfg_path}.bak"));
-    }
+    // Backup + atomic write (temp+rename, UTF-8 no BOM).
     let serialized = match serde_json::to_string_pretty(&cfg) {
         Ok(s) => s,
         Err(e) => {
@@ -2098,7 +2134,7 @@ fn apply_router_config(
             return 1;
         }
     };
-    if let Err(e) = write_file_no_bom(cfg_path, &serialized) {
+    if let Err(e) = write_json_atomic(cfg_path, &serialized) {
         err(&trv("log.write_config_err", cur_lang(), &[("e", &e)]));
         return 1;
     }
@@ -2580,13 +2616,7 @@ fn apply_provider_env(
         sobj.remove("env");
     }
 
-    // Backup then write (UTF-8 no BOM).
-    if let Some(dir) = std::path::Path::new(settings_path).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if std::path::Path::new(settings_path).exists() {
-        let _ = std::fs::copy(settings_path, format!("{settings_path}.bak"));
-    }
+    // Backup + atomic write (temp+rename, UTF-8 no BOM).
     let serialized = match serde_json::to_string_pretty(&settings) {
         Ok(s) => s,
         Err(e) => {
@@ -2594,7 +2624,7 @@ fn apply_provider_env(
             return 1;
         }
     };
-    if let Err(e) = write_file_no_bom(settings_path, &serialized) {
+    if let Err(e) = write_json_atomic(settings_path, &serialized) {
         err(&trv("log.write_settings", cur_lang(), &[("e", &e)]));
         return 1;
     }
@@ -2830,15 +2860,9 @@ fn read_myproviders_raw() -> Vec<serde_json::Value> {
 
 fn write_myproviders_raw(list: &[serde_json::Value]) -> Result<(), String> {
     let path = abs(MYPROVIDERS_CONFIG_REL);
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if std::path::Path::new(&path).exists() {
-        let _ = std::fs::copy(&path, format!("{path}.bak"));
-    }
     let v = serde_json::json!({ "schemaVersion": 1, "providers": list });
     let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("write myproviders.json: {e}"))
+    write_json_atomic(&path, &json).map_err(|e| format!("write myproviders.json: {e}"))
 }
 
 fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
@@ -3871,13 +3895,7 @@ fn opencode_provider_native(
         out(&trv("log.provider_removed", cur_lang(), &[("provider_id", &provider_id)]));
     }
 
-    // Backup then write (UTF-8 no BOM).
-    if let Some(dir) = std::path::Path::new(cfg_path).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if std::path::Path::new(cfg_path).exists() {
-        let _ = std::fs::copy(cfg_path, format!("{cfg_path}.bak"));
-    }
+    // Backup + atomic write (temp+rename, UTF-8 no BOM).
     let serialized = match serde_json::to_string_pretty(&cfg) {
         Ok(s) => s,
         Err(e) => {
@@ -3885,7 +3903,7 @@ fn opencode_provider_native(
             return 1;
         }
     };
-    if let Err(e) = write_file_no_bom(cfg_path, &serialized) {
+    if let Err(e) = write_json_atomic(cfg_path, &serialized) {
         err(&trv("log.write_opencode", cur_lang(), &[("e", &e)]));
         return 1;
     }
@@ -4659,11 +4677,9 @@ fn read_config() -> HubConfig {
 /// Serialize a config to disk verbatim (no field preservation). The single file-write primitive.
 fn write_config_file(config: &HubConfig) -> Result<(), String> {
     let p = config_path().ok_or_else(|| tr("err.no_appdata", cur_lang()).to_string())?;
-    if let Some(dir) = std::path::Path::new(&p).parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
     let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    std::fs::write(&p, json)
+    // Atomic temp+rename (+ .bak), UTF-8 no BOM — a crash must never blank config.json.
+    write_json_atomic(&p, &json)
         .map_err(|e| trv("err.write_config", cur_lang(), &[("e", &e.to_string())]))?;
     Ok(())
 }
@@ -4916,11 +4932,8 @@ fn set_launch_config(
         name,
         serde_json::json!({ "mode": mode, "mcp": mcp, "claudeMd": claude_md }),
     );
-    if std::path::Path::new(&path).exists() {
-        let _ = std::fs::copy(&path, format!("{path}.bak"));
-    }
     let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("write profile-launch.json: {e}"))?;
+    write_json_atomic(&path, &json).map_err(|e| format!("write profile-launch.json: {e}"))?;
     Ok(())
 }
 

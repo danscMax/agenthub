@@ -2,12 +2,10 @@
   import { readFreellmapiAnalytics, type FreellmapiAnalytics, type AnalyticsModel } from '$lib/ipc';
   import { t, locale } from '$lib/i18n';
   import { pushToast } from '$lib/toast.svelte';
+  import { chartSeriesColor } from '$lib/statusColor';
   import Sparkline from './Sparkline.svelte';
 
   let { onOpenProviders }: { onOpenProviders?: () => void } = $props();
-
-  // Stacked-bar / legend colours, cycled by model index.
-  const SEG_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
   // Range presets (hours). Self-contained: this tab owns its fetch + range state.
   const ranges = [
@@ -192,7 +190,7 @@
             name: m.displayName,
             cost: m.estimatedCost,
             pct: (m.estimatedCost / totalCost) * 100,
-            color: SEG_COLORS[i % SEG_COLORS.length]
+            color: chartSeriesColor(i)
           }))
       : []
   );

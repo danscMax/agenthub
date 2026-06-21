@@ -1,6 +1,7 @@
 <script lang="ts">
   import { readStackHealth, type StackHealth } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import { statusFillVar } from '$lib/statusColor';
 
   // onStart lets a stopped service be brought up straight from the health list (id → start).
   let { onStart, busy = false }: { onStart?: (id: string) => void; busy?: boolean } = $props();
@@ -32,11 +33,13 @@
     if (s.healthy === false) return 'degraded';
     return 'up';
   }
+  // Status fill colours come from the shared source (lib/statusColor.ts); these saturated
+  // --sw-status-* tokens read fine on both themes (a small dot has no 4.5:1 requirement).
   const dot = {
-    up: 'var(--sw-status-up)',
-    degraded: 'var(--sw-status-degraded)',
-    down: 'var(--sw-status-down)',
-    off: 'var(--sw-status-off)'
+    up: statusFillVar('up'),
+    degraded: statusFillVar('degraded'),
+    down: statusFillVar('down'),
+    off: statusFillVar('off')
   } as const;
   // Stopped non-gateway backends are neutral grey; a dead gateway / sick service keep alarm colours.
   function dotColor(s: StackHealth): string {

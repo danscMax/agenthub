@@ -10,6 +10,7 @@
   import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, type StackProc, type ProviderBalance } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import { pushToast } from '$lib/toast.svelte';
+  import { statusTextClass } from '$lib/statusColor';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
@@ -346,7 +347,7 @@
               </button>
             </div>
             {#if hc && hc !== 'checking'}
-              <p class="text-sw-xs {hc.ok ? 'text-emerald-400' : 'text-red-400'}">{hc.ok ? '✓' : '✗'} {hc.detail}</p>
+              <p class="text-sw-xs {statusTextClass(hc.ok ? 'ok' : 'bad')}">{hc.ok ? '✓' : '✗'} {hc.detail}</p>
             {/if}
           </div>
         {/each}
@@ -457,7 +458,7 @@
             </button>
           </div>
           {#if he && he !== 'checking'}
-            <p class="text-sw-xs {he.ok ? 'text-emerald-400' : 'text-red-400'}">{he.ok ? '✓' : '✗'} {he.detail}</p>
+            <p class="text-sw-xs {statusTextClass(he.ok ? 'ok' : 'bad')}">{he.ok ? '✓' : '✗'} {he.detail}</p>
           {/if}
         </div>
       {/each}
