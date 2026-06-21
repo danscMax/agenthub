@@ -21,6 +21,7 @@
   import type { Theme } from '$lib/theme';
   import { t, locale, getLocaleName, type Locale } from '$lib/i18n';
   import { copyText } from '$lib/clipboard';
+  import { pushToast } from '$lib/toast.svelte';
   import Toggle from './Toggle.svelte';
 
   let {
@@ -262,7 +263,7 @@
         {#each locale.supported as loc (loc)}
           <button
             class="sw-btn {locale.current === loc ? 'sw-btn-primary' : 'sw-btn-ghost'}"
-            onclick={() => { locale.set(loc as Locale); setLanguage(loc).catch(() => {}); }}
+            onclick={() => { locale.set(loc as Locale); setLanguage(loc).catch((e) => pushToast({ kind: 'error', title: t('common.error'), detail: String(e) })); }}
             title={t('settings.languageTip')}
           >
             {getLocaleName(loc as Locale)}

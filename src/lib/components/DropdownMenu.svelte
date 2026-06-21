@@ -25,6 +25,7 @@
 
   let open = $state(false);
   let root = $state<HTMLElement | undefined>();
+  let menuEl = $state<HTMLElement | undefined>();
 
   function toggle() {
     if (disabled) return;
@@ -37,6 +38,21 @@
   }
   function onDocClick(e: MouseEvent) {
     if (open && root && !root.contains(e.target as Node)) open = false;
+  }
+  // Roving focus across menuitems with the arrow keys (plus Home/End).
+  function onMenuKey(e: KeyboardEvent) {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(e.key) || !menuEl) return;
+    const btns = Array.from(menuEl.querySelectorAll<HTMLButtonElement>('.item:not(:disabled)'));
+    if (!btns.length) return;
+    e.preventDefault();
+    const cur = btns.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = btns.length - 1;
+    else if (e.key === 'ArrowDown') next = cur < 0 ? 0 : (cur + 1) % btns.length;
+    else next = cur <= 0 ? btns.length - 1 : cur - 1;
+    btns[next].focus();
   }
 </script>
 
@@ -55,7 +71,7 @@
     {#if label}{label} <span class="caret">▾</span>{:else}<span class="dots" aria-hidden="true">⋯</span>{/if}
   </button>
   {#if open}
-    <div class="menu" role="menu" use:anchored={{ anchor: root!, align }}>
+    <div class="menu" role="menu" tabindex="-1" bind:this={menuEl} onkeydown={onMenuKey} use:anchored={{ anchor: root!, align }}>
       {#each items as it (it.label)}
         <button
           class="item"

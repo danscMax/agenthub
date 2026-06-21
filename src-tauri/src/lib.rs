@@ -1122,11 +1122,14 @@ fn syncthing_status() -> serde_json::Value {
     let mut out = serde_json::Map::new();
     out.insert("available".into(), serde_json::json!(false));
     let Some(key) = syncthing_api_key() else {
-        return serde_json::Value::Object(out);
+        return serde_json::Value::Object(out); // no API key configured at all
     };
+    // We have a key → let the UI tell "configured but not answering" apart from "not configured".
+    out.insert("keyConfigured".into(), serde_json::json!(true));
     let agent = st_agent();
     if st_get(&agent, &key, "/rest/system/ping").is_none() {
-        return serde_json::Value::Object(out); // daemon not answering
+        // available stays false; keyConfigured:true signals daemon-down / wrong-key vs unconfigured.
+        return serde_json::Value::Object(out);
     }
     out.insert("available".into(), serde_json::json!(true));
     if let Some(ver) = st_get(&agent, &key, "/rest/system/version")
@@ -1152,7 +1155,9 @@ fn syncthing_status() -> serde_json::Value {
         let n = st.get("needBytes").and_then(|x| x.as_f64()).unwrap_or(0.0);
         out.insert("globalBytes".into(), serde_json::json!(g as i64));
         out.insert("needBytes".into(), serde_json::json!(n as i64));
-        let completion = if g > 0.0 { ((100.0 * (g - n) / g) * 10.0).round() / 10.0 } else { 100.0 };
+        // Clamp: needBytes can momentarily exceed globalBytes mid-scan, which would otherwise yield
+        // a negative or >100 completion.
+        let completion = (if g > 0.0 { (100.0 * (g - n) / g).clamp(0.0, 100.0) } else { 100.0 } * 10.0).round() / 10.0;
         out.insert("completion".into(), serde_json::json!(completion));
     } else {
         out.insert("state".into(), serde_json::json!("unknown"));
@@ -3500,15 +3505,17 @@ fn extract_balance(v: &serde_json::Value) -> Option<(f64, String)> {
         .or_else(|| v.pointer("/balance_infos/0/currency").and_then(|x| x.as_str()))
         .unwrap_or("")
         .to_string();
+    // Prefer keys that mean "remaining balance"; treat limit/quota fields as last-resort fallbacks
+    // so we don't report a hard limit (e.g. hard_limit_usd) as if it were the available balance.
     for p in [
+        "remaining",
         "balance",
         "data.balance",
         "balance_infos.0.total_balance",
         "total_balance",
-        "hard_limit_usd",
-        "quota",
         "data.quota",
-        "remaining",
+        "quota",
+        "hard_limit_usd",
     ] {
         if let Some(n) = json_f64(v, p) {
             return Some((n, cur));
@@ -5232,6 +5239,10 @@ fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let sc = Shortcut::from_str(accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
     let gs = app.global_shortcut();
+    // Probe-register the new combo BEFORE tearing down the old one: if the OS rejects it (already
+    // taken / invalid), the previously-working hotkey stays registered instead of being lost.
+    gs.register(sc).map_err(|e| format!("{e}"))?;
+    // Accepted → clear everything and keep only the new combo (re-register the one we just proved).
     let _ = gs.unregister_all();
     gs.register(sc).map_err(|e| format!("{e}"))
 }
@@ -5258,7 +5269,9 @@ fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String
 struct PtySession {
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
-    child: Box<dyn portable_pty::Child + Send + Sync>,
+    // Killer handle only: the Child itself moves into the reader thread so it can wait() for the
+    // real exit code. session_kill signals termination through this.
+    killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -5322,16 +5335,20 @@ fn session_spawn(
         cmd.cwd(dir);
     }
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
+    use portable_pty::{Child, ChildKiller};
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
     drop(pair.slave); // close the slave in the parent so EOF arrives when the child exits
     let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
     let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
+    // Keep a killer handle for session_kill; the Child moves into the reader thread so it can
+    // wait() and report the tool's REAL exit code instead of a hardcoded 0.
+    let killer: Box<dyn ChildKiller + Send + Sync> = child.clone_killer();
 
     let id = gen_session_id();
     let exit_event = format!("pty:exit:{id}");
 
     // Reader thread: stream PTY output as raw bytes over the binary channel (no base64/JSON event
-    // per chunk) until EOF; then signal termination once.
+    // per chunk) until EOF; then wait for the child and signal termination with its exit code.
     let app2 = app.clone();
     std::thread::spawn(move || {
         use std::io::Read;
@@ -5350,14 +5367,16 @@ fn session_spawn(
                 }
             }
         }
-        let _ = app2.emit(exit_event.as_str(), 0i32);
+        // EOF means the child has exited; surface its real exit code (-1 if wait() fails).
+        let code = Child::wait(&mut *child).map(|s| s.exit_code() as i32).unwrap_or(-1);
+        let _ = app2.emit(exit_event.as_str(), code);
     });
 
     state
         .0
         .lock()
-        .unwrap()
-        .insert(id.clone(), PtySession { master: pair.master, writer, child });
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.clone(), PtySession { master: pair.master, writer, killer });
     update_tray_tooltip(&app);
     Ok(id)
 }
@@ -5366,7 +5385,7 @@ fn session_spawn(
 #[tauri::command]
 fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Result<(), String> {
     use std::io::Write;
-    let mut map = state.0.lock().unwrap();
+    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
     let s = map.get_mut(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
     s.writer.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
     s.writer.flush().map_err(|e| format!("flush: {e}"))
@@ -5376,7 +5395,7 @@ fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Re
 #[tauri::command]
 fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     use portable_pty::PtySize;
-    let map = state.0.lock().unwrap();
+    let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
     let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
     s.master
         .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
@@ -5386,8 +5405,8 @@ fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u
 /// Kill a session's child process and drop it (its reader thread then ends on EOF).
 #[tauri::command]
 fn session_kill(app: AppHandle, state: State<'_, SessionState>, id: String) -> Result<(), String> {
-    if let Some(mut s) = state.0.lock().unwrap().remove(&id) {
-        let _ = s.child.kill();
+    if let Some(mut s) = state.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+        let _ = s.killer.kill();
     }
     update_tray_tooltip(&app);
     Ok(())

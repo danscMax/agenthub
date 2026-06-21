@@ -1,6 +1,7 @@
 <script lang="ts">
   import { readFreellmapiAnalytics, type FreellmapiAnalytics, type AnalyticsModel } from '$lib/ipc';
   import { t, locale } from '$lib/i18n';
+  import { pushToast } from '$lib/toast.svelte';
   import Sparkline from './Sparkline.svelte';
 
   let { onOpenProviders }: { onOpenProviders?: () => void } = $props();
@@ -47,8 +48,10 @@
         data = r;
         cache.set(h, { ts: Date.now(), data: r });
       }
-    } catch {
-      if (loaded === token) data = null;
+    } catch (e) {
+      // Surface a transient backend error as a toast rather than silently collapsing to the
+      // "no usage yet" empty state; keep any last-good data so the view doesn't blank out.
+      if (loaded === token) pushToast({ kind: 'error', title: t('common.error'), detail: String(e) });
     } finally {
       if (loaded === token) loading = false;
     }

@@ -44,6 +44,16 @@
     return () => prev?.focus?.();
   });
 
+  // Lock background scroll while open; restore the exact prior value on close/unmount.
+  $effect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  });
+
   function onBackdrop(e: MouseEvent) {
     if (closeOnBackdrop && e.target === e.currentTarget) onClose();
   }

@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import Select from './Select.svelte';
   import ModalShell from './ModalShell.svelte';
+  import SecretInput from './SecretInput.svelte';
 
   let {
     open,
@@ -99,13 +100,13 @@
       {#if isOpencode}
         <label class="fld">
           <span>{t('providers.rcOpencodeKeyLabel')}</span>
-          <input class="sw-input" type="password" bind:value={apiKey} placeholder={t('providers.rcOpencodeKeyPlaceholder')} spellcheck="false" title={t('providers.rcOpencodeKeyTip')} />
+          <SecretInput bind:value={apiKey} placeholder={t('providers.rcOpencodeKeyPlaceholder')} title={t('providers.rcOpencodeKeyTip')} />
         </label>
       {/if}
 
       <div class="row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
-        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => onSubmit({ model: model.trim(), profile, key: apiKey.trim() })}
+        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => { onSubmit({ model: model.trim(), profile, key: apiKey.trim() }); apiKey = ''; }}
           title={isOpencode ? t('providers.rcOpencodeTip') : direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
           {isOpencode ? t('providers.rcOpencodeBtn') : direct ? t('providers.rcBind') : t('providers.rcConnect')}
         </button>

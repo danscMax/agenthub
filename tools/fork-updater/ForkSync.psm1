@@ -125,7 +125,10 @@ function Resolve-RepoRoles {
                     if ($j.parent) { $parent = ('{0}/{1}' -f $j.parent.owner.login, $j.parent.name) }
                     if ($j.defaultBranchRef) { $defaultBranch = $j.defaultBranchRef.name }
                     $guessed = $false
-                } catch { }
+                } catch {
+                    # Malformed gh payload: warn (named source) but keep heuristic fallback.
+                    Write-Status "$($anchor.OwnerRepo) : не разобрал JSON от 'gh repo view' — $($_.Exception.Message)" 'WARN'
+                }
             }
         }
     }
@@ -334,7 +337,12 @@ function Get-RepoPrs {
         '--json', 'number,state,url,headRefName,headRepositoryOwner,mergedAt,isCrossRepository,statusCheckRollup'
     )
     if (-not $g.Ok -or -not $g.Out) { return $null }
-    try { return @($g.Out | ConvertFrom-Json) } catch { return $null }
+    try { return @($g.Out | ConvertFrom-Json) }
+    catch {
+        # Malformed gh payload: warn (named source) but stay 'unknown' (return $null).
+        Write-Status "$UpstreamOwnerRepo : не разобрал JSON от 'gh pr list' — $($_.Exception.Message)" 'WARN'
+        return $null
+    }
 }
 
 # Summarize a PR's CI check rollup → 'pass' | 'fail' | 'pending' | 'none'.
@@ -439,7 +447,11 @@ function Get-ForkSyncConfig {
     $cfgFile = Join-Path $Root 'repos.json'
     $cfg = $null
     if (Test-Path -LiteralPath $cfgFile) {
-        try { $cfg = Get-Content -Raw -LiteralPath $cfgFile | ConvertFrom-Json } catch { }
+        try { $cfg = Get-Content -Raw -LiteralPath $cfgFile | ConvertFrom-Json }
+        catch {
+            # Malformed repos.json: warn (named file) but keep going with defaults.
+            Write-Status "repos.json : не разобрал ($cfgFile) — $($_.Exception.Message)" 'WARN'
+        }
     }
     $r = if ($Roots) { $Roots } elseif ($cfg -and $cfg.roots) { @($cfg.roots) } else { @('E:\Scripts\External') }
     $p = if ($Paths) { $Paths } elseif ($cfg -and $cfg.paths) { @($cfg.paths) } else { @('C:\Users\User\rtk-windows-hook-pr\rtk') }

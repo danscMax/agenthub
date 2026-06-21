@@ -9,6 +9,7 @@
   } from '$lib/ipc';
   import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, type StackProc, type ProviderBalance } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import { pushToast } from '$lib/toast.svelte';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
   import DropdownMenu from './DropdownMenu.svelte';
   import RouterConnectDialog from './RouterConnectDialog.svelte';
@@ -103,7 +104,8 @@
       editId = null;
       onRefresh();
     } catch (e) {
-      /* surfaced via refresh */ editId = null;
+      // Surface the failure instead of silently closing — keep the editor open so the user can retry.
+      pushToast({ kind: 'error', title: t('common.error'), detail: String(e) });
     }
   }
 

@@ -25,7 +25,10 @@
 
   let open = $state(false);
   let root = $state<HTMLDivElement>();
+  let listEl = $state<HTMLUListElement>();
   let active = $state(-1);
+  const listboxId = `sel-${Math.random().toString(36).slice(2, 9)}`;
+  const activeId = $derived(open && active >= 0 ? `${listboxId}-opt-${active}` : undefined);
 
   function toggle() {
     if (disabled) return;
@@ -66,6 +69,11 @@
     window.addEventListener('mousedown', onDoc);
     return () => window.removeEventListener('mousedown', onDoc);
   });
+  // Keep the keyboard-highlighted option visible in long lists.
+  $effect(() => {
+    if (!open || active < 0 || !listEl) return;
+    listEl.querySelector(`#${listboxId}-opt-${active}`)?.scrollIntoView({ block: 'nearest' });
+  });
 </script>
 
 <div class="select" bind:this={root}>
@@ -76,8 +84,11 @@
     {disabled}
     onclick={toggle}
     onkeydown={onKey}
+    role="combobox"
     aria-haspopup="listbox"
     aria-expanded={open}
+    aria-controls={open ? listboxId : undefined}
+    aria-activedescendant={open ? activeId : undefined}
   >
     <span class="val" class:placeholder={!selected}>
       {#if selected?.icon}<span class="ic">{selected.icon}</span>{/if}
@@ -86,11 +97,12 @@
     <span class="chev" class:up={open} aria-hidden="true">▾</span>
   </button>
   {#if open}
-    <ul class="panel" role="listbox" use:anchored={{ anchor: root!, matchWidth: true }}>
+    <ul class="panel" id={listboxId} role="listbox" bind:this={listEl} use:anchored={{ anchor: root!, matchWidth: true }}>
       {#each opts as o, i (o.value)}
         <li>
           <button
             type="button"
+            id={`${listboxId}-opt-${i}`}
             class="opt"
             class:sel={o.value === value}
             class:active={i === active}

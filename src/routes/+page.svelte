@@ -222,6 +222,11 @@
   // as "update available" — a fresh check is the authoritative signal).
   let lastRunMode: 'check' | 'apply' = 'check';
 
+  // True while runBulkPlugins is iterating: the bulk loop owns the run lock and the single
+  // post-loop reload, so the global run-done listener must skip its per-item lifecycle
+  // (clearing `running`, reloading extensions, toasting) for plugin-mgr events.
+  let bulkActive = false;
+
   function startRun(id: string, mode: 'check' | 'apply', append = false) {
     if (running) return;
     const comp = components.find((c) => c.id === id);
@@ -1090,16 +1095,21 @@
             ? t('page.plugin_verb_remove')
             : t('page.plugin_verb_disable');
     running = 'plugin-mgr';
-    for (const id of ids) {
-      log = [...log, t('page.plugin_log', { id, verb })];
-      try {
-        await runPlugin(action, id);
-      } catch (e) {
-        log = [...log, t('page.log_error', { e: String(e) })];
+    bulkActive = true;
+    try {
+      for (const id of ids) {
+        log = [...log, t('page.plugin_log', { id, verb })];
+        try {
+          await runPlugin(action, id);
+        } catch (e) {
+          log = [...log, t('page.log_error', { e: String(e) })];
+        }
       }
+    } finally {
+      bulkActive = false;
+      running = null;
+      reloadExtensions();
     }
-    running = null;
-    reloadExtensions();
   }
   function onBulkPlugin(action: PluginAction, ids: string[]) {
     if (!ids.length) return;
@@ -1259,6 +1269,9 @@
     unlisten.push(
       await listen<{ component: string; code: number }>('run-done', async (e) => {
         log = [...log, t('page.log_done', { code: e.payload.code })].slice(-MAX_LOG);
+        // During a bulk plugin op, runBulkPlugins holds the run lock and does a single
+        // reload/lifecycle after the whole loop — skip the per-item side effects here.
+        if (e.payload.component === 'plugin-mgr' && bulkActive) return;
         running = null;
         const id = e.payload.component;
         const code = e.payload.code;
