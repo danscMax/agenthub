@@ -280,6 +280,9 @@
   .status-muted {
     @apply text-sw-text-muted;
   }
+  .status-info {
+    @apply text-sky-400;
+  }
   .light .status-ok {
     @apply text-emerald-700;
   }
@@ -288,6 +291,9 @@
   }
   .light .status-bad {
     @apply text-red-700;
+  }
+  .light .status-info {
+    @apply text-sky-700;
   }
   .sw-input {
     @apply rounded-md px-3 py-2 text-sw-sm;

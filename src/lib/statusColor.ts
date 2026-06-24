@@ -5,15 +5,16 @@
 // class (defined in app.css) carries the dark `*-400` colour PLUS a `.light .status-* { *-700 }`
 // override, so both themes pass. Dark theme keeps the exact `*-400` values it had before.
 
-export type StatusLevel = 'ok' | 'warn' | 'bad' | 'muted';
+export type StatusLevel = 'ok' | 'warn' | 'bad' | 'muted' | 'info';
 
 // Status level -> theme-aware text-colour utility class. The class itself resolves to
-// emerald/amber/red/slate-400 in dark and -700/-600 in light (see `.status-*` in app.css).
+// emerald/amber/red/sky/slate-400 in dark and -700 in light (see `.status-*` in app.css).
 const STATUS_TEXT: Record<StatusLevel, string> = {
   ok: 'status-ok',
   warn: 'status-warn',
   bad: 'status-bad',
-  muted: 'status-muted'
+  muted: 'status-muted',
+  info: 'status-info'
 };
 
 /** Theme-aware status TEXT colour class (>=4.5:1 in both themes). */

@@ -5,6 +5,7 @@
   import DropdownMenu from './DropdownMenu.svelte';
   import { copyText } from '$lib/clipboard';
   import { relTime } from '$lib/relativeTime';
+  import { statusTextClass } from '$lib/statusColor';
 
   let {
     repo,
@@ -298,7 +299,7 @@
               {#if cu}<a class="text-sw-xs hover:underline" style="color:var(--sw-accent-text)" href="{cu}?expand=1" target="_blank" rel="noreferrer" title={t('forks.contributeTip')}>{t('forks.contribute')} ↗</a>{/if}
             {/if}
             {#if b.conflictFiles?.length}
-              <p class="text-sw-xs text-red-400">{t('forks.conflictInFiles', { files: b.conflictFiles.join(', ') })}</p>
+              <p class="text-sw-xs {statusTextClass('bad')}">{t('forks.conflictInFiles', { files: b.conflictFiles.join(', ') })}</p>
             {/if}
           </li>
         {/each}
@@ -353,7 +354,7 @@
             <span class="min-w-0 flex-1 truncate text-sw-text-secondary" title={run.line}>{run.line || t('forks.runStarting')}</span>
             {#if onCancel}<button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" onclick={onCancel} title={t('forks.runCancelTip')}>{t('forks.runCancel')}</button>{/if}
           {:else}
-            <span class="shrink-0 {lastCode === 0 ? 'text-emerald-500' : 'text-red-500'}">{lastCode === 0 ? '✓' : '✗'}</span>
+            <span class="shrink-0 {lastCode === 0 ? statusTextClass('ok') : statusTextClass('bad')}">{lastCode === 0 ? '✓' : '✗'}</span>
             <span class="min-w-0 flex-1 truncate text-sw-text-muted" title={run.line}>{lastCode === 0 ? t('forks.runDone') : t('forks.runFailed', { code: lastCode ?? -1 })}</span>
           {/if}
         </div>

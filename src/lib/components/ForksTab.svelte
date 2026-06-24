@@ -2,6 +2,7 @@
   import type { ForkStatus, ForkAction, GithubRepo } from '$lib/ipc';
   import { forkMode, t, plural, pRepo, pConflict } from '$lib/i18n';
   import { relTime, formatAbsTime } from '$lib/relativeTime';
+  import { statusTextClass } from '$lib/statusColor';
   import ForkRepoCard from './ForkRepoCard.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
 
@@ -109,10 +110,10 @@
     if (!s) return [];
     return [
       { label: pRepo(s.repos), value: s.repos, cls: 'text-sw-text', tip: t('forks.kpiReposTip'), filter: null },
-      { label: t('forks.kpiMerged'), value: s.merged, cls: 'text-emerald-400', tip: t('forks.kpiMergedTip'), filter: null },
-      { label: t('forks.kpiOpen'), value: s.open, cls: 'text-sky-400', tip: t('forks.kpiOpenTip'), filter: null },
-      { label: pConflict(s.conflict), value: s.conflict, cls: s.conflict > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiConflictsTip'), filter: 'conflict' as const },
-      { label: plural(s.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many')), value: s.needHands, cls: s.needHands > 0 ? 'text-amber-400' : 'text-sw-text', tip: t('forks.kpiNeedHandsTip'), filter: 'needHands' as const }
+      { label: t('forks.kpiMerged'), value: s.merged, cls: statusTextClass('ok'), tip: t('forks.kpiMergedTip'), filter: null },
+      { label: t('forks.kpiOpen'), value: s.open, cls: statusTextClass('info'), tip: t('forks.kpiOpenTip'), filter: null },
+      { label: pConflict(s.conflict), value: s.conflict, cls: s.conflict > 0 ? statusTextClass('warn') : 'text-sw-text', tip: t('forks.kpiConflictsTip'), filter: 'conflict' as const },
+      { label: plural(s.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many')), value: s.needHands, cls: s.needHands > 0 ? statusTextClass('warn') : 'text-sw-text', tip: t('forks.kpiNeedHandsTip'), filter: 'needHands' as const }
     ];
   });
   function clickKpi(filter: 'conflict' | 'needHands' | null) {
