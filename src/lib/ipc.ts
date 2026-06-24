@@ -257,10 +257,10 @@ export const readStackHealth = () => invoke<StackHealth[]>('read_stack_health');
 export type StackProc = { port: number; pid: number; uptimeSec: number };
 export const readStackProcs = () => invoke<StackProc[]>('read_stack_procs');
 
-// --- Parallel terminal sessions (real PTY running each profile's `claude`) ---
-// session_spawn returns a session id; output arrives on event `pty:data:<id>` (base64),
-// termination on `pty:exit:<id>`. Input/resize/kill go back through these commands.
-export type SessionTool = 'claude' | 'opencode' | 'shell';
+// --- Parallel terminal sessions (real PTY running claude/opencode/shell/ssh) ---
+// session_spawn returns a session id; output streams over the binary Channel passed as onData,
+// termination on event `pty:exit:<id>`. Input/resize/kill go back through these commands.
+export type SessionTool = 'claude' | 'opencode' | 'shell' | 'ssh';
 // PTY output streams as raw bytes over a binary Channel (no base64) — onData.onmessage gets ArrayBuffers.
 export const sessionSpawn = (
   profile: string,
@@ -269,8 +269,10 @@ export const sessionSpawn = (
   cwd: string | undefined,
   cols: number,
   rows: number,
-  onData: Channel<ArrayBuffer>
-) => invoke<string>('session_spawn', { profile, tool, args, cwd, cols, rows, onData });
+  onData: Channel<ArrayBuffer>,
+  remoteDir?: string,
+  sshTarget?: string
+) => invoke<string>('session_spawn', { profile, tool, args, cwd, remoteDir, sshTarget, cols, rows, onData });
 export const sessionWrite = (id: string, data: string) => invoke('session_write', { id, data });
 export const sessionResize = (id: string, cols: number, rows: number) =>
   invoke('session_resize', { id, cols, rows });
@@ -284,6 +286,89 @@ export const pickFolder = async (defaultPath?: string): Promise<string | null> =
 };
 // Immediate subfolders of a path (for the projects-root quick-pick).
 export const listSubdirs = (path: string) => invoke<string[]>('list_subdirs', { path });
+
+// --- SSH host registry (saved JSON under SCRIPTS_ROOT + read-only import from ~/.ssh/config) ---
+// No secrets stored — an ssh session is just session_spawn with tool 'ssh' and the target in `args`.
+export type SshHost = {
+  id: string;
+  name: string;
+  host: string;
+  port?: number | null;
+  user?: string | null;
+  keyPath?: string | null;
+  remoteDir?: string | null; // optional remote start dir (cd into it on connect; Windows/PowerShell)
+  source: 'saved' | 'sshconfig';
+};
+// Build the `ssh` CLI target string from a saved/imported host (user@host -p port -i key).
+export function sshTarget(h: SshHost): string {
+  let s = h.user ? `${h.user}@${h.host}` : h.host;
+  if (h.port) s += ` -p ${h.port}`;
+  if (h.keyPath) s += ` -i ${h.keyPath}`;
+  return s;
+}
+// Parse a typed ssh target ("user@host -p 22 -i ~/.ssh/key") back into structured host fields.
+export function parseSshTarget(s: string): { host: string; user: string | null; port: number | null; keyPath: string | null } {
+  const toks = s.trim().split(/\s+/).filter(Boolean);
+  let host = toks[0] ?? '';
+  let user: string | null = null;
+  if (host.includes('@')) {
+    const at = host.indexOf('@');
+    user = host.slice(0, at);
+    host = host.slice(at + 1);
+  }
+  let port: number | null = null;
+  let keyPath: string | null = null;
+  for (let i = 1; i < toks.length; i++) {
+    if (toks[i] === '-p' && toks[i + 1]) {
+      const p = parseInt(toks[++i], 10);
+      port = Number.isFinite(p) ? p : null;
+    } else if (toks[i] === '-i' && toks[i + 1]) {
+      keyPath = toks[++i];
+    }
+  }
+  return { host, user, port, keyPath };
+}
+export const readSshHosts = () => invoke<SshHost[]>('read_ssh_hosts');
+export const saveSshHost = (host: SshHost) => invoke<SshHost[]>('save_ssh_host', { host });
+export const deleteSshHost = (id: string) => invoke<SshHost[]>('delete_ssh_host', { id });
+// Quick TCP reachability probe (host:port, default 22) — does not authenticate.
+export const testSshHost = (host: string, port?: number | null) =>
+  invoke<boolean>('test_ssh_host', { host, port: port ?? null });
+
+// --- Multi-monitor: pop a live pane onto another monitor (renders the SAME session via attach) ---
+export type MonitorInfo = {
+  index: number;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scale: number;
+  primary: boolean;
+};
+export const listMonitors = () => invoke<MonitorInfo[]>('list_monitors');
+export const openMonitorWindow = (label: string, monitorIndex: number) =>
+  invoke('open_monitor_window', { label, monitorIndex });
+// Live session(s) handed off to a detached window via the backend registry. A window can host one
+// popped-out pane or a whole monitor's worth of panes (each mirrors its session via attach).
+export type DetachPane = {
+  sessionId?: string; // present → attach a live session (live move); absent → spawn fresh (restore)
+  title: string;
+  tool: SessionTool;
+  profile?: string;
+  cwd?: string;
+  args?: string;
+  owns?: boolean; // the destination pane owns the session (kills it on close) — true for a live move
+};
+export type DetachSpec = { panes: DetachPane[] };
+export const prepareDetach = (label: string, spec: DetachSpec) => invoke('prepare_detach', { label, spec });
+export const takeDetach = (label: string) => invoke<DetachSpec | null>('take_detach', { label });
+// Attach an extra output channel to a live session (used by a detached window; no respawn).
+// Returns a channel token; pass it to sessionDetach to drop just this window's channel later.
+export const sessionAttach = (id: string, onData: Channel<ArrayBuffer>) =>
+  invoke<number>('session_attach', { id, onData });
+// Drop one window's channel (by token) without killing the session (window closed / pane moved back).
+export const sessionDetach = (id: string, token: number) => invoke('session_detach', { id, token });
 
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {
@@ -597,6 +682,8 @@ export const writeConfig = (config: HubConfig) => invoke('write_config', { confi
 export const setLanguage = (lang: string) => invoke('set_language', { lang });
 export const appPaths = () => invoke<AppPaths>('app_paths');
 export const openPath = (path: string) => invoke('open_path', { path });
+// Open a web URL in the default browser (opener plugin) — NOT open_path, which is filesystem-only.
+export const openUrl = (url: string) => invoke('open_url', { url });
 // Export/import all settings (#117) — file dialogs from the dialog plugin; backend (de)serializes.
 export const pickSaveFile = (name: string) =>
   saveDialog({ defaultPath: name, filters: [{ name: 'JSON', extensions: ['json'] }] });

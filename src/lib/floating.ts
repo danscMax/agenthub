@@ -21,28 +21,34 @@ export function anchored(node: HTMLElement, params: AnchoredParams) {
     if (typeof window === 'undefined' || !p.anchor) return;
     const a = p.anchor.getBoundingClientRect();
     node.style.position = 'fixed';
-    node.style.left = '';
     node.style.right = '';
     if (p.matchWidth) node.style.width = `${a.width}px`;
 
     const w = node.offsetWidth || 200;
     const h = node.offsetHeight || 0;
 
-    // Vertical: open below; flip above only if below would overflow the viewport bottom
-    // and there's room above (fixes the clipped last-row menu in the screenshot).
+    // Intended VIEWPORT coordinates. Vertical: open below; flip above only if below would overflow
+    // the viewport bottom and there's room above (fixes the clipped last-row menu).
     let top = a.bottom + 4;
-    if (top + h > window.innerHeight - MARGIN && a.top - h - 4 >= MARGIN) {
-      top = a.top - h - 4;
-    }
-    node.style.top = `${Math.max(MARGIN, top)}px`;
+    if (top + h > window.innerHeight - MARGIN && a.top - h - 4 >= MARGIN) top = a.top - h - 4;
+    top = Math.max(MARGIN, top);
+    // Horizontal: align to the chosen edge, then clamp into the viewport.
+    let left = p.matchWidth || p.align !== 'right' ? a.left : a.right - w;
+    if (left + w > window.innerWidth - MARGIN) left = window.innerWidth - MARGIN - w;
+    left = Math.max(MARGIN, left);
 
-    // Horizontal: anchor to the chosen edge, then clamp into the viewport.
-    if (p.align === 'right' && !p.matchWidth) {
-      node.style.right = `${Math.max(MARGIN, window.innerWidth - a.right)}px`;
-    } else {
-      let left = a.left;
-      if (left + w > window.innerWidth - MARGIN) left = window.innerWidth - MARGIN - w;
-      node.style.left = `${Math.max(MARGIN, left)}px`;
+    // Apply, then SELF-CORRECT: a `transform`/`filter`/`backdrop-filter`/`contain` ancestor makes this
+    // fixed element's containing block ≠ the viewport, so the px we set land somewhere else. Measure the
+    // actual rect and shift by the delta so the popover ends up at the intended viewport position.
+    // (`.sw-card` uses backdrop-filter, so every in-card popover hits this.)
+    node.style.top = `${top}px`;
+    node.style.left = `${left}px`;
+    const got = node.getBoundingClientRect();
+    const dx = left - got.left;
+    const dy = top - got.top;
+    if (dx || dy) {
+      node.style.top = `${top + dy}px`;
+      node.style.left = `${left + dx}px`;
     }
   }
 

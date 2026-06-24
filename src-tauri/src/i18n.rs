@@ -126,6 +126,7 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("err.no_active_run", ["Нет активного прогона", "No active run", "没有正在进行的任务"]),
     ("err.bad_hotkey", ["неверная комбинация: {e}", "invalid shortcut: {e}", "快捷键无效: {e}"]),
     ("err.unknown_tool", ["неизвестный инструмент: {tool}", "unknown tool: {tool}", "未知工具: {tool}"]),
+    ("err.session_limit", ["достигнут предел сессий ({max})", "session limit reached ({max})", "已达到会话上限 ({max})"]),
     ("err.session_not_found", ["сессия не найдена", "session not found", "未找到会话"]),
 
     // ── run-log stream (console panel) ───────────────────────────────────────

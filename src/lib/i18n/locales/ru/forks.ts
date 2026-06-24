@@ -41,6 +41,8 @@ export default {
   updatedAt: 'обновлено: {time}',
   modeLine: 'последний прогон: {mode}',
   refreshing: 'обновляется…',
+  cancelCheck: 'Отменить',
+  cancelCheckTip: 'Остановить обновление форков',
   filterAll: 'Все',
   filterForks: 'Форки',
   filterOwn: 'Свои',

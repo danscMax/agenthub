@@ -41,6 +41,8 @@ export default {
   updatedAt: 'updated: {time}',
   modeLine: 'last run: {mode}',
   refreshing: 'refreshing…',
+  cancelCheck: 'Cancel',
+  cancelCheckTip: 'Stop the forks refresh',
   filterAll: 'All',
   filterForks: 'Forks',
   filterOwn: 'Own',

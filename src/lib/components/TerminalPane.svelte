@@ -7,7 +7,21 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { Channel } from '@tauri-apps/api/core';
   import '@xterm/xterm/css/xterm.css';
-  import { sessionSpawn, sessionWrite, sessionResize, sessionKill, type SessionTool } from '$lib/ipc';
+  import {
+    sessionSpawn,
+    sessionAttach,
+    sessionWrite,
+    sessionResize,
+    sessionKill,
+    sessionDetach,
+    type SessionTool,
+    openMonitorWindow,
+    prepareDetach,
+    type MonitorInfo
+  } from '$lib/ipc';
+  import { getMonitors } from '$lib/monitors';
+  import DropdownMenu from './DropdownMenu.svelte';
+  import { markMoved, consumeMoved } from '$lib/sessionMove';
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
   import ProfileUsageBadge from './ProfileUsageBadge.svelte';
@@ -18,11 +32,16 @@
     tool = 'claude',
     args = '',
     cwd = undefined,
+    remoteDir = undefined,
+    sshTarget = undefined,
+    attachId = undefined,
+    ownsSession = false,
     paneKey = '',
     visible = true,
     maximized = false,
     broadcast = false,
     onClose,
+    onReturnToMain,
     onToggleMax,
     onDuplicate,
     onDragStart,
@@ -39,6 +58,10 @@
     tool?: SessionTool;
     args?: string;
     cwd?: string;
+    remoteDir?: string;
+    sshTarget?: string;
+    attachId?: string;
+    ownsSession?: boolean;
     paneKey?: string;
     displayName?: string;
     onRename?: (key: string, name: string) => void;
@@ -46,6 +69,7 @@
     maximized?: boolean;
     broadcast?: boolean;
     onClose: () => void;
+    onReturnToMain?: () => void;
     onToggleMax?: () => void;
     onDuplicate?: () => void;
     onDragStart?: (key: string) => void;
@@ -73,14 +97,58 @@
     onRename?.(paneKey, editName.trim());
   }
 
-  // Pane title: tool + the profile (claude) or the folder it's running in (opencode/shell).
+  // Pane title reflects environment × location: "env · 🖥 host" over SSH, else profile (claude),
+  // the legacy ssh target, or the folder (opencode/shell).
   const folderName = $derived(cwd ? cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd : '');
+  const locHost = $derived(sshTarget ? sshTarget.trim().split(/\s+/)[0] : '');
+  const isSsh = $derived(!!sshTarget || tool === 'ssh'); // runs over SSH (new model or legacy tool)
   const label = $derived(
-    tool === 'claude' ? `${tool} · ${profile}` : folderName ? `${tool} · ${folderName}` : tool
+    locHost
+      ? `${tool} · 🖥 ${locHost}`
+      : tool === 'ssh'
+        ? `ssh · ${args.trim().split(/\s+/)[0] || 'ssh'}`
+        : tool === 'claude'
+          ? `claude · ${profile}`
+          : folderName
+            ? `${tool} · ${folderName}`
+            : tool
   );
   // Full hover detail: tool/profile + folder + launch args.
   const fullTitle = $derived(
     [label, cwd, args].filter(Boolean).join(' · ') || t('sessions.paneTitle', { profile: label })
+  );
+
+  // Multi-monitor: a non-attached pane can be opened (mirrored) on another monitor. The session keeps
+  // running in this window; the monitor window attaches to it (fan-out) and replays scrollback.
+  let monitors = $state<MonitorInfo[]>([]);
+  $effect(() => {
+    if (!attachId && monitors.length === 0) {
+      getMonitors().then((m) => (monitors = m)); // shared cache → one enumeration across all panes
+    }
+  });
+  async function sendToMonitor(idx: number) {
+    if (!id) return;
+    const wlabel = `pane-${id}`;
+    try {
+      await prepareDetach(wlabel, {
+        panes: [{ sessionId: id, title: displayName || label, tool, profile, cwd, args, owns: true }]
+      });
+      await openMonitorWindow(wlabel, idx);
+      markMoved(id); // this pane leaves the main grid; its unmount must not kill the live session
+      onClose?.();
+    } catch {
+      /* window/monitor unavailable — ignore */
+    }
+  }
+  const monItems = $derived(
+    monitors.map((m) => {
+      // Prefer a friendly monitor name; Windows often returns device paths (\\.\DISPLAY1) — fall back.
+      const friendly = m.name && !m.name.startsWith('\\\\') ? m.name : `${t('sessions.toMonitor')} ${m.index + 1}`;
+      return {
+        label: `${friendly}${m.primary ? ' ★' : ''} · ${m.width}×${m.height}`,
+        onClick: () => sendToMonitor(m.index)
+      };
+    })
   );
 
   let host: HTMLDivElement;
@@ -88,6 +156,8 @@
   let fit: FitAddon | undefined;
   let search: SearchAddon | undefined;
   let id = $state<string | null>(null);
+  let myToken = 0; // this pane's fan-out channel token (0 = spawner; attach returns its own) — for detach
+  let gotData = $state(false); // first PTY byte seen → drives the ssh connecting→connected dot (#17)
   let exited = $state(false);
   let error = $state('');
   let unlisteners: UnlistenFn[] = [];
@@ -222,12 +292,19 @@
     // Binary output channel: raw PTY bytes arrive as ArrayBuffers (no base64/JSON per chunk).
     const chan = new Channel<ArrayBuffer>();
     chan.onmessage = (buf) => {
+      if (!gotData) gotData = true;
       term?.write(new Uint8Array(buf));
       // Mark unread when output lands in a pane that isn't currently on screen.
       if (!visible) onActivity?.(paneKey);
     };
     try {
-      id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows, chan);
+      if (attachId) {
+        // Detached window: mirror an existing LIVE session (no respawn). Scrollback replays on attach.
+        id = attachId;
+        myToken = await sessionAttach(attachId, chan);
+      } else {
+        id = await sessionSpawn(profile, tool, args, cwd, term.cols, term.rows, chan, remoteDir, sshTarget);
+      }
     } catch (e) {
       error = String(e);
       term.writeln(`\r\n\x1b[31m${t('sessions.spawnError', { e: String(e) })}\x1b[0m`);
@@ -245,10 +322,11 @@
   async function relaunch() {
     unlisteners.forEach((u) => u());
     unlisteners = [];
-    if (id) {
+    if (id && !attachId) {
       // Await the kill before reusing the pane: the old PTY's reader thread drains asynchronously,
       // so spawning a fresh session without waiting can briefly intermix trailing stale bytes into
       // the reset terminal. The invoke resolves once the backend has killed the child (no deadlock).
+      // (Attached mirrors never kill — they'd terminate the session for the owning window too.)
       try {
         await sessionKill(id);
       } catch {
@@ -343,7 +421,17 @@
   onDestroy(() => {
     ro?.disconnect();
     unlisteners.forEach((u) => u());
-    if (id) sessionKill(id);
+    if (id) {
+      if (consumeMoved(id)) {
+        // Moved to another window — keep the session alive there; just drop OUR channel so the reader
+        // stops sending to this gone webview (instead of noticing lazily on the next failed send).
+        sessionDetach(id, myToken);
+      } else if (!attachId || ownsSession) {
+        // We own it (spawner, or a detached pane that took ownership) → terminate the session.
+        sessionKill(id);
+      }
+      // else: an attached non-owner that wasn't a move (shouldn't happen in current model) → leave it.
+    }
     onIdChange?.(paneKey, null);
     term?.dispose();
   });
@@ -374,6 +462,7 @@
   <!-- The bar doubles as the drag handle (xterm keeps the terminal area for selection). -->
   <div
     class="bar"
+    class:ssh={isSsh}
     draggable={!!onDragStart}
     ondragstart={(e) => {
       if (!onDragStart) return;
@@ -384,7 +473,13 @@
     }}
     title={onDragStart ? t('sessions.dragHint') : undefined}
   >
-    <span class="dot" class:dead={exited} class:err={!!error}></span>
+    <span
+      class="dot"
+      class:dead={exited}
+      class:err={!!error}
+      class:connecting={isSsh && !gotData && !exited && !error}
+      title={isSsh && !exited ? (gotData ? t('sessions.sshConnected') : t('sessions.sshConnecting')) : undefined}
+    ></span>
     {#if renaming}
       <input class="rename-input" bind:this={renameInput} bind:value={editName}
         onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') renaming = false; }}
@@ -416,6 +511,9 @@
     <button class="x" onclick={exportLog} title={t('sessions.exportLog')} aria-label={t('sessions.exportLog')}>⭳</button>
     <button class="x" onclick={() => zoom(-1)} title={t('sessions.zoomOut')} aria-label={t('sessions.zoomOut')}>A−</button>
     <button class="x" onclick={() => zoom(1)} title={t('sessions.zoomIn')} aria-label={t('sessions.zoomIn')}>A+</button>
+    {#if !attachId && id && !exited && monitors.length > 1}
+      <DropdownMenu label="⬈" title={t('sessions.toMonitorTip')} items={monItems} />
+    {/if}
     {#if onDuplicate}
       <button class="x" onclick={onDuplicate} title={t('sessions.duplicate')} aria-label={t('sessions.duplicate')}>⧉</button>
     {/if}
@@ -423,6 +521,9 @@
       <button class="x" onclick={onToggleMax}
         title={maximized ? t('sessions.restore') : t('sessions.maximize')}
         aria-label={maximized ? t('sessions.restore') : t('sessions.maximize')}>{maximized ? '⤡' : '⤢'}</button>
+    {/if}
+    {#if onReturnToMain}
+      <button class="x" onclick={onReturnToMain} title={t('sessions.returnToMain')} aria-label={t('sessions.returnToMain')}>←</button>
     {/if}
     <button class="x" onclick={onClose} title={t('sessions.closePane')} aria-label={t('sessions.closePane')}>✕</button>
   </div>
@@ -516,6 +617,24 @@
   }
   .dot.err {
     background: var(--sw-status-down);
+  }
+  .dot.connecting {
+    background: var(--sw-status-warn, #e0b341);
+    animation: dot-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes dot-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  /* SSH panes get a subtle accent so remote sessions stand out from local ones (#20). */
+  .bar.ssh {
+    border-left: 3px solid var(--sw-accent-text, #5aa2ff);
+    padding-left: 5px;
   }
   .name {
     font-size: var(--sw-text-xs);

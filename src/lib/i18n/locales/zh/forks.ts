@@ -39,6 +39,8 @@ export default {
   updatedAt: '更新于：{time}',
   modeLine: '上次运行：{mode}',
   refreshing: '刷新中…',
+  cancelCheck: '取消',
+  cancelCheckTip: '停止刷新分叉',
   filterAll: '全部',
   filterForks: '分叉',
   filterOwn: '自有',

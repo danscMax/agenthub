@@ -5129,6 +5129,14 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Open a web URL in the default browser via the opener plugin. (open_path is for filesystem paths —
+/// using it on an https URL fails with "directory not found".)
+#[tauri::command]
+fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 const AUTOSTART_KEY: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const AUTOSTART_NAME: &str = "Castellyn";
 const LEGACY_AUTOSTART_NAME: &str = "AgentHub";
@@ -5347,15 +5355,37 @@ fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String
 }
 
 // ===================== Parallel terminal sessions (real PTYs) =====================
-// Each session runs a profile's `claude` in a true PTY (portable-pty) so its TUI renders in an
-// xterm.js pane. Output streams to the frontend as base64 frames on a per-session event; input and
-// resize flow back via commands. The live sessions live in Tauri-managed state.
+// Each session runs a tool in a true PTY (portable-pty) so its TUI renders in an xterm.js pane.
+// Output streams as raw bytes over per-window ipc Channels; input/resize flow back via commands.
+// Fan-out: one session can feed SEVERAL windows at once (multi-monitor / live pop-out) — the reader
+// broadcasts each chunk to every attached channel, and a bounded scrollback is replayed on attach.
+// The live sessions live in Tauri-managed state.
+type OutChan = tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>;
+const SESSION_RING_MAX: usize = 256 * 1024; // bytes of scrollback kept for late-attaching windows
+const SESSION_LIMIT: usize = 24; // global ceiling across ALL windows (main grid caps at 12 panes)
+
 struct PtySession {
     master: Box<dyn portable_pty::MasterPty + Send>,
     writer: Box<dyn std::io::Write + Send>,
     // Killer handle only: the Child itself moves into the reader thread so it can wait() for the
     // real exit code. session_kill signals termination through this.
     killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+    // Every attached window's output channel as (token, chan); reader broadcasts to all, dropping
+    // dead ones. The token lets a specific window detach its channel (session_detach) without a kill.
+    chans: std::sync::Arc<Mutex<Vec<(u64, OutChan)>>>,
+    // Recent output, replayed to a freshly attached window so it isn't blank.
+    ring: std::sync::Arc<Mutex<std::collections::VecDeque<u8>>>,
+    // Channel-token counter: the spawner is token 0, attaches get 1,2,… (used by session_detach).
+    next_token: std::sync::atomic::AtomicU64,
+}
+
+/// Append `bytes` to a bounded byte ring, dropping the oldest bytes so it never exceeds `max`.
+fn push_bounded(rb: &mut std::collections::VecDeque<u8>, bytes: &[u8], max: usize) {
+    rb.extend(bytes.iter().copied());
+    let over = rb.len().saturating_sub(max);
+    if over > 0 {
+        rb.drain(0..over);
+    }
 }
 
 #[derive(Default)]
@@ -5374,8 +5404,8 @@ fn gen_session_id() -> String {
     format!("s{:012x}{:03x}", (n as u64) & 0x0000_ffff_ffff_ffff, seq & 0xfff)
 }
 
-/// Spawn a tool (claude / opencode / shell) inside a real PTY and stream its output. Returns the
-/// session id. Output → event `pty:data:<id>` (base64); termination → `pty:exit:<id>` (exit i32).
+/// Spawn a tool (claude / opencode / shell / ssh) inside a real PTY and stream its output. Returns the
+/// session id. Output → the caller's `on_data` Channel (raw bytes); termination → `pty:exit:<id>` (exit i32).
 #[tauri::command]
 // command handler: args come from the JS invoke boundary
 #[allow(clippy::too_many_arguments)]
@@ -5386,14 +5416,21 @@ fn session_spawn(
     tool: Option<String>,
     args: Option<String>,
     cwd: Option<String>,
+    remote_dir: Option<String>,
+    ssh_target: Option<String>,
     cols: u16,
     rows: u16,
     on_data: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> Result<String, String> {
     use portable_pty::{CommandBuilder, PtySize};
     let tool = tool.unwrap_or_else(|| "claude".into());
-    if !matches!(tool.as_str(), "claude" | "opencode" | "shell") {
+    if !matches!(tool.as_str(), "claude" | "opencode" | "shell" | "ssh") {
         return Err(trv("err.unknown_tool", cur_lang(), &[("tool", &tool)]));
+    }
+    // Global session ceiling across ALL windows — the main grid's MAX_PANES=12 is per-window, but
+    // detached windows + restore can otherwise burst past it and swamp the machine.
+    if state.0.lock().unwrap_or_else(|e| e.into_inner()).len() >= SESSION_LIMIT {
+        return Err(trv("err.session_limit", cur_lang(), &[("max", &SESSION_LIMIT)]));
     }
     // The profile only matters for claude (it picks CLAUDE_CONFIG_DIR = ~/.claude-<name>).
     if tool == "claude" && !valid_profile_name(&profile) {
@@ -5404,21 +5441,69 @@ fn session_spawn(
         .openpty(size)
         .map_err(|e| format!("openpty: {e}"))?;
 
-    // Tools are .cmd shims → launch inside pwsh; -NoExit keeps the pane usable after the tool exits.
-    // `shell` opens a bare interactive pwsh. Extra args (e.g. `--effort max`) are the user's own
-    // input on their own machine, appended to the launch command verbatim.
+    // Tools are .cmd shims (claude/opencode) or a real exe (ssh) → launch inside pwsh; -NoExit keeps
+    // the pane usable after the tool/connection exits. `shell` opens a bare interactive pwsh. For
+    // `ssh` the target+flags (e.g. `user@host -p 22 -i key`) arrive as `extra` and run as `ssh <extra>`
+    // — host-key/password prompts are handled interactively in the PTY (no flags forced; ~/.ssh used).
+    // Extra args are the user's own input on their own machine, appended to the launch command verbatim.
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     let extra = args.unwrap_or_default();
     let extra = extra.trim();
+    // Model: environment (claude/opencode/shell) × location (local | ssh_target). `ssh` as a tool is
+    // legacy (kept until the UI migrates) and means "bare remote shell with target in `args`".
+    let ssh = ssh_target.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let remote = remote_dir.as_deref().map(str::trim).filter(|d| !d.is_empty());
+
     let mut cmd = CommandBuilder::new("pwsh");
     cmd.arg("-NoLogo");
-    if tool != "shell" {
+    // Over SSH the local pwsh is only a launcher for ssh.exe — skip the user's profile banner.
+    if ssh.is_some() || tool == "ssh" {
+        cmd.arg("-NoProfile");
+    }
+
+    // Build the pwsh `-Command`, or leave it bare for a LOCAL interactive shell. `--%` (stop-parsing)
+    // hands the ssh line to ssh.exe verbatim; a remote dir / remote tool ride an EncodedCommand
+    // (base64 UTF-16) so quotes/spaces/Cyrillic survive local→ssh→remote re-parsing (Windows/PowerShell
+    // remote, like minipc; mirrors grid-main.ps1). `-t` forces a PTY, `-NoExit` keeps the shell alive.
+    let command: Option<String> = if let Some(target) = ssh {
+        // Environment over SSH: run the tool ON the remote (shell = bare remote shell).
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(dir) = remote {
+            parts.push(format!("Set-Location -LiteralPath '{}'", dir.replace('\'', "''")));
+        }
+        match tool.as_str() {
+            "claude" => parts.push(if extra.is_empty() { "claude".into() } else { format!("claude {extra}") }),
+            "opencode" => parts.push(if extra.is_empty() { "opencode".into() } else { format!("opencode {extra}") }),
+            _ => {} // shell: nothing extra — just a remote shell
+        }
+        Some(if parts.is_empty() {
+            format!("ssh --% -t {target}")
+        } else {
+            format!("ssh --% -t {target} powershell -NoExit -EncodedCommand {}", ps_encoded_command(&parts.join("; ")))
+        })
+    } else if tool == "ssh" {
+        // Legacy: target rides `args`; optional remote dir via EncodedCommand.
+        Some(match (extra.is_empty(), remote) {
+            (false, Some(dir)) => {
+                let ps = format!("Set-Location -LiteralPath '{}'", dir.replace('\'', "''"));
+                format!("ssh --% -t {extra} powershell -NoExit -EncodedCommand {}", ps_encoded_command(&ps))
+            }
+            (true, _) => "ssh".to_string(),
+            (false, None) => format!("ssh --% {extra}"),
+        })
+    } else if tool == "shell" {
+        None // local interactive PowerShell — no -Command
+    } else {
         let base = if tool == "opencode" { "opencode" } else { "claude" };
+        Some(if extra.is_empty() { base.to_string() } else { format!("{base} {extra}") })
+    };
+    if let Some(c) = command {
         cmd.arg("-NoExit");
         cmd.arg("-Command");
-        cmd.arg(if extra.is_empty() { base.to_string() } else { format!("{base} {extra}") });
+        cmd.arg(c);
     }
-    if tool == "claude" {
+    // CLAUDE_CONFIG_DIR picks the profile for a LOCAL claude (the remote uses its own config).
+    if tool == "claude" && ssh.is_none() {
         cmd.env("CLAUDE_CONFIG_DIR", format!("{home}\\.claude-{profile}"));
     }
     let dir = cwd.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| home.clone());
@@ -5438,9 +5523,19 @@ fn session_spawn(
     let id = gen_session_id();
     let exit_event = format!("pty:exit:{id}");
 
-    // Reader thread: stream PTY output as raw bytes over the binary channel (no base64/JSON event
-    // per chunk) until EOF; then wait for the child and signal termination with its exit code.
+    // Fan-out state: the spawning window's channel is the first subscriber; more windows can attach
+    // later (session_attach) for multi-monitor / live pop-out.
+    let chans: std::sync::Arc<Mutex<Vec<(u64, OutChan)>>> =
+        std::sync::Arc::new(Mutex::new(vec![(0u64, on_data)])); // spawner = token 0
+    let ring: std::sync::Arc<Mutex<std::collections::VecDeque<u8>>> =
+        std::sync::Arc::new(Mutex::new(std::collections::VecDeque::new()));
+
+    // Reader thread: stream PTY output as raw bytes to EVERY attached channel (no base64/JSON event
+    // per chunk) until EOF, keeping a bounded scrollback; then wait for the child and signal exit.
+    // The session stays alive even with zero attached windows (output keeps buffering into the ring).
     let app2 = app.clone();
+    let chans_r = chans.clone();
+    let ring_r = ring.clone();
     std::thread::spawn(move || {
         use std::io::Read;
         let mut buf = [0u8; 8192];
@@ -5448,13 +5543,11 @@ fn session_spawn(
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    // Raw body → delivered to JS as an ArrayBuffer (binary, no base64).
-                    if on_data
-                        .send(tauri::ipc::InvokeResponseBody::Raw(buf[..n].to_vec()))
-                        .is_err()
-                    {
-                        break;
-                    }
+                    let bytes = &buf[..n];
+                    push_bounded(&mut ring_r.lock().unwrap_or_else(|e| e.into_inner()), bytes, SESSION_RING_MAX);
+                    // Raw body → each JS side gets an ArrayBuffer (binary). Drop channels whose window closed.
+                    let mut cs = chans_r.lock().unwrap_or_else(|e| e.into_inner());
+                    cs.retain(|(_, c)| c.send(tauri::ipc::InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
                 }
             }
         }
@@ -5467,7 +5560,10 @@ fn session_spawn(
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(id.clone(), PtySession { master: pair.master, writer, killer });
+        .insert(
+            id.clone(),
+            PtySession { master: pair.master, writer, killer, chans, ring, next_token: std::sync::atomic::AtomicU64::new(1) },
+        );
     update_tray_tooltip(&app);
     Ok(id)
 }
@@ -5503,6 +5599,52 @@ fn session_kill(app: AppHandle, state: State<'_, SessionState>, id: String) -> R
     Ok(())
 }
 
+/// Attach an extra output channel to a LIVE session (a second window rendering it, e.g. on another
+/// monitor). Replays the bounded scrollback so the new window isn't blank, then joins the fan-out.
+/// Errors if the session is gone. This is the live-move primitive: a window attaches, the old one's
+/// channel drops itself on close — the PTY never restarts.
+#[tauri::command]
+fn session_attach(
+    state: State<'_, SessionState>,
+    id: String,
+    on_data: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
+) -> Result<u64, String> {
+    // Grab the session's shared handles + a fresh channel token, then DROP the global map lock before
+    // the (up-to-256KB) replay send — otherwise every keystroke (session_write) / resize / kill / spawn
+    // stalls for its duration. The token is returned so this window can later session_detach itself.
+    let (ring, chans, token) = {
+        let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
+        let token = s.next_token.fetch_add(1, Ordering::Relaxed);
+        (s.ring.clone(), s.chans.clone(), token)
+    };
+    {
+        let rb = ring.lock().unwrap_or_else(|e| e.into_inner());
+        if !rb.is_empty() {
+            let snapshot: Vec<u8> = rb.iter().copied().collect();
+            let _ = on_data.send(tauri::ipc::InvokeResponseBody::Raw(snapshot));
+        }
+    }
+    chans.lock().unwrap_or_else(|e| e.into_inner()).push((token, on_data));
+    Ok(token)
+}
+
+/// Drop one window's channel from a session's fan-out (by token) WITHOUT killing the session — used
+/// when a popped-out window closes or a pane is moved back, so the reader stops sending to a gone
+/// webview instead of waiting to notice on the next failed send. No-op if the session is already gone.
+#[tauri::command]
+fn session_detach(state: State<'_, SessionState>, id: String, token: u64) -> Result<(), String> {
+    let chans = {
+        let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get(&id) {
+            Some(s) => s.chans.clone(),
+            None => return Ok(()),
+        }
+    };
+    chans.lock().unwrap_or_else(|e| e.into_inner()).retain(|(t, _)| *t != token);
+    Ok(())
+}
+
 /// Immediate subdirectories of `path` (full paths, sorted, hidden/dot dirs skipped) — powers the
 /// "projects root" quick-pick in the session launcher. Read-only; empty on any error.
 #[tauri::command]
@@ -5524,13 +5666,337 @@ fn list_subdirs(path: String) -> Vec<String> {
     out
 }
 
+// ===================== SSH host registry (config\sshhosts.json + ~/.ssh/config import) =====================
+// Saved hosts live in a synced JSON under SCRIPTS_ROOT (same pattern as myproviders.json); NO secrets
+// are stored — auth uses the system `ssh` + the user's ~/.ssh (keys/known_hosts/ControlMaster). The
+// `read_ssh_hosts` command also surfaces hosts parsed read-only from the machine's ~/.ssh/config
+// (source="sshconfig") so existing SSH setup is reused (DRY). An ssh session is launched via the
+// normal session_spawn with tool="ssh" and the target carried in `args` (e.g. "user@host -p 22").
+const SSHHOSTS_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\sshhosts.json";
+static SSHHOSTS_LOCK: Mutex<()> = Mutex::new(());
+
+fn default_ssh_source() -> String { "saved".into() }
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SshHost {
+    #[serde(default)]
+    id: String,
+    name: String,
+    host: String,
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    key_path: Option<String>,
+    // Optional remote start directory: on connect we `Set-Location` into it (Windows/PowerShell remote).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    remote_dir: Option<String>,
+    #[serde(default = "default_ssh_source")]
+    source: String, // "saved" | "sshconfig"
+}
+
+fn read_ssh_hosts_saved() -> Vec<SshHost> {
+    std::fs::read_to_string(abs(SSHHOSTS_CONFIG_REL))
+        .ok()
+        .and_then(|c| parse_json_bom(&c).ok())
+        .and_then(|v| v.get("hosts").and_then(|p| p.as_array()).cloned())
+        .map(|arr| arr.into_iter().filter_map(|e| serde_json::from_value::<SshHost>(e).ok()).collect())
+        .unwrap_or_default()
+}
+
+fn write_ssh_hosts_saved(list: &[SshHost]) -> Result<(), String> {
+    let path = abs(SSHHOSTS_CONFIG_REL);
+    let v = serde_json::json!({ "schemaVersion": 1, "hosts": list });
+    let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    write_json_atomic(&path, &json).map_err(|e| format!("write sshhosts.json: {e}"))
+}
+
+/// Parse `~/.ssh/config` text into hosts (read-only). Honors Host (skips wildcard/negated patterns),
+/// HostName, User, Port, IdentityFile. A `Host a b` line is ONE host (named after its first concrete
+/// alias). Best-effort: unknown keywords ignored; tokens split on whitespace or '=' (OpenSSH accepts both).
+fn parse_ssh_config(text: &str) -> Vec<SshHost> {
+    let mut out: Vec<SshHost> = Vec::new();
+    let mut cur: Option<usize> = None; // out-index of the current Host block (None for wildcard-only blocks)
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (key, val) = match line.find(|c: char| c.is_whitespace() || c == '=') {
+            Some(i) => (line[..i].trim(), line[i + 1..].trim_matches(|c: char| c.is_whitespace() || c == '=').trim()),
+            None => (line, ""),
+        };
+        if key.eq_ignore_ascii_case("host") {
+            // `Host a b c` lists alternative match patterns for ONE host — use the first concrete alias
+            // as its name (extra aliases aren't separate machines; one-per-alias used to dupe them).
+            cur = val.split_whitespace().find(|a| !a.contains(['*', '?', '!'])).map(|alias| {
+                out.push(SshHost {
+                    id: format!("cfg:{alias}"),
+                    name: alias.to_string(),
+                    host: alias.to_string(), // replaced by HostName if the block has one
+                    port: None,
+                    user: None,
+                    key_path: None,
+                    remote_dir: None,
+                    source: "sshconfig".into(),
+                });
+                out.len() - 1
+            });
+        } else if let Some(i) = cur {
+            match key.to_ascii_lowercase().as_str() {
+                "hostname" => out[i].host = val.to_string(),
+                "user" => out[i].user = Some(val.to_string()),
+                "port" => out[i].port = val.parse::<u16>().ok(),
+                "identityfile" => out[i].key_path = Some(val.to_string()),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+fn read_ssh_config_hosts() -> Vec<SshHost> {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    std::fs::read_to_string(format!("{home}\\.ssh\\config"))
+        .map(|t| parse_ssh_config(&t))
+        .unwrap_or_default()
+}
+
+/// Saved hosts (synced registry) merged with read-only hosts imported from ~/.ssh/config, each added
+/// only if its host isn't already listed (saved entries win; duplicate config blocks collapse).
+#[tauri::command]
+fn read_ssh_hosts() -> Vec<SshHost> {
+    let mut all = read_ssh_hosts_saved();
+    let mut seen: std::collections::HashSet<String> = all.iter().map(|h| h.host.to_ascii_lowercase()).collect();
+    for h in read_ssh_config_hosts() {
+        if seen.insert(h.host.to_ascii_lowercase()) {
+            all.push(h);
+        }
+    }
+    all
+}
+
+/// Create or update a saved host (matched by id); returns the new saved list. No secrets stored.
+#[tauri::command]
+fn save_ssh_host(host: SshHost) -> Result<Vec<SshHost>, String> {
+    let _g = SSHHOSTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut list = read_ssh_hosts_saved();
+    let mut h = host;
+    if h.id.trim().is_empty() {
+        h.id = gen_session_id();
+    }
+    h.source = "saved".into();
+    match list.iter_mut().find(|x| x.id == h.id) {
+        Some(existing) => *existing = h,
+        None => list.push(h),
+    }
+    write_ssh_hosts_saved(&list)?;
+    Ok(list)
+}
+
+/// Delete a saved host by id; returns the new saved list. (sshconfig-sourced hosts can't be deleted.)
+#[tauri::command]
+fn delete_ssh_host(id: String) -> Result<Vec<SshHost>, String> {
+    let _g = SSHHOSTS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut list = read_ssh_hosts_saved();
+    list.retain(|x| x.id != id);
+    write_ssh_hosts_saved(&list)?;
+    Ok(list)
+}
+
+/// Quick reachability probe for the host editor: TCP connect to host:port (default 22), ~2s timeout.
+/// Does NOT authenticate — just tells the user the host is reachable before they launch ssh.
+#[tauri::command]
+fn test_ssh_host(host: String, port: Option<u16>) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let p = port.unwrap_or(22);
+    match format!("{host}:{p}").to_socket_addrs() {
+        Ok(mut addrs) => addrs
+            .next()
+            .map(|a| TcpStream::connect_timeout(&a, std::time::Duration::from_secs(2)).is_ok())
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// Base64 (standard, padded) of a string's UTF-16LE bytes — the exact form `powershell -EncodedCommand`
+/// expects. Used to ship a `Set-Location` into an SSH session so quotes/spaces/Cyrillic survive the
+/// local→ssh→remote re-parsing intact. Tiny hand-rolled encoder (no extra dependency).
+fn ps_encoded_command(s: &str) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut bytes = Vec::with_capacity(s.len() * 2);
+    for u in s.encode_utf16() {
+        bytes.push((u & 0xff) as u8);
+        bytes.push((u >> 8) as u8);
+    }
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+        out.push(T[(b[0] >> 2) as usize] as char);
+        out.push(T[(((b[0] & 0x03) << 4) | (b[1] >> 4)) as usize] as char);
+        out.push(if c.len() > 1 { T[(((b[1] & 0x0f) << 2) | (b[2] >> 6)) as usize] as char } else { '=' });
+        out.push(if c.len() > 2 { T[(b[2] & 0x3f) as usize] as char } else { '=' });
+    }
+    out
+}
+
+#[cfg(test)]
+mod ssh_config_tests {
+    use super::*;
+    #[test]
+    fn parses_aliases_fields_and_skips_wildcards() {
+        let cfg = "# my hosts\n\
+Host minipc 192.168.1.177\n\
+    HostName 192.168.1.177\n\
+    User dansc\n\
+    Port 22\n\
+    IdentityFile ~/.ssh/id_ed25519\n\
+\n\
+Host *\n\
+    ForwardAgent yes\n";
+        let hosts = parse_ssh_config(cfg);
+        assert_eq!(hosts.len(), 1, "multi-alias Host line = one host, wildcard skipped");
+        let mini = hosts.iter().find(|h| h.name == "minipc").expect("minipc host");
+        assert_eq!(mini.host, "192.168.1.177");
+        assert_eq!(mini.user.as_deref(), Some("dansc"));
+        assert_eq!(mini.port, Some(22));
+        assert_eq!(mini.key_path.as_deref(), Some("~/.ssh/id_ed25519"));
+        assert!(hosts.iter().all(|h| h.source == "sshconfig"));
+    }
+
+    #[test]
+    fn ring_buffer_drops_oldest_over_cap() {
+        use std::collections::VecDeque;
+        let mut rb: VecDeque<u8> = VecDeque::new();
+        push_bounded(&mut rb, b"hello", 4);
+        assert_eq!(rb.iter().copied().collect::<Vec<u8>>(), b"ello"); // oldest 'h' dropped
+        push_bounded(&mut rb, b"XY", 4);
+        assert_eq!(rb.iter().copied().collect::<Vec<u8>>(), b"loXY"); // capped at 4, newest kept
+    }
+
+    #[test]
+    fn ps_encoded_command_matches_powershell() {
+        // [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(x)) reference values.
+        assert_eq!(ps_encoded_command("A"), "QQA=");
+        assert_eq!(ps_encoded_command("Hi"), "SABpAA==");
+    }
+}
+
+// ===================== Multi-monitor windows (pop a live pane onto another monitor) =====================
+// A pane can be "popped out" to its own frameless window on a chosen monitor. The window renders the
+// SAME live session by attaching an extra output channel (session_attach) — no respawn. Monitors are
+// enumerated and windows created/positioned from Rust (PhysicalPosition → correct across mixed DPI;
+// no JS window perms needed). Child window labels (mon-* / pane-*) get core:default via the capability.
+// A small handoff registry passes the pane's display spec to the new window.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MonitorInfo {
+    index: usize,
+    name: String,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale: f64,
+    primary: bool,
+}
+
+#[tauri::command]
+fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
+    let prim_pos = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| { let p = m.position(); (p.x, p.y) });
+    match app.available_monitors() {
+        Ok(mons) => mons
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let p = m.position();
+                let s = m.size();
+                MonitorInfo {
+                    index: i,
+                    name: m.name().cloned().unwrap_or_else(|| format!("Monitor {}", i + 1)),
+                    x: p.x,
+                    y: p.y,
+                    width: s.width,
+                    height: s.height,
+                    scale: m.scale_factor(),
+                    primary: prim_pos == Some((p.x, p.y)),
+                }
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+// Handoff: the main window stashes a pane's display spec under the new window's label; the child reads
+// (and clears) it on mount. Lazy-init map (HashMap::new isn't const).
+static DETACH_REGISTRY: Mutex<Option<std::collections::HashMap<String, serde_json::Value>>> = Mutex::new(None);
+
+#[tauri::command]
+fn prepare_detach(label: String, spec: serde_json::Value) {
+    let mut g = DETACH_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    g.get_or_insert_with(std::collections::HashMap::new).insert(label, spec);
+}
+
+#[tauri::command]
+fn take_detach(label: String) -> Option<serde_json::Value> {
+    let mut g = DETACH_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    g.as_mut().and_then(|m| m.remove(&label))
+}
+
+/// Open (or focus) a frameless window filling the given monitor. Positioned/sized in PHYSICAL pixels
+/// so it lands correctly across mixed-DPI monitors. The window loads the app; its label drives the
+/// detached view on the frontend.
+#[tauri::command]
+fn open_monitor_window(app: AppHandle, label: String, monitor_index: usize) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let mons = app.available_monitors().map_err(|e| e.to_string())?;
+    let m = mons.get(monitor_index).ok_or_else(|| "monitor index out of range".to_string())?;
+    let pos = *m.position();
+    let size = *m.size();
+    // Build OFF the main thread. The command runs on the main (event-loop) thread, and a synchronous
+    // `WebviewWindowBuilder::build()` there DEADLOCKS: WebView2 creation is async and needs the event
+    // loop to pump, but build() blocks that very loop. From a worker thread, build() dispatches the
+    // creation to the (now free) main loop and returns once the webview is ready.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let built = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::App("index.html".into()))
+            .title("Castellyn")
+            .decorations(false)
+            // Dark background so the frame never flashes white while the webview boots.
+            .background_color(tauri::webview::Color(8, 12, 24, 255))
+            .build();
+        // Physical position/size — correct across mixed-DPI monitors (the window-state plugin is
+        // denylisted for mon-* so it can't override these with a stale restored rect).
+        if let Ok(win) = built {
+            let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
+            let _ = win.set_size(tauri::PhysicalSize::new(size.width, size.height));
+            let _ = win.set_focus();
+        }
+    });
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         // Remember window position/size across launches (auto-restores on start, saves on exit).
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Denylist the ephemeral monitor windows: they're positioned explicitly per-monitor on every
+        // open, so restoring a saved rect would misplace/shrink them (pane-<id> labels are unique per
+        // session, so they never collide on restore).
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_denylist(&["mon-0", "mon-1", "mon-2", "mon-3", "mon-4", "mon-5", "mon-6", "mon-7"])
+                .build(),
+        )
         // OS-global hotkey to show/hide the window; the actual combo is registered from config in setup.
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -5586,7 +6052,17 @@ pub fn run() {
             session_write,
             session_resize,
             session_kill,
+            session_attach,
+            session_detach,
             list_subdirs,
+            read_ssh_hosts,
+            save_ssh_host,
+            delete_ssh_host,
+            test_ssh_host,
+            list_monitors,
+            prepare_detach,
+            take_detach,
+            open_monitor_window,
             read_freellmapi_analytics,
             read_providers,
             run_provider,
@@ -5622,6 +6098,7 @@ pub fn run() {
             import_config,
             app_paths,
             open_path,
+            open_url,
             open_terminal,
             get_autostart,
             set_autostart,
@@ -5656,15 +6133,19 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Close button minimizes to tray instead of quitting.
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Persist geometry before hiding, so it survives even a later kill (the plugin
-                // also saves on a clean exit via the tray "Выход").
-                use tauri_plugin_window_state::{AppHandleExt, StateFlags};
-                let _ = window.app_handle().save_window_state(StateFlags::all());
-                // Default: ✕ minimizes to tray. If the user opted out (closeToTray=false),
-                // let the close proceed so the app actually quits.
-                if read_config_file().close_to_tray.unwrap_or(true) {
-                    api.prevent_close();
-                    let _ = window.hide();
+                // Only the MAIN window persists geometry + minimizes to tray. Detached monitor /
+                // popped-out pane windows (mon-* / pane-*) are EPHEMERAL: persisting their geometry
+                // made the window-state plugin restore stale/default rects on the next distribute
+                // (tiny, misplaced, blank window). They also must close for real so their panes
+                // unmount — otherwise the PTY session, its fan-out channel and the WebView2 leak.
+                // (✕ opt-out via closeToTray=false still quits the app.)
+                if window.label() == "main" {
+                    use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+                    let _ = window.app_handle().save_window_state(StateFlags::all());
+                    if read_config_file().close_to_tray.unwrap_or(true) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
             }
         })

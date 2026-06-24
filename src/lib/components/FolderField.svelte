@@ -55,18 +55,6 @@
     if (d) value = d;
     open = false;
   }
-  async function setRoot() {
-    const d = await pickFolder(root);
-    if (d) {
-      root = d;
-      localStorage.setItem(ROOT, d);
-      try {
-        projects = await listSubdirs(d);
-      } catch {
-        projects = [];
-      }
-    }
-  }
   const isFav = $derived(!!value && favorites.includes(value));
   function toggleFav() {
     if (!value) return;
@@ -85,9 +73,9 @@
 
 <div class="ff" bind:this={rootEl}>
   <input class="sw-input inp text-sw-xs" bind:value {placeholder} spellcheck="false" autocomplete="off" />
-  <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}>★</button>
-  <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
   <button class="icon" onclick={() => (open ? (open = false) : openMenu())} title={t('sessions.folderMenu')} aria-label={t('sessions.folderMenu')}>▾</button>
+  <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
+  <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}>★</button>
   {#if open}
     <div class="menu" use:anchored={{ anchor: rootEl!, align: 'left' }}>
       {#if favorites.length}
@@ -111,10 +99,6 @@
       {#if !favorites.length && !recent.length && !projects.length}
         <div class="sec">{t('sessions.folderMenuEmpty')}</div>
       {/if}
-      <div class="foot">
-        <button class="act" onclick={browse}>📁 {t('sessions.browse')}</button>
-        <button class="act" onclick={setRoot}>⚙ {t('sessions.setRoot')}</button>
-      </div>
     </div>
   {/if}
 </div>
@@ -196,26 +180,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .foot {
-    display: flex;
-    gap: 6px;
-    padding: 6px 4px 2px;
-    margin-top: 4px;
-    border-top: 1px solid var(--sw-border);
-  }
-  .act {
-    flex: 1;
-    border: 1px solid var(--sw-border);
-    background: transparent;
-    color: var(--sw-text-secondary);
-    border-radius: var(--sw-radius-md);
-    cursor: pointer;
-    padding: 5px 8px;
-    font-size: var(--sw-text-xs);
-  }
-  .act:hover {
-    color: var(--sw-text-primary);
-    background: var(--sw-accent-glow);
   }
 </style>

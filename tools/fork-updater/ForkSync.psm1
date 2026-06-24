@@ -929,7 +929,7 @@ function Invoke-ForkSync {
     # Summary — use .Where() intrinsics + an explicit flatten instead of @(...) array
     # subexpressions. The @() binder throws "Argument types do not match" on a generic
     # List in PS7 interpreted mode (PowerShell DLR binder bug; cf. PowerShell #8661).
-    $managed = $reports.Where({ -not $_.Skipped })
+    $managed = @($reports.Where({ -not $_.Skipped }))
     $allBranches = [System.Collections.Generic.List[object]]::new()
     foreach ($m in $managed) { foreach ($br in $m.branches) { if ($br) { $allBranches.Add($br) } } }
     $cMerged   = $allBranches.Where({ $_.outcome -eq 'merged' }).Count
@@ -965,7 +965,22 @@ function Invoke-ForkSync {
             if (@($acts).Count) {
                 Write-Host "    $($rep.Name):" -ForegroundColor White
                 foreach ($a in $acts) { Write-Status $a $(if ($dry) { 'INFO' } else { 'OK' }) }
-                $rep | Add-Member -NotePropertyName ($(if ($dry) { 'actionsPlanned' } else { 'actionsTaken' })) -NotePropertyValue $acts -Force
+                if ($dry) {
+                    $rep | Add-Member -NotePropertyName 'actionsPlanned' -NotePropertyValue $acts -Force
+                } else {
+                    # Re-analyze AFTER the mutation so the written status (behindBy / wipLocal / branches)
+                    # reflects reality — not the pre-action snapshot. Without this the UI keeps the
+                    # "needs sync" recommendation for a repo that was JUST synced. -NoFetch: the actions
+                    # rebase/ff onto the already-fetched upstream, so no new network fetch is needed.
+                    $fresh = Get-RepoReport -RepoPath $rep.Path -Config $cfg -NoFetch -GhAvailable:$ghAvailable -IsOwn:([bool]$rep.isOwn)
+                    if ($fresh -and -not $fresh.Skipped) {
+                        $fresh | Add-Member -NotePropertyName 'actionsTaken' -NotePropertyValue $acts -Force
+                        $i = [array]::IndexOf($managed, $rep)
+                        if ($i -ge 0) { $managed[$i] = $fresh } else { $rep | Add-Member -NotePropertyName 'actionsTaken' -NotePropertyValue $acts -Force }
+                    } else {
+                        $rep | Add-Member -NotePropertyName 'actionsTaken' -NotePropertyValue $acts -Force
+                    }
+                }
             }
         }
     } elseif (-not $Unattended) {

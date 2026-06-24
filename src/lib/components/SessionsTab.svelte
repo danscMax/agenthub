@@ -1,11 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TerminalPane from './TerminalPane.svelte';
-  import SessionLaunchDialog from './SessionLaunchDialog.svelte';
   import FolderField from './FolderField.svelte';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
-  import { pickFolder, sessionWrite, type SessionTool } from '$lib/ipc';
+  import {
+    sessionWrite,
+    type SessionTool,
+    openMonitorWindow,
+    prepareDetach,
+    type DetachPane,
+    type SshHost,
+    readSshHosts,
+    testSshHost,
+    saveSshHost,
+    deleteSshHost,
+    sshTarget,
+    parseSshTarget,
+    pickFolder
+  } from '$lib/ipc';
+  import { getMonitors } from '$lib/monitors';
+  import Select from './Select.svelte';
+  import { markMoved, peekMoved } from '$lib/sessionMove';
+  import { listen } from '@tauri-apps/api/event';
   import { ARG_PRESETS, toggleFlag } from '$lib/sessionPresets';
   import { pushToast } from '$lib/toast.svelte';
 
@@ -24,7 +41,18 @@
     onFolderReqConsumed?: () => void;
   } = $props();
 
-  type Pane = { key: string; profile: string; tool: SessionTool; cwd: string; args: string; name?: string };
+  type Pane = {
+    key: string;
+    profile: string;
+    tool: SessionTool;
+    cwd: string;
+    args: string;
+    remoteDir?: string; // ssh: remote start dir (cd into it on connect)
+    sshTarget?: string; // when set, the env runs over SSH on this target (location ≠ this PC)
+    name?: string;
+    attachId?: string; // when set, this pane ATTACHES to a live session (e.g. returned from a monitor)
+    ownsSession?: boolean; // an attached pane that owns the session (kills it on close)
+  };
   function renamePane(key: string, name: string) {
     panes = panes.map((p) => (p.key === key ? { ...p, name: name || undefined } : p));
   }
@@ -40,25 +68,26 @@
   const FKEY = 'cmh-sessions-folders';
   const CKEY = 'cmh-sessions-cols';
   const WKEY = 'cmh-sessions-workspaces';
-  const AKEY = 'cmh-sessions-askfolder';
   const DAKEY = 'cmh-sessions-defargs';
+  const MLKEY = 'cmh-monitor-layout'; // saved "разнести" arrangement, offered for restore on launch
+  let savedLayoutExists = $state(false); // is there a saved monitor layout to restore / forget (#13)
   let lastFolders = $state<Record<string, string>>({});
-  // Default launch args applied to Claude quick-launches (profile buttons + "launch all").
+  // Default launch args, seeded into the phrase's args field for Claude/opencode.
   let defaultArgs = $state('');
-  // When ON, a quick profile launch opens the folder picker first (ask every time).
-  let askFolder = $state(false);
-  // Collapsible launcher settings (default folder + default args) — collapsed by default so the
-  // header stays compact; the profile launch buttons are always visible.
+  // Collapsible launcher settings (default args, projects root) — collapsed by default.
   let launcherOpen = $state(false);
   // A workspace is a named set of session configs you can re-launch with one click.
-  type WsConfig = { tool: SessionTool; profile: string; cwd: string; args: string };
+  type WsConfig = { tool: SessionTool; profile: string; cwd: string; args: string; remoteDir?: string; sshTarget?: string };
   let workspaces = $state<Record<string, WsConfig[]>>({});
   onMount(() => {
     try {
       lastFolders = JSON.parse(localStorage.getItem(FKEY) ?? '{}');
       workspaces = JSON.parse(localStorage.getItem(WKEY) ?? '{}');
-      askFolder = localStorage.getItem(AKEY) === '1';
       defaultArgs = localStorage.getItem(DAKEY) ?? '';
+      favorites = JSON.parse(localStorage.getItem(VKEY) ?? '[]');
+      projectsRoot = localStorage.getItem(ROOT) ?? '';
+      lFolder = cwd;
+      lArgs = defaultArgs;
       const c = Number(localStorage.getItem(CKEY));
       if (c >= 1 && c <= 3) columns = c;
       const fz = Number(localStorage.getItem('cmh-sessions-fontsize'));
@@ -66,6 +95,41 @@
       launcherOpen = localStorage.getItem('cmh-sessions-launcher') === '1';
     } catch {
       /* first run / private mode */
+    }
+    // SSH quick-connect dropdown: load saved + imported ~/.ssh/config hosts (1-click reconnect).
+    readSshHosts()
+      .then((h) => {
+        sshHostList = h;
+        checkReach(h);
+      })
+      .catch(() => {});
+    // A pane returned from a detached monitor window (← Castellyn): re-attach it here as the owner.
+    listen<{ target: string; pane: DetachPane }>('pane:add', (e) => {
+      const p = e.payload;
+      if (p?.target !== 'main' || !p.pane?.sessionId) return;
+      addPane({
+        tool: p.pane.tool,
+        profile: p.pane.profile ?? '',
+        cwd: p.pane.cwd ?? '',
+        args: p.pane.args ?? '',
+        attachId: p.pane.sessionId,
+        ownsSession: true
+      });
+    });
+    // Offer to restore the last monitor arrangement (the user's "restore on launch" choice). A toast
+    // with a one-click action — non-aggressive: we don't auto-spawn a grid of terminals every start.
+    try {
+      const saved = localStorage.getItem(MLKEY);
+      savedLayoutExists = !!(saved && saved !== '{}');
+      if (savedLayoutExists) {
+        pushToast({
+          kind: 'info',
+          title: t('sessions.restoreLayoutPrompt'),
+          action: { label: t('sessions.restoreLayoutAction'), onClick: restoreLayout }
+        });
+      }
+    } catch {
+      /* ignore */
     }
   });
   $effect(() => {
@@ -111,6 +175,123 @@
     sendAllText = '';
   }
 
+  // "Разнести по мониторам": open a detached window per (non-primary) monitor and spread the running
+  // panes across them as a grid. Each pane mirrors its LIVE session via attach (no respawn); the main
+  // window keeps its panes too. If there's only one monitor, this is a no-op (with a hint).
+  async function distributeToMonitors() {
+    let mons;
+    try {
+      mons = await getMonitors();
+    } catch {
+      return;
+    }
+    const targets = mons.filter((m) => !m.primary);
+    const use = targets.length ? targets : mons;
+    if (use.length < 1 || mons.length < 2) {
+      pushToast({ kind: 'info', title: t('sessions.distributeNone') });
+      return;
+    }
+    // Assign each running pane to a target monitor (round-robin), grouped per monitor.
+    type Entry = { key: string; dp: DetachPane };
+    const byMon = new Map<number, Entry[]>();
+    let i = 0;
+    for (const p of panes) {
+      const id = sessionIds[p.key];
+      if (!id) continue;
+      const m = use[i % use.length];
+      const dp: DetachPane = {
+        sessionId: id,
+        title: p.name || p.tool,
+        tool: p.tool,
+        profile: p.profile,
+        cwd: p.cwd,
+        args: p.args,
+        owns: true
+      };
+      const arr = byMon.get(m.index) ?? [];
+      arr.push({ key: p.key, dp });
+      byMon.set(m.index, arr);
+      i++;
+    }
+    if (i === 0) {
+      pushToast({ kind: 'info', title: t('sessions.distributeNone') });
+      return;
+    }
+    // Open one detached grid-window per monitor; on success live-MOVE those panes out of the grid
+    // (mark so their unmount doesn't kill the session — the monitor window now owns it via attach).
+    const removeKeys = new Set<string>();
+    const layout: Record<number, DetachPane[]> = {};
+    for (const [idx, list] of byMon) {
+      try {
+        await prepareDetach(`mon-${idx}`, { panes: list.map((e) => e.dp) });
+        await openMonitorWindow(`mon-${idx}`, idx);
+        for (const e of list) {
+          if (e.dp.sessionId) markMoved(e.dp.sessionId);
+          removeKeys.add(e.key);
+        }
+        // Persist the LAUNCH config (no live session id) so this monitor can be restored next launch.
+        layout[idx] = list.map((e) => ({
+          title: e.dp.title,
+          tool: e.dp.tool,
+          profile: e.dp.profile,
+          cwd: e.dp.cwd,
+          args: e.dp.args,
+          owns: true
+        }));
+      } catch {
+        /* monitor/window unavailable — leave those panes in the main grid */
+      }
+    }
+    if (removeKeys.size) panes = panes.filter((p) => !removeKeys.has(p.key));
+    if (Object.keys(layout).length) {
+      try {
+        localStorage.setItem(MLKEY, JSON.stringify(layout));
+        savedLayoutExists = true;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // #13 — forget the saved monitor arrangement (stops the restore prompt on future launches).
+  function forgetLayout() {
+    try {
+      localStorage.removeItem(MLKEY);
+    } catch {
+      /* ignore */
+    }
+    savedLayoutExists = false;
+    pushToast({ kind: 'info', title: t('sessions.forgetLayoutDone') });
+  }
+
+  // Restore the last "разнести" arrangement: reopen a window per saved monitor and SPAWN fresh sessions
+  // (the old PTYs died with the app). Skips monitors that no longer exist. Offered via a toast on launch.
+  async function restoreLayout() {
+    let saved: Record<number, DetachPane[]>;
+    try {
+      saved = JSON.parse(localStorage.getItem(MLKEY) ?? '{}');
+    } catch {
+      return;
+    }
+    let mons;
+    try {
+      mons = await getMonitors();
+    } catch {
+      return;
+    }
+    const have = new Set(mons.map((m) => m.index));
+    for (const [idxStr, list] of Object.entries(saved)) {
+      const idx = Number(idxStr);
+      if (!have.has(idx) || !list?.length) continue;
+      try {
+        await prepareDetach(`mon-${idx}`, { panes: list });
+        await openMonitorWindow(`mon-${idx}`, idx);
+      } catch {
+        /* monitor/window unavailable — skip */
+      }
+    }
+  }
+
   const atLimit = $derived(panes.length >= MAX_PANES);
   function rememberRecent(folder: string) {
     if (!folder) return;
@@ -122,20 +303,15 @@
       /* ignore */
     }
   }
-  function addPane(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
-    if (atLimit) return;
+  function addPane(v: { tool: SessionTool; profile: string; cwd: string; args: string; remoteDir?: string; sshTarget?: string; attachId?: string; ownsSession?: boolean }) {
+    // Don't block re-attaching an EXISTING session (e.g. a pane returned from a monitor) on the cap —
+    // it's not a new spawn. Only new spawns count against MAX_PANES.
+    if (atLimit && !v.attachId) return;
     const key = `${v.tool}:${v.profile || 'sh'}#${seq++}`;
-    panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args }];
+    panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args, remoteDir: v.remoteDir, sshTarget: v.sshTarget, attachId: v.attachId, ownsSession: v.ownsSession }];
     if (v.tool === 'claude') rememberFolder(v.profile, v.cwd);
     rememberRecent(v.cwd);
   }
-  $effect(() => {
-    try {
-      localStorage.setItem(AKEY, askFolder ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  });
   $effect(() => {
     try {
       localStorage.setItem('cmh-sessions-launcher', launcherOpen ? '1' : '0');
@@ -150,38 +326,9 @@
       /* ignore */
     }
   });
-  // Quick launch: Claude under a profile. With "ask folder" on, prompt for the folder first
-  // (cancel = don't launch); otherwise use the profile's remembered folder (or the default).
-  async function quick(profile: string) {
-    let dir = lastFolders[profile] ?? cwd;
-    // Only prompt when "ask folder" is on AND there's no folder to fall back to — a filled
-    // default/remembered folder is used directly (no redundant dialog).
-    if (askFolder && !dir.trim()) {
-      const picked = await pickFolder(dir);
-      if (picked === null) return; // cancelled
-      dir = picked;
-    }
-    addPane({ tool: 'claude', profile, cwd: dir, args: defaultArgs.trim() });
-  }
-  async function launchAll() {
-    // Each profile starts in ITS OWN remembered folder (falling back to the default) — launching
-    // every profile from one shared folder is almost never what you want. For an explicit
-    // per-profile folder choice in one action, use the matrix dialog (folder icon next to the
-    // button).
-    for (const p of profiles) addPane({ tool: 'claude', profile: p, cwd: lastFolders[p] ?? cwd, args: defaultArgs.trim() });
-  }
-  // Quick-launch opencode or a bare shell (no profile). Respects the ask-folder toggle.
-  async function quickTool(tool: 'opencode' | 'shell') {
-    let dir = cwd;
-    if (askFolder && !dir.trim()) {
-      const picked = await pickFolder(dir);
-      if (picked === null) return;
-      dir = picked;
-    }
-    addPane({ tool, profile: '', cwd: dir, args: '' });
-  }
   function closePane(key: string) {
     const closed = panes.find((p) => p.key === key);
+    const movedOut = peekMoved(sessionIds[key] ?? '');
     panes = panes.filter((p) => p.key !== key);
     delete paneRefs[key]; // drop the unmounted pane's ref so the map doesn't retain stale keys
     if (maximized === key) maximized = null;
@@ -189,8 +336,9 @@
     // keep getting mirrored invisibly.
     if (panes.length <= 1) broadcast = false;
     // Offer a one-click reopen (same tool/profile/folder/args). The old PTY is gone, so this
-    // relaunches a fresh session rather than restoring scrollback.
-    if (closed) {
+    // relaunches a fresh session rather than restoring scrollback. Skip for a live MOVE — the
+    // session isn't closed, it just relocated to a monitor window.
+    if (closed && !movedOut) {
       pushToast({
         kind: 'info',
         title: t('sessions.paneClosed', { name: paneLabel(closed) }),
@@ -304,31 +452,184 @@
     return folder ? `${p.tool} · ${folder}` : p.tool;
   }
 
-  // Launch dialog (tool / profile / folder / args).
-  let dlgOpen = $state(false);
-  let dlgProfile = $state('');
-  let dlgCwd = $state(''); // folder seeded into the dialog (a deep-link folder, else the default)
-  function openDlg(profile = '', folder?: string) {
-    dlgProfile = profile;
-    dlgCwd = folder ?? cwd;
-    dlgOpen = true;
+  // ─── Settings (⚙): projects root + default args + SSH servers — all in one place, no dialogs ───
+  const ROOT = 'cmh-projects-root';
+  let projectsRoot = $state('');
+  function openSettings() {
+    launcherOpen = true;
   }
-  // Deep-link (e.g. from a fork card's "Terminal"): open the launcher prefilled with that repo folder.
+  async function browseRoot() {
+    const d = await pickFolder(projectsRoot);
+    if (d) {
+      projectsRoot = d;
+      try {
+        localStorage.setItem(ROOT, d);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  // Add-server form (inline in settings) — reuses the SSH host registry.
+  let srvName = $state('');
+  let srvTarget = $state('');
+  let srvDir = $state('');
+  let srvTesting = $state(false);
+  let srvTest = $state<'ok' | 'fail' | null>(null);
+  async function addServer() {
+    const p = parseSshTarget(srvTarget);
+    if (!p.host) return;
+    const name = srvName.trim() || (p.user ? `${p.user}@${p.host}` : p.host);
+    await saveSshHost({ id: '', name, host: p.host, port: p.port, user: p.user, keyPath: p.keyPath, remoteDir: srvDir.trim() || null, source: 'saved' });
+    srvName = '';
+    srvTarget = '';
+    srvDir = '';
+    srvTest = null;
+    const list = await readSshHosts();
+    sshHostList = list;
+    checkReach(list);
+  }
+  async function deleteServer(id: string) {
+    await deleteSshHost(id);
+    const list = await readSshHosts();
+    sshHostList = list;
+  }
+  async function testServer() {
+    const p = parseSshTarget(srvTarget);
+    if (!p.host) return;
+    srvTesting = true;
+    srvTest = null;
+    try {
+      srvTest = (await testSshHost(p.host, p.port)) ? 'ok' : 'fail';
+    } catch {
+      srvTest = 'fail';
+    } finally {
+      srvTesting = false;
+    }
+  }
+  // SSH quick-connect dropdown: saved + ~/.ssh/config hosts → 1 click launches; "+ New SSH…" → dialog.
+  let sshHostList = $state<SshHost[]>([]);
+  // Auto reachability check: ping each host's port (test_ssh_host, TCP) and show a status dot.
+  let sshReach = $state<Record<string, 'checking' | 'ok' | 'fail'>>({});
+  async function checkReach(hosts: SshHost[]) {
+    for (const h of hosts) {
+      sshReach = { ...sshReach, [h.id]: 'checking' };
+      const ok = await testSshHost(h.host, h.port ?? null).catch(() => false);
+      sshReach = { ...sshReach, [h.id]: ok ? 'ok' : 'fail' };
+    }
+  }
+  // ─── Launcher: environment × location × folder × args, read as a phrase (№20 + №8) ───
+  type Env = 'claude' | 'opencode' | 'shell';
+  const ENVS: { id: Env; label: string; title: string; icon: string }[] = [
+    {
+      id: 'claude',
+      label: 'Claude',
+      title: t('sessions.envClaudeTip'),
+      icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 2l1.9 6.4a2 2 0 0 0 1.7 1.7L22 12l-6.4 1.9a2 2 0 0 0-1.7 1.7L12 22l-1.9-6.4a2 2 0 0 0-1.7-1.7L2 12l6.4-1.9a2 2 0 0 0 1.7-1.7z"/></svg>'
+    },
+    {
+      id: 'opencode',
+      label: 'opencode',
+      title: t('sessions.envOpencodeTip'),
+      icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 7L4 12l4.5 5M15.5 7L20 12l-4.5 5"/></svg>'
+    },
+    {
+      id: 'shell',
+      label: 'shell',
+      title: t('sessions.envShellTip'),
+      icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8l4 4-4 4M12 16h7"/></svg>'
+    }
+  ];
+  let lEnv = $state<Env>('claude');
+  let lProfile = $state('');
+  let lLoc = $state(''); // '' = this PC; else an SSH host id
+  let lFolder = $state(''); // local folder (when lLoc==='')
+  let lRemoteDir = $state(''); // remote start dir (when lLoc!=='')
+  let lArgs = $state('');
+  const LOC_ADD = '__add__';
+  const locOptions = $derived([
+    { value: '', label: t('sessions.locThisPc'), icon: '💻' },
+    ...sshHostList.map((h) => ({
+      value: h.id,
+      label: h.name,
+      icon: sshReach[h.id] === 'ok' ? '🟢' : sshReach[h.id] === 'fail' ? '🔴' : '⚪',
+      hint: h.source === 'sshconfig' ? '~/.ssh/config' : undefined
+    })),
+    { value: LOC_ADD, label: t('sessions.locAdd'), icon: '＋' }
+  ]);
+  function onLocChange(v: string) {
+    if (v === LOC_ADD) {
+      lLoc = ''; // host management (add/test/save) lives in ⚙ settings
+      openSettings();
+      return;
+    }
+    lLoc = v;
+    const h = sshHostList.find((x) => x.id === v);
+    if (h) lRemoteDir = h.remoteDir ?? '';
+  }
+  // Seed the profile dropdown with the first profile until the user picks one.
+  $effect(() => {
+    if (!lProfile && profiles.length) lProfile = profiles[0];
+  });
+  // Build addPane input from a phrase (current or a saved favorite). null = unknown SSH host.
+  function paneFrom(env: Env, profile: string, locId: string, folder: string, remoteDir: string, args: string) {
+    const a = env === 'shell' ? '' : args.trim();
+    const prof = env === 'claude' ? profile : '';
+    if (!locId) return { tool: env as SessionTool, profile: prof, cwd: folder.trim(), args: a };
+    const h = sshHostList.find((x) => x.id === locId);
+    if (!h) return null;
+    return { tool: env as SessionTool, profile: prof, cwd: '', args: a, sshTarget: sshTarget(h), remoteDir: remoteDir.trim() || undefined };
+  }
+  function launchPhrase() {
+    const v = paneFrom(lEnv, lProfile, lLoc, lFolder, lRemoteDir, lArgs);
+    if (v) addPane(v);
+  }
+  // ─── Favorites: pin the whole phrase → 1-click relaunch ───
+  type Fav = { id: string; env: Env; profile: string; locId: string; folder: string; remoteDir: string; args: string; label: string };
+  const VKEY = 'cmh-sessions-favorites';
+  let favorites = $state<Fav[]>([]);
+  function favLabel(env: Env, profile: string, locId: string, folder: string): string {
+    const h = locId ? sshHostList.find((x) => x.id === locId) : null;
+    const where = h
+      ? `🖥 ${h.name}`
+      : folder
+        ? folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder
+        : t('sessions.cwdShort');
+    return env === 'claude' ? `${env}·${profile} · ${where}` : `${env} · ${where}`;
+  }
+  function pinCurrent() {
+    const id = `f${Date.now()}${Math.round(Math.random() * 1e4)}`;
+    favorites = [
+      ...favorites,
+      { id, env: lEnv, profile: lProfile, locId: lLoc, folder: lFolder, remoteDir: lRemoteDir, args: lEnv === 'shell' ? '' : lArgs, label: favLabel(lEnv, lProfile, lLoc, lFolder) }
+    ];
+  }
+  function launchFav(f: Fav) {
+    const v = paneFrom(f.env, f.profile, f.locId, f.folder, f.remoteDir, f.args);
+    if (v) addPane(v);
+  }
+  function removeFav(id: string) {
+    favorites = favorites.filter((f) => f.id !== id);
+  }
+  $effect(() => {
+    try {
+      localStorage.setItem(VKEY, JSON.stringify(favorites));
+    } catch {
+      /* ignore */
+    }
+  });
+  // Deep-link (e.g. from a fork card's "Terminal"): prefill the phrase with that repo folder (local).
   $effect(() => {
     const f = folderReq;
     if (f != null) {
-      openDlg('', f);
+      lLoc = '';
+      lFolder = f;
       onFolderReqConsumed?.();
     }
   });
-  function onDlgSubmit(v: { tool: SessionTool; profile: string; cwd: string; args: string }) {
-    dlgOpen = false;
-    addPane(v);
-  }
 
   function duplicate(key: string) {
     const p = panes.find((x) => x.key === key);
-    if (p) addPane({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args });
+    if (p) addPane({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args, remoteDir: p.remoteDir, sshTarget: p.sshTarget });
   }
 
   // Drag a pane's title bar over another to reorder (live, as you hover).
@@ -397,7 +698,7 @@
     if (!visible) return;
     if (e.ctrlKey && !e.shiftKey && (e.key === 't' || e.key === 'T')) {
       e.preventDefault();
-      openDlg();
+      launchPhrase();
     } else if (e.altKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
       e.preventDefault();
       columns = Number(e.key);
@@ -424,7 +725,7 @@
     if (!name || !panes.length) return;
     workspaces = {
       ...workspaces,
-      [name]: panes.map((p) => ({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args }))
+      [name]: panes.map((p) => ({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args, remoteDir: p.remoteDir, sshTarget: p.sshTarget }))
     };
     persistWs();
     savingWs = false;
@@ -470,6 +771,13 @@
         <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => zoomAll(1)} title={t('sessions.zoomAllIn')} aria-label={t('sessions.zoomAllIn')}>A+</button>
         <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={focusMode} onclick={() => (focusMode = !focusMode)}
           title={t('sessions.focusModeTip')} aria-pressed={focusMode}>◎</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={distributeToMonitors}
+          title={t('sessions.distributeTip')} aria-label={t('sessions.distribute')}>⬈⬈</button>
+        <span class="text-sw-text-muted">·</span>
+      {/if}
+      {#if savedLayoutExists}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={forgetLayout}
+          title={t('sessions.forgetLayoutTip')} aria-label={t('sessions.forgetLayout')}>↺✕</button>
         <span class="text-sw-text-muted">·</span>
       {/if}
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.layout')}</span>
@@ -485,64 +793,120 @@
     </div>
   </header>
 
-  <!-- Launcher: quick-launch a profile (Claude), or open the dialog for tool/folder/args -->
+  <!-- Launcher: environment × location × folder × args, read as a phrase (№20 + №8) -->
   <div class="launcher">
+    <div class="launchhead">
+      <div class="envseg" role="tablist" aria-label={t('sessions.dlgTool')}>
+        {#each ENVS as e (e.id)}
+          <button type="button" class="env-btn" class:sel={lEnv === e.id} onclick={() => (lEnv = e.id)}
+            title={e.title} role="tab" aria-selected={lEnv === e.id}>
+            <span class="env-ic">{@html e.icon}</span>{e.label}
+          </button>
+        {/each}
+      </div>
+      <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={launcherOpen}
+        onclick={() => (launcherOpen = !launcherOpen)} title={t('sessions.settingsTip')} aria-pressed={launcherOpen}>⚙ {t('sessions.settings')}</button>
+    </div>
+
+    <!-- The phrase: reads as a sentence and adapts to the chosen environment / location -->
+    <div class="phrase">
+      <span class="pw">{t('sessions.phRun')}</span>
+      {#if lEnv === 'claude'}
+        <span class="pw">{t('sessions.phProfile')}</span>
+        <div class="psel"><Select bind:value={lProfile} options={profiles} placeholder={t('sessions.dlgProfile')} /></div>
+      {/if}
+      <span class="pw">{t('sessions.phOn')}</span>
+      <div class="psel"><Select value={lLoc} onChange={onLocChange} options={locOptions} placeholder={t('sessions.locThisPc')} /></div>
+      <span class="pw">{t('sessions.phIn')}</span>
+      {#if lLoc === ''}
+        <div class="pfolder"><FolderField bind:value={lFolder} placeholder={t('sessions.cwdShort')} /></div>
+      {:else}
+        <input class="sw-input grow font-mono text-sw-xs pfolder" bind:value={lRemoteDir}
+          placeholder={t('sessions.dlgSshRemoteDirPlaceholder')} spellcheck="false" autocomplete="off" />
+      {/if}
+      {#if lEnv !== 'shell'}
+        <span class="pw">{t('sessions.phWith')}</span>
+        <input class="sw-input grow font-mono text-sw-xs pargs" bind:value={lArgs}
+          placeholder={t('sessions.dlgArgsPlaceholder')} spellcheck="false" autocomplete="off" />
+      {/if}
+      <button type="button" class="sw-btn sw-btn-ghost star" onclick={pinCurrent} title={t('sessions.pin')} aria-label={t('sessions.pin')}>★</button>
+      <button type="button" class="sw-btn sw-btn-primary text-sw-xs" onclick={launchPhrase}>▶ {t('sessions.phLaunch')}</button>
+    </div>
+
+    <!-- Favorites (pinned phrases) + save-workspace -->
+    {#if favorites.length || panes.length || savingWs}
+      <div class="favs">
+        {#if favorites.length}
+          <span class="text-sw-xs text-sw-text-muted">★</span>
+          {#each favorites as f (f.id)}
+            <span class="fav-chip">
+              <button type="button" class="fav-go" onclick={() => launchFav(f)} title={t('sessions.favLaunchTip')}>{f.label}</button>
+              <button type="button" class="fav-x" onclick={() => removeFav(f.id)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
+            </span>
+          {/each}
+          <span class="text-sw-text-muted">·</span>
+        {/if}
+        {#if savingWs}
+          <input class="sw-input text-sw-xs" style="width:160px" bind:value={wsName} placeholder={t('sessions.wsNamePlaceholder')}
+            onkeydown={(e) => e.key === 'Enter' && saveWorkspace()} />
+          <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!wsName.trim() || !panes.length} onclick={saveWorkspace}>{t('common.save')}</button>
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (savingWs = false)}>{t('common.cancel')}</button>
+        {:else}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!panes.length} onclick={() => (savingWs = true)}
+            title={t('sessions.wsSaveTip')}>{t('sessions.wsSave')}</button>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Settings (⚙): projects root + default args + SSH servers — everything configurable, no dialogs -->
     {#if launcherOpen}
-      <div class="cwd">
-        <span class="text-sw-xs text-sw-text-muted">{t('sessions.cwdDefault')}</span>
-        <div class="flex items-center gap-sw-3">
-          <FolderField bind:value={cwd} placeholder={t('sessions.cwdShort')} />
-          <label class="ask shrink-0" title={t('sessions.askFolderTip')}>
-            <Toggle bind:checked={askFolder} />
-            <span class="whitespace-nowrap text-sw-xs text-sw-text-secondary">{t('sessions.askFolder')}</span>
-          </label>
+      <div class="settings">
+        <div class="set-row">
+          <span class="set-k" title={t('sessions.projectsRootHint')}>{t('sessions.projectsRoot')}</span>
+          <input class="sw-input grow font-mono text-sw-xs" bind:value={projectsRoot}
+            placeholder={t('sessions.projectsRootPlaceholder')} spellcheck="false" autocomplete="off"
+            onchange={() => { try { localStorage.setItem(ROOT, projectsRoot); } catch { /* ignore */ } }} />
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={browseRoot}>📁 {t('sessions.browse')}</button>
+        </div>
+        <div class="set-row">
+          <span class="set-k" title={t('sessions.defaultArgsHint')}>{t('sessions.defaultArgs')}</span>
+          <input class="sw-input grow font-mono text-sw-xs" bind:value={defaultArgs}
+            placeholder={t('sessions.dlgArgsPlaceholder')} spellcheck="false" autocomplete="off" />
+          {#each ARG_PRESETS.claude as flag (flag)}
+            <button type="button" class="argchip" class:on={defaultArgs.includes(flag)}
+              onclick={() => (defaultArgs = toggleFlag(defaultArgs, flag))}>{flag}</button>
+          {/each}
+        </div>
+        <div class="set-srv">
+          <span class="set-k">{t('sessions.servers')}</span>
+          <div class="srv-list">
+            {#each sshHostList as h (h.id)}
+              <span class="srv-chip">
+                <span>{sshReach[h.id] === 'ok' ? '🟢' : sshReach[h.id] === 'fail' ? '🔴' : '⚪'}</span>
+                <span class="srv-n">{h.name}</span>
+                <span class="srv-t font-mono">{sshTarget(h)}</span>
+                {#if h.source === 'saved'}
+                  <button class="srv-x" onclick={() => deleteServer(h.id)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
+                {:else}
+                  <span class="srv-cfg">~/.ssh/config</span>
+                {/if}
+              </span>
+            {/each}
+            {#if !sshHostList.length}<span class="text-sw-xs text-sw-text-muted">{t('sessions.dlgSshEmpty')}</span>{/if}
+          </div>
+          <div class="srv-add">
+            <input class="sw-input text-sw-xs" style="width:130px" bind:value={srvName} placeholder={t('sessions.dlgSshName')} spellcheck="false" autocomplete="off" />
+            <input class="sw-input grow font-mono text-sw-xs" bind:value={srvTarget} placeholder={t('sessions.dlgSshTargetPlaceholder')} spellcheck="false" autocomplete="off" />
+            <input class="sw-input font-mono text-sw-xs" style="width:170px" bind:value={srvDir} placeholder={t('sessions.dlgSshRemoteDir')} spellcheck="false" autocomplete="off" />
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!srvTarget.trim() || srvTesting} onclick={testServer}>{t('sessions.dlgSshTest')}</button>
+            {#if srvTest === 'ok'}<span class="text-sw-xs" style="color:#3fb950">✓ {t('sessions.dlgSshTestOk')}</span>{/if}
+            {#if srvTest === 'fail'}<span class="text-sw-xs" style="color:var(--sw-danger)">✕ {t('sessions.dlgSshTestFail')}</span>{/if}
+            <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!srvTarget.trim()} onclick={addServer}>{t('sessions.serverAdd')}</button>
+          </div>
         </div>
       </div>
     {/if}
-    <div class="profiles">
-      <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={launcherOpen}
-        onclick={() => (launcherOpen = !launcherOpen)} title={t('sessions.launcherToggleTip')} aria-pressed={launcherOpen}>⚙</button>
-      <button class="sw-btn sw-btn-primary text-sw-xs" onclick={() => openDlg()} title={t('sessions.newSessionTip')}>
-        + {t('sessions.newSession')}
-      </button>
-      {#each profiles as p (p)}
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quick(p)} title={t('sessions.launchTip', { profile: p })}>
-          ▶ {p}
-        </button>
-      {/each}
-      {#if profiles.length > 1}
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={launchAll} title={t('sessions.launchAllTip')}>
-          {t('sessions.launchAll')}
-        </button>
-      {/if}
-      <span class="text-sw-text-muted">·</span>
-      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quickTool('opencode')} title={t('sessions.launchToolTip', { tool: 'opencode' })}>▶ opencode</button>
-      <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => quickTool('shell')} title={t('sessions.launchToolTip', { tool: 'shell' })}>▶ shell</button>
-      {#if savingWs}
-        <input class="sw-input text-sw-xs" style="width:160px" bind:value={wsName} placeholder={t('sessions.wsNamePlaceholder')}
-          onkeydown={(e) => e.key === 'Enter' && saveWorkspace()} />
-        <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!wsName.trim() || !panes.length} onclick={saveWorkspace}>{t('common.save')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (savingWs = false)}>{t('common.cancel')}</button>
-      {:else}
-        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={!panes.length} onclick={() => (savingWs = true)}
-          title={t('sessions.wsSaveTip')}>{t('sessions.wsSave')}</button>
-      {/if}
-    </div>
   </div>
-
-  <!-- Default launch args: applied to Claude quick-launches (profile buttons + "launch all") and
-       pre-filled into the "+ new session" dialog. Chips toggle the common Claude flags. -->
-  {#if launcherOpen}
-  <div class="defargs">
-    <span class="shrink-0 text-sw-xs text-sw-text-muted" title={t('sessions.defaultArgsHint')}>{t('sessions.defaultArgs')}</span>
-    <input class="sw-input grow font-mono text-sw-xs" style="min-width:220px" bind:value={defaultArgs}
-      placeholder={t('sessions.dlgArgsPlaceholder')} spellcheck="false" autocomplete="off" />
-    {#each ARG_PRESETS.claude as flag (flag)}
-      <button type="button" class="argchip" class:on={defaultArgs.includes(flag)}
-        onclick={() => (defaultArgs = toggleFlag(defaultArgs, flag))}>{flag}</button>
-    {/each}
-  </div>
-  {/if}
 
   {#if atLimit}
     <p class="mb-sw-2 text-sw-xs" style="color:var(--sw-warn)">{t('sessions.limitNote', { n: MAX_PANES })}</p>
@@ -595,6 +959,10 @@
             tool={pane.tool}
             args={pane.args}
             cwd={pane.cwd || undefined}
+            remoteDir={pane.remoteDir}
+            sshTarget={pane.sshTarget}
+            attachId={pane.attachId}
+            ownsSession={pane.ownsSession ?? false}
             paneKey={pane.key}
             visible={visible && (maximized == null || maximized === pane.key)}
             maximized={maximized === pane.key}
@@ -604,7 +972,7 @@
             {onActivity}
             displayName={pane.name ?? ''}
             onRename={renamePane}
-            onNewSession={() => openDlg()}
+            onNewSession={launchPhrase}
             onClose={() => closePane(pane.key)}
             onToggleMax={() => toggleMax(pane.key)}
             onDuplicate={() => duplicate(pane.key)}
@@ -632,21 +1000,11 @@
       <div class="empty-icon">▦</div>
       <div class="font-medium text-sw-text">{t('sessions.emptyTitle')}</div>
       <div class="text-sw-sm text-sw-text-muted">{t('sessions.emptyHint')}</div>
-      <button class="sw-btn sw-btn-primary text-sw-xs mt-sw-2" onclick={() => openDlg()} title={t('sessions.newSessionTip')}>
-        + {t('sessions.newSession')}
+      <button class="sw-btn sw-btn-primary text-sw-xs mt-sw-2" onclick={launchPhrase} title={t('sessions.phLaunch')}>
+        ▶ {t('sessions.phLaunch')}
       </button>
     </div>
   {/if}
-
-  <SessionLaunchDialog
-    open={dlgOpen}
-    {profiles}
-    defaultProfile={dlgProfile}
-    defaultCwd={dlgCwd}
-    {defaultArgs}
-    onSubmit={onDlgSubmit}
-    onCancel={() => (dlgOpen = false)}
-  />
 </div>
 
 <style>
@@ -659,12 +1017,122 @@
   }
   .launcher {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
+    flex-direction: column;
+    align-items: stretch;
     gap: var(--sw-space-3);
     margin-bottom: var(--sw-space-4);
     padding-bottom: var(--sw-space-3);
     border-bottom: 1px solid var(--sw-border);
+  }
+  .launchhead {
+    display: flex;
+    align-items: center;
+    gap: var(--sw-space-2);
+  }
+  .envseg {
+    display: inline-flex;
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-md);
+    overflow: hidden;
+    margin-right: auto;
+  }
+  .env-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border: none;
+    border-right: 1px solid var(--sw-border);
+    background: transparent;
+    color: var(--sw-text-secondary);
+    font-size: var(--sw-text-sm);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .env-btn:last-child {
+    border-right: none;
+  }
+  .env-btn:hover {
+    background: var(--sw-bg-hover);
+    color: var(--sw-text-primary);
+  }
+  .env-btn.sel {
+    background: var(--sw-accent-glow);
+    color: var(--sw-accent-text);
+  }
+  .env-ic {
+    display: inline-flex;
+    opacity: 0.9;
+  }
+  .phrase {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 12px;
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-md);
+  }
+  .phrase .pw {
+    color: var(--sw-text-muted);
+    font-size: var(--sw-text-xs);
+  }
+  .phrase .psel {
+    min-width: 140px;
+  }
+  .phrase .pfolder {
+    min-width: 200px;
+    flex: 1;
+  }
+  .phrase .pargs {
+    min-width: 160px;
+    flex: 1;
+  }
+  .phrase .star {
+    margin-left: auto;
+    color: var(--sw-warn);
+    font-size: 15px;
+    line-height: 1;
+    padding: 6px 9px;
+  }
+  .favs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sw-space-2);
+  }
+  .fav-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--sw-accent-text);
+    background: var(--sw-accent-glow);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .fav-go {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-primary);
+    cursor: pointer;
+    padding: 3px 10px;
+    font-size: var(--sw-text-xs);
+    white-space: nowrap;
+  }
+  .fav-go:hover {
+    color: var(--sw-accent-text);
+  }
+  .fav-x {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-muted);
+    cursor: pointer;
+    padding: 3px 7px;
+    font-size: 10px;
+    border-left: 1px solid var(--sw-border);
+  }
+  .fav-x:hover {
+    color: var(--sw-danger);
   }
   .workspaces {
     display: flex;
@@ -673,16 +1141,72 @@
     gap: var(--sw-space-2);
     margin-bottom: var(--sw-space-3);
   }
-  .defargs {
+  .settings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sw-space-2);
+    padding: 10px 12px;
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-md);
+  }
+  .set-row,
+  .srv-add {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--sw-space-2);
-    margin-bottom: var(--sw-space-3);
   }
-  .defargs .grow {
-    flex: 1;
-    min-width: 0;
+  .set-srv {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--sw-border);
+  }
+  .set-k {
+    flex-shrink: 0;
+    width: 130px;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-muted);
+  }
+  .srv-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .srv-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 4px 3px 9px;
+    border: 1px solid var(--sw-border);
+    border-radius: 9999px;
+    font-size: var(--sw-text-xs);
+  }
+  .srv-n {
+    color: var(--sw-text-primary);
+  }
+  .srv-t {
+    color: var(--sw-text-muted);
+    font-size: 11px;
+  }
+  .srv-cfg {
+    color: var(--sw-text-muted);
+    font-size: 10px;
+    padding-right: 6px;
+  }
+  .srv-x {
+    border: none;
+    background: transparent;
+    color: var(--sw-text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 10px;
+    border-left: 1px solid var(--sw-border);
+  }
+  .srv-x:hover {
+    color: var(--sw-danger);
   }
   .argchip {
     padding: 3px 8px;
@@ -733,24 +1257,6 @@
   }
   .ws-del:hover {
     color: var(--sw-danger);
-  }
-  .ask {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-  }
-  .cwd {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 260px;
-    flex: 1;
-  }
-  .profiles {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sw-space-2);
   }
   .maxbar {
     display: flex;

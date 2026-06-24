@@ -12,6 +12,7 @@
     forkRuns = {},
     onAction,
     onCancelFork,
+    onCancelCheck,
     onBatchFf,
     onOpenUrl,
     onOpenSession
@@ -22,6 +23,7 @@
     forkRuns?: Record<string, { line: string; running: boolean; code: number | null }>;
     onAction: (action: ForkAction, path?: string, label?: string) => void;
     onCancelFork?: (path: string) => void;
+    onCancelCheck?: () => void;
     onBatchFf: (names: string[]) => void;
     onOpenUrl?: (url: string) => void;
     onOpenSession?: (path: string) => void;
@@ -175,9 +177,15 @@
       {/each}
       <div class="ml-auto text-right text-sw-xs text-sw-text-muted">
         <div>
-          {running === 'forks'
-            ? t('forks.refreshing')
-            : t('forks.modeLine', { mode: forkMode(status?.mode) })}
+          {#if running === 'forks'}
+            <span class="refresh-chip" title={t('forks.cancelCheckTip')}>
+              <span class="refresh-dot"></span>
+              {t('forks.refreshing')}
+              <button class="cancel-x" onclick={() => onCancelCheck?.()} aria-label={t('forks.cancelCheck')} title={t('forks.cancelCheckTip')}>✕</button>
+            </span>
+          {:else}
+            {t('forks.modeLine', { mode: forkMode(status?.mode) })}
+          {/if}
         </div>
         <div title={fmtTime(status?.timestamp ?? status?.generatedAt)}>{t('forks.updatedAt', { time: relTime(status?.timestamp ?? status?.generatedAt) || fmtTime(status?.timestamp ?? status?.generatedAt) })}</div>
       </div>
@@ -205,7 +213,7 @@
       </button>
     </div>
     <div class="card-grid">
-      {#each sortedRepos as repo (repo.Path)}
+      {#each sortedRepos as repo, i (repo.Path)}
         <ForkRepoCard
           {repo}
           {anyRunning}
@@ -214,6 +222,7 @@
           onCancel={() => onCancelFork?.(repo.Path)}
           {onOpenSession}
           refreshing={running === 'forks'}
+          index={i}
         />
       {/each}
     </div>
@@ -282,3 +291,47 @@
     </section>
   {/if}
 </div>
+
+<style>
+  /* Live refresh status with an inline cancel (revealed on hover) — stops the auto-check on tab open. */
+  .refresh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--sw-accent-text);
+  }
+  .refresh-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--sw-accent-text);
+    animation: refreshpulse 1s ease-in-out infinite;
+  }
+  @keyframes refreshpulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .cancel-x {
+    border: 1px solid var(--sw-border);
+    background: transparent;
+    color: var(--sw-text-muted);
+    border-radius: 9999px;
+    cursor: pointer;
+    padding: 0 6px;
+    line-height: 1.4;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .refresh-chip:hover .cancel-x {
+    opacity: 1;
+  }
+  .cancel-x:hover {
+    color: var(--sw-danger);
+    border-color: var(--sw-danger);
+  }
+</style>

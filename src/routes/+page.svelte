@@ -49,6 +49,7 @@
     readOpencode,
     runOpencodeProvider,
     openPath,
+    openUrl,
     listPlugins,
     listSkills,
     deleteSkill,
@@ -825,7 +826,7 @@
   }
 
   function onOpenUrl(url: string) {
-    openPath(url).catch(toastErr);
+    openUrl(url).catch(toastErr);
   }
 
   // --- Custom provider registry handlers ---
@@ -1465,7 +1466,7 @@
       {:else if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
       {:else if active === 'profiles'}

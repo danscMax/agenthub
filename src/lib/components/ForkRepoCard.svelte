@@ -12,7 +12,8 @@
     onAction,
     onCancel,
     onOpenSession,
-    refreshing = false
+    refreshing = false,
+    index = 0
   }: {
     repo: ForkRepo;
     anyRunning: boolean;
@@ -22,6 +23,8 @@
     onOpenSession?: (path: string) => void;
     // A whole-stack forks "check" is in flight: this card's status is being refreshed.
     refreshing?: boolean;
+    // Position in the grid — staggers the fade-back-in so cards re-appear one by one when the check ends.
+    index?: number;
   } = $props();
 
   let open = $state(false);
@@ -170,7 +173,7 @@
   const normTip = $derived(t('forks.normTip'));
 </script>
 
-<div class="sw-card flex flex-col gap-sw-2" class:fork-busy={busy} class:fork-refreshing={refreshing && !busy}>
+<div class="sw-card fork-card flex flex-col gap-sw-2" class:fork-busy={busy} class:fork-refreshing={refreshing && !busy} style="--reveal-i:{index}">
   <div class="flex items-start justify-between gap-sw-2">
     <button class="flex min-w-0 items-center gap-sw-2 text-left" onclick={() => (open = !open)} title={open ? t('forks.collapseTip') : t('forks.expandTip')}>
       <span class="text-sw-text-muted">{open ? '▾' : '▸'}</span>
@@ -325,9 +328,20 @@
     background: var(--sw-accent-text);
     animation: busypulse 1s ease-in-out infinite;
   }
-  /* A whole-stack check is refreshing this card's status — gentle pulse so it reads as "updating". */
+  /* A whole-stack check is in flight: cards fade to a static, non-interactive "stale" state (no
+     pulse/flicker). When the check ends and `.fork-refreshing` is removed, each card transitions back
+     to full opacity with a per-card delay (--reveal-i) — so they re-appear ONE BY ONE, not all at once.
+     IMPORTANT: only `opacity` is used here — NOT `filter`/`transform`. A filter (even just declared in a
+     `transition`) makes the card a fixed-positioning containing block, which would break the anchored
+     "⋯" popover (it'd position relative to the card instead of the viewport). See $lib/floating.ts. */
+  .fork-card {
+    transition: opacity 0.3s ease;
+    transition-delay: calc(var(--reveal-i, 0) * 45ms);
+  }
   .fork-refreshing {
-    animation: forkpulse 1.5s ease-in-out infinite;
+    opacity: 0.4;
+    pointer-events: none;
+    transition-delay: 0ms; /* fade OUT immediately; only the fade back IN is staggered */
   }
   @keyframes busypulse {
     0%,
@@ -338,15 +352,6 @@
     50% {
       opacity: 0.4;
       transform: scale(0.8);
-    }
-  }
-  @keyframes forkpulse {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.62;
     }
   }
 </style>
