@@ -24,6 +24,8 @@ param(
     [switch]$NormalizeRemotes, # rename remotes to canon (origin=fork, upstream=original)
     [switch]$Rebase,           # rebase open PR branches onto fresh upstream (local; conflict→abort)
     [switch]$SyncWipLocal,     # rebase the personal wip-local branch onto fresh upstream (local; no push)
+    [switch]$DeleteWip,        # delete a redundant wip-local that has no own commits (local; backed up)
+    [switch]$Prune,            # prune stale ': gone]' tracking branches (local; backed up)
     [switch]$PushRebased,      # after rebase, force-with-lease push to update the PRs (asks)
     [switch]$DryRun,           # with an action flag: print the plan, change nothing
     [switch]$Yes,              # skip confirmations (for scripting / the skill)
@@ -51,7 +53,8 @@ try {
     $code = Invoke-ForkSync -Root $PSScriptRoot -Unattended:$Unattended -NoFetch:$NoFetch `
         -Roots $Roots -Paths $Paths -FetchTimeoutSec $FetchTimeoutSec -GhTimeoutSec $GhTimeoutSec `
         -Apply:$Apply -FfMain:$FfMain -DeleteMerged:$DeleteMerged -NormalizeRemotes:$NormalizeRemotes `
-        -Rebase:$Rebase -SyncWipLocal:$SyncWipLocal -PushRebased:$PushRebased -DryRun:$DryRun -Yes:$Yes `
+        -Rebase:$Rebase -SyncWipLocal:$SyncWipLocal -DeleteWip:$DeleteWip -Prune:$Prune `
+        -PushRebased:$PushRebased -DryRun:$DryRun -Yes:$Yes `
         -Single $Single -OutFile $OutFile
 
     exit ([int]$code)
