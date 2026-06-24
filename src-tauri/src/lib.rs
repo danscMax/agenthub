@@ -747,19 +747,18 @@ fn list_backups() -> BackupList {
     BackupList { snapshots, weeklies, state }
 }
 
-/// Run a Backup-tab action: create a snapshot, preview a restore (-WhatIf), or restore.
-/// Restore is scoped by `timestamp`/`profiles`; credentials only with `include_credentials`.
-#[tauri::command]
-async fn run_backup(
-    app: AppHandle,
-    state: State<'_, RunState>,
-    action: String,
+/// Build the (script, args) for a Backup-tab action. Kept pure so the security-sensitive gating is
+/// unit-testable: credentials ride along ONLY on a real `restore` with the explicit flag, a preview
+/// is always `-WhatIf` (non-destructive), `-KeepSnapshots` never drops below 1, and an unknown
+/// action errors instead of silently running a script.
+fn backup_args(
+    action: &str,
     timestamp: Option<String>,
     profiles: Option<Vec<String>>,
     include_credentials: Option<bool>,
     keep_snapshots: Option<u32>,
-) -> Result<i32, String> {
-    let (script_rel, mut args): (&str, Vec<String>) = match action.as_str() {
+) -> Result<(&'static str, Vec<String>), String> {
+    let (script_rel, mut args): (&'static str, Vec<String>) = match action {
         "backup" => {
             let mut a = vec!["-Force".to_string()];
             if let Some(k) = keep_snapshots {
@@ -791,6 +790,23 @@ async fn run_backup(
     if action == "restore" && include_credentials.unwrap_or(false) {
         args.push("-IncludeCredentials".into());
     }
+    Ok((script_rel, args))
+}
+
+/// Run a Backup-tab action: create a snapshot, preview a restore (-WhatIf), or restore.
+/// Restore is scoped by `timestamp`/`profiles`; credentials only with `include_credentials`.
+#[tauri::command]
+async fn run_backup(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    action: String,
+    timestamp: Option<String>,
+    profiles: Option<Vec<String>>,
+    include_credentials: Option<bool>,
+    keep_snapshots: Option<u32>,
+) -> Result<i32, String> {
+    let (script_rel, args) =
+        backup_args(&action, timestamp, profiles, include_credentials, keep_snapshots)?;
     let script = abs(script_rel);
     spawn_streamed(app, state, "backup".to_string(), script, args).await
 }
@@ -6318,6 +6334,63 @@ mod tests {
         assert!(!is_snapshot_name("2026-6-12_100002"));
         assert!(!is_snapshot_name(".backup-state.json"));
         assert!(!is_snapshot_name("2026-06-12_10000")); // too short
+    }
+
+    #[test]
+    fn backup_args_security_gating() {
+        // A plain backup: -Force, KeepSnapshots floored at 1 (never 0 → "keep none").
+        let (s, a) = backup_args("backup", None, None, None, Some(0)).unwrap();
+        assert_eq!(s, BACKUP_SCRIPT_REL);
+        assert!(a.contains(&"-Force".to_string()));
+        let kidx = a.iter().position(|x| x == "-KeepSnapshots").unwrap();
+        assert_eq!(a[kidx + 1], "1");
+
+        // A preview is always -WhatIf and NEVER carries credentials, even if asked.
+        let (s, a) = backup_args(
+            "restore-preview", Some("2026-06-12_100002".into()), None, Some(true), None,
+        )
+        .unwrap();
+        assert_eq!(s, RESTORE_SCRIPT_REL);
+        assert!(a.contains(&"-WhatIf".to_string()));
+        assert!(!a.contains(&"-IncludeCredentials".to_string()));
+
+        // A real restore WITHOUT the explicit flag must not include credentials.
+        let (_, a) = backup_args("restore", None, None, None, None).unwrap();
+        assert!(!a.contains(&"-IncludeCredentials".to_string()));
+        assert!(!a.contains(&"-WhatIf".to_string()));
+
+        // Only a real restore WITH the explicit flag carries credentials + scoping.
+        let (_, a) = backup_args(
+            "restore", Some("2026-06-12_100002".into()), Some(vec!["work".into()]), Some(true), None,
+        )
+        .unwrap();
+        assert!(a.contains(&"-IncludeCredentials".to_string()));
+        assert!(a.contains(&"-Timestamp".to_string()));
+        assert!(a.contains(&"work".to_string()));
+
+        // Unknown action errors — never silently picks a script.
+        assert!(backup_args("rm-rf", None, None, Some(true), None).is_err());
+    }
+
+    #[test]
+    fn write_json_atomic_roundtrip_and_backup() {
+        // Data-integrity: the atomic writer creates the file, overwrites it on a second write,
+        // and leaves a .bak of the prior good copy (the rename is the same-dir atomic swap).
+        let dir = std::env::temp_dir().join(format!("castellyn_wja_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("nested").join("config.json");
+        let p = path.to_string_lossy().to_string();
+
+        write_json_atomic(&p, "{\"v\":1}").unwrap(); // creates parent dirs + file
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"v\":1}");
+        assert!(!path.with_extension("json.bak").exists() && !std::path::Path::new(&format!("{p}.bak")).exists());
+
+        write_json_atomic(&p, "{\"v\":2}").unwrap(); // overwrite → prior copy backed up
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"v\":2}");
+        assert_eq!(std::fs::read_to_string(format!("{p}.bak")).unwrap(), "{\"v\":1}");
+        assert!(!std::path::Path::new(&format!("{p}.tmp")).exists()); // no stray temp left
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
