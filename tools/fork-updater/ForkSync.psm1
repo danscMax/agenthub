@@ -255,16 +255,20 @@ function Get-LocalBranches {
 # fast-forward is safe (local default is an ancestor of upstream default).
 function Get-DefaultBranchStatus {
     param([string]$RepoPath, [string]$LocalDefault, [string]$UpstreamRef)
-    $behind = $null; $ffSafe = $false; $exists = $false
+    $behind = $null; $ahead = $null; $ffSafe = $false; $exists = $false
     $chk = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse', '--verify', '--quiet', "refs/heads/$LocalDefault")
     if ($chk.Ok) {
         $exists = $true
         $rc = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-list', '--count', "$LocalDefault..$UpstreamRef")
         if ($rc.Ok -and $rc.Out -match '^\d+$') { $behind = [int]$rc.Out }
+        # Commits in the LOCAL default not upstream — usually a mistake (committed straight to main),
+        # and the reason ff is impossible. Surfaced so the UI can say "main has N own commits".
+        $ra = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-list', '--count', "$UpstreamRef..$LocalDefault")
+        if ($ra.Ok -and $ra.Out -match '^\d+$') { $ahead = [int]$ra.Out }
         $anc = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('merge-base', '--is-ancestor', $LocalDefault, $UpstreamRef)
         $ffSafe = $anc.Ok
     }
-    return [pscustomobject]@{ Exists = $exists; BehindBy = $behind; FfSafe = $ffSafe }
+    return [pscustomobject]@{ Exists = $exists; BehindBy = $behind; AheadBy = $ahead; FfSafe = $ffSafe }
 }
 
 # Count of branch commits whose patch is NOT yet in upstream (`git cherry` '+').
@@ -526,14 +530,42 @@ function Get-RepoReport {
                 action = (Get-ActionHint -Outcome $outcome -Divergence $div)
             })
         }
-        # wip-local staleness (read-only; never touched)
+        # wip-local staleness (read-only; never touched). `git cherry upstream wip-local` lines:
+        #   '-' = a wip-local patch ALREADY in upstream (merged); '+' = a UNIQUE patch not upstream.
+        # uniquePatches == 0 ⇒ wip-local holds nothing new ⇒ it's redundant and can be deleted.
         $wipExists = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse','--verify','--quiet','refs/heads/wip-local')
         if ($wipExists.Ok) {
             $wbehind = Get-BranchAhead -RepoPath $RepoPath -UpstreamRef "wip-local" -Branch $upstreamRef  # commits in upstream not in wip-local
-            $wmerged = $null
+            $wmerged = $null; $wunique = $null
             $wc = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('cherry', $upstreamRef, 'wip-local')
-            if ($wc.Ok) { $wmerged = @($wc.Out -split "`n" | Where-Object { $_ -match '^-' }).Count }
-            $wip = [pscustomobject]@{ behindBy = $wbehind; mergedPatches = $wmerged }
+            if ($wc.Ok) {
+                $wlines  = @($wc.Out -split "`n")
+                $wmerged = @($wlines | Where-Object { $_ -match '^-' }).Count
+                $wunique = @($wlines | Where-Object { $_ -match '^\+' }).Count
+            }
+            $wip = [pscustomobject]@{ behindBy = $wbehind; mergedPatches = $wmerged; uniquePatches = $wunique }
+        }
+    }
+
+    # When the upstream tip last moved (freshness of the original) — pairs with behindBy.
+    $upstreamUpdated = $null
+    $lc = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('log','-1','--format=%cI',$upstreamRef)
+    if ($lc.Ok -and $lc.Out) { $upstreamUpdated = $lc.Out.Trim() }
+
+    # Upstream lifecycle (best-effort, gh only, forks only): archived ⇒ dead fork; a different default
+    # branch ⇒ the original renamed it (master→main) and your fork silently can't sync. One gh call/fork.
+    $upstreamArchived = $null; $upstreamDefault = $null
+    if ($GhAvailable -and -not $IsOwn -and $roles.ParentOwnerRepo) {
+        $pv = Invoke-TimedCommand -FilePath 'gh' -TimeoutSec $Config.GhTimeoutSec `
+            -ArgList @('repo','view',$roles.ParentOwnerRepo,'--json','isArchived,defaultBranchRef')
+        if ($pv.Ok -and $pv.Out) {
+            try {
+                $pj = $pv.Out | ConvertFrom-Json
+                $upstreamArchived = [bool]$pj.isArchived
+                if ($pj.defaultBranchRef) { $upstreamDefault = $pj.defaultBranchRef.name }
+            } catch {
+                Write-Status "$($roles.ParentOwnerRepo) : не разобрал isArchived/defaultBranch — $($_.Exception.Message)" 'WARN'
+            }
         }
     }
 
@@ -549,10 +581,13 @@ function Get-RepoReport {
         currentBranch = $health.CurrentBranch
         rolesGuessed = $roles.Guessed
         isOwn = [bool]$IsOwn
-        behindBy = $def.BehindBy; ffSafe = $def.FfSafe
+        behindBy = $def.BehindBy; ffSafe = $def.FfSafe; defaultAhead = $def.AheadBy
         dirty = $health.Dirty; untracked = $health.Untracked; midOp = $health.MidOp; opName = $health.OpName; detached = $health.Detached
         branches = $branchReports.ToArray()
         wipLocal = $wip
+        upstreamUpdated = $upstreamUpdated
+        upstreamArchived = $upstreamArchived
+        upstreamDefaultBranch = $upstreamDefault
         Skipped = $null
     }
 }
@@ -809,11 +844,58 @@ function Invoke-SyncWipLocal {
 }
 
 # Run the requested actions for one repo. Backs up first (unless dry-run).
+# Prune stale local branches whose upstream tracking is gone (the remote branch was deleted, usually
+# after its PR merged). Local-only, backed up by the caller, never pushed. NEVER touches the default
+# branch, wip-local, or the currently checked-out branch. Non-dry first refreshes + prunes the fork
+# remote so the ': gone' status is accurate.
+function Invoke-PruneStale {
+    param([string]$RepoPath, [pscustomobject]$Rep, [switch]$DryRun)
+    if (-not $DryRun -and $Rep.forkRemote) {
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('fetch','--prune','--quiet',$Rep.forkRemote) | Out-Null
+    }
+    $vv = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('for-each-ref','--format=%(refname:short) %(upstream:track)','refs/heads')
+    if (-not $vv.Ok) { return 'prune: не удалось перечислить ветки' }
+    $cur = (Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse','--abbrev-ref','HEAD')).Out
+    $protected = @($Rep.defaultBranch, 'wip-local', $cur) | Where-Object { $_ }
+    $gone = @()
+    foreach ($line in @($vv.Out -split "`n")) {
+        if ($line -match '^(\S+)\s+\[gone\]') { if ($Matches[1] -notin $protected) { $gone += $Matches[1] } }
+    }
+    if (-not $gone.Count) { return 'prune: устаревших веток нет' }
+    if ($DryRun) { return "БУДЕТ: удалить устаревшие ветки (upstream удалён): $($gone -join ', ')" }
+    $deleted = @()
+    foreach ($b in $gone) {
+        if ((Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('branch','-D',$b)).Ok) { $deleted += $b }
+    }
+    if ($deleted.Count) { return "prune: удалены устаревшие ветки ($($deleted -join ', '))" }
+    return 'prune: не удалось удалить ветки'
+}
+
+# Delete the personal wip-local integration branch when it holds NO unique commits (everything in it
+# already landed upstream — uniquePatches == 0). Local-only, backed up by the caller, never pushed.
+# Hard guard: refuses if it still has unique work, so we never drop un-merged commits.
+function Invoke-DeleteWipLocal {
+    param([string]$RepoPath, [pscustomobject]$Rep, [switch]$DryRun)
+    if (-not $Rep.wipLocal) { return "нет ветки wip-local — пропуск" }
+    $unique = $Rep.wipLocal.uniquePatches
+    if ($null -eq $unique) { return "wip-local: не удалось определить уникальные коммиты — пропуск (удали вручную)" }
+    if ($unique -gt 0) { return "wip-local: есть $unique своих коммит(ов) — НЕ удаляю (сначала влей/перенеси их)" }
+    if ($DryRun) { return "БУДЕТ: удалить локальную 'wip-local' (нет своих коммитов; бэкап создан)" }
+    # Never delete the branch we're standing on — hop to the default branch first.
+    $cur = (Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('rev-parse','--abbrev-ref','HEAD')).Out
+    if ($cur -eq 'wip-local' -and $Rep.defaultBranch) {
+        Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('checkout','--quiet',$Rep.defaultBranch) | Out-Null
+    }
+    $r = Invoke-GitLocal -RepoPath $RepoPath -GitArgs @('branch','-D','wip-local')
+    if ($r.Ok) { return "wip-local удалена (локально, без push; нет своих коммитов)" }
+    return "ОШИБКА удаления wip-local: $(($r.Out -split "`n")[0])"
+}
+
 function Invoke-RepoActions {
-    param([pscustomobject]$Rep, [bool]$Ff, [bool]$Del, [bool]$Norm, [bool]$Reb, [bool]$Wip, [switch]$PushReb, [switch]$DryRun, [switch]$Yes)
+    param([pscustomobject]$Rep, [bool]$Ff, [bool]$Del, [bool]$Norm, [bool]$Reb, [bool]$Wip, [bool]$DelWip, [bool]$Prune, [switch]$PushReb, [switch]$DryRun, [switch]$Yes)
     if ($Rep.Skipped -or $Rep.detached -or $Rep.midOp) { return @() }
     $did = New-Object System.Collections.Generic.List[string]
-    if (-not $DryRun -and ($Ff -or $Del -or $Norm -or $Reb -or $Wip)) {
+    if (-not $DryRun -and ($Ff -or $Del -or $Norm -or $Reb -or $Wip -or $DelWip -or $Prune)) {
         New-BackupRefs -RepoPath $Rep.Path | Out-Null
         Remove-OldBackups -RepoPath $Rep.Path
     }
@@ -858,6 +940,8 @@ function Invoke-RepoActions {
             $did.Add((Invoke-SyncWipLocal -RepoPath $Rep.Path -Rep $Rep -DryRun:$DryRun))
         }
     }
+    if ($DelWip) { $did.Add((Invoke-DeleteWipLocal -RepoPath $Rep.Path -Rep $Rep -DryRun:$DryRun)) }
+    if ($Prune) { $did.Add((Invoke-PruneStale -RepoPath $Rep.Path -Rep $Rep -DryRun:$DryRun)) }
     if ($Norm) { $did.Add((Invoke-NormalizeRemotes -RepoPath $Rep.Path -Rep $Rep -DryRun:$DryRun)) }
     return $did.ToArray()
 }
@@ -878,6 +962,8 @@ function Invoke-ForkSync {
         [switch]$NormalizeRemotes,
         [switch]$Rebase,
         [switch]$SyncWipLocal,
+        [switch]$DeleteWip,
+        [switch]$Prune,
         [switch]$PushRebased,
         [switch]$DryRun,
         [switch]$Yes,
@@ -888,7 +974,7 @@ function Invoke-ForkSync {
     )
     $start = Get-Date
     $log = Initialize-Logging -Root $Root -Prefix 'fork-sync'
-    $acting = ($Apply -or $FfMain -or $DeleteMerged -or $NormalizeRemotes -or $Rebase -or $SyncWipLocal)
+    $acting = ($Apply -or $FfMain -or $DeleteMerged -or $NormalizeRemotes -or $Rebase -or $SyncWipLocal -or $DeleteWip -or $Prune)
     $modeLabel = if ($acting -and $DryRun) { 'dry-run: показ плана' } elseif ($acting) { 'APPLY: внесение изменений' } elseif ($NoFetch) { 'read-only (no fetch)' } elseif ($Unattended) { 'read-only unattended' } else { 'read-only' }
     Write-Banner "fork-sync — статус форков  ($modeLabel)" "log: $log" -Width 64
 
@@ -961,12 +1047,12 @@ function Invoke-ForkSync {
     Write-Log -Msg ("Итог: {0} репо | влито {1}, открыто {2}, конфликтов {3}, нужны руки {4} | {5}" -f $managed.Count, $cMerged, $cOpen, $cConf, $needHands, $durStr) -Level 'INFO' -NoConsole
 
     # --- Action phase (Phase 2: safe mutations) ---
-    $doFf = [bool]($Apply -or $FfMain); $doDel = [bool]($Apply -or $DeleteMerged); $doNorm = [bool]$NormalizeRemotes; $doReb = [bool]$Rebase; $doWip = [bool]$SyncWipLocal
-    if ($doFf -or $doDel -or $doNorm -or $doReb -or $doWip) {
+    $doFf = [bool]($Apply -or $FfMain); $doDel = [bool]($Apply -or $DeleteMerged); $doNorm = [bool]$NormalizeRemotes; $doReb = [bool]$Rebase; $doWip = [bool]$SyncWipLocal; $doDelWip = [bool]$DeleteWip; $doPrune = [bool]$Prune
+    if ($doFf -or $doDel -or $doNorm -or $doReb -or $doWip -or $doDelWip -or $doPrune) {
         $dry = [bool]$DryRun
         Write-Section $(if ($dry) { 'ПЛАН действий (dry-run — ничего не меняется)' } else { 'Выполнение действий' }) '' $(if ($dry) { 'Magenta' } else { 'Green' })
         foreach ($rep in $managed) {
-            $acts = Invoke-RepoActions -Rep $rep -Ff:$doFf -Del:$doDel -Norm:$doNorm -Reb:$doReb -Wip:$doWip -PushReb:$PushRebased -DryRun:$dry -Yes:$Yes
+            $acts = Invoke-RepoActions -Rep $rep -Ff:$doFf -Del:$doDel -Norm:$doNorm -Reb:$doReb -Wip:$doWip -DelWip:$doDelWip -Prune:$doPrune -PushReb:$PushRebased -DryRun:$dry -Yes:$Yes
             if (@($acts).Count) {
                 Write-Host "    $($rep.Name):" -ForegroundColor White
                 foreach ($a in $acts) { Write-Status $a $(if ($dry) { 'INFO' } else { 'OK' }) }

@@ -528,6 +528,8 @@ fn forks_action_args(action: &str) -> Option<Vec<String>> {
         "delete" => vec!["-DeleteMerged", "-Yes", "-Unattended"],
         "rebase" => vec!["-Rebase", "-Yes", "-Unattended"],
         "sync-wip" => vec!["-SyncWipLocal", "-Yes", "-Unattended"],
+        "delete-wip" => vec!["-DeleteWip", "-Yes", "-Unattended"],
+        "prune" => vec!["-Prune", "-Yes", "-Unattended"],
         "normalize" => vec!["-NormalizeRemotes", "-Yes", "-Unattended"],
         _ => return None,
     };
@@ -2384,9 +2386,14 @@ struct GithubRepo {
     is_private: bool,
     #[serde(rename = "isFork")]
     is_fork: bool,
+    #[serde(rename = "isArchived")]
+    is_archived: bool,
     url: String,
     #[serde(rename = "updatedAt")]
     updated_at: String,
+    description: String,
+    language: String,
+    stars: u64,
 }
 
 /// All of the authenticated user's GitHub repos (incl. private), via `gh repo list`.
@@ -2397,7 +2404,7 @@ async fn list_github_repos() -> Vec<GithubRepo> {
     let out = tokio::process::Command::new("gh")
         .args([
             "repo", "list", "--limit", "1000", "--json",
-            "name,owner,nameWithOwner,isPrivate,isFork,url,updatedAt",
+            "name,owner,nameWithOwner,isPrivate,isFork,isArchived,url,updatedAt,description,primaryLanguage,stargazerCount",
         ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -2425,8 +2432,18 @@ async fn list_github_repos() -> Vec<GithubRepo> {
                 name_with_owner: s("nameWithOwner"),
                 is_private: b("isPrivate"),
                 is_fork: b("isFork"),
+                is_archived: b("isArchived"),
                 url: s("url"),
                 updated_at: s("updatedAt"),
+                description: s("description"),
+                // primaryLanguage is an object {name} (or null for empty repos).
+                language: r
+                    .get("primaryLanguage")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                stars: r.get("stargazerCount").and_then(|x| x.as_u64()).unwrap_or(0),
             }
         })
         .collect()
@@ -6312,6 +6329,12 @@ mod tests {
         let wip = forks_action_args("sync-wip").unwrap();
         assert!(wip.contains(&"-SyncWipLocal".to_string()));
         assert!(wip.contains(&"-Yes".to_string()));
+        let delwip = forks_action_args("delete-wip").unwrap();
+        assert!(delwip.contains(&"-DeleteWip".to_string()));
+        assert!(delwip.contains(&"-Yes".to_string()));
+        let prune = forks_action_args("prune").unwrap();
+        assert!(prune.contains(&"-Prune".to_string()));
+        assert!(prune.contains(&"-Yes".to_string()));
         assert!(forks_action_args("bogus").is_none());
         // "plan" must be a dry-run — never mutating.
         let plan = forks_action_args("plan").unwrap();
@@ -6355,7 +6378,7 @@ mod tests {
     #[test]
     fn forks_actions_all_unattended() {
         // Every fork action runs unattended (no interactive Read-Host hang).
-        for a in ["check", "plan", "ff", "delete", "rebase", "sync-wip", "normalize"] {
+        for a in ["check", "plan", "ff", "delete", "rebase", "sync-wip", "delete-wip", "prune", "normalize"] {
             let args = forks_action_args(a).unwrap();
             assert!(args.contains(&"-Unattended".to_string()), "{a} must be unattended");
         }

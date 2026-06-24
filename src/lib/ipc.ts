@@ -17,7 +17,7 @@ export const runComponent = (id: string, mode: RunMode) =>
 export const cancelRun = () => invoke('cancel_run');
 
 // --- Forks tab ---
-export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'sync-wip' | 'normalize';
+export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'sync-wip' | 'delete-wip' | 'prune' | 'normalize';
 
 export const runForks = (action: ForkAction, path?: string) =>
   invoke<number>('run_forks', { action, path: path ?? null });
@@ -47,8 +47,11 @@ export type ForkRepo = {
   Path: string;
   upstream: string | null;
   fork: string | null;
+  forkOwnerRepo: string | null; // "owner/repo" of your fork (for GitHub compare/PR links)
+  parentOwnerRepo: string | null; // "owner/repo" of the upstream/original
   defaultBranch: string | null;
   behindBy: number | null;
+  defaultAhead: number | null; // commits in YOUR default branch not upstream (ff-blocker)
   ffSafe: boolean;
   dirty: boolean;
   untracked: boolean;
@@ -58,7 +61,10 @@ export type ForkRepo = {
   currentBranch: string | null;
   isOwn: boolean;
   rolesGuessed: boolean;
-  wipLocal: { behindBy: number | null; mergedPatches: number | null } | null;
+  wipLocal: { behindBy: number | null; mergedPatches: number | null; uniquePatches: number | null } | null;
+  upstreamUpdated?: string | null; // ISO date of the upstream tip (how fresh the original is)
+  upstreamArchived?: boolean | null; // original is archived on GitHub → fork is dead
+  upstreamDefaultBranch?: string | null; // original's current default branch (drift if ≠ defaultBranch)
   branches: ForkBranch[];
   Skipped: string | null;
 };
@@ -83,8 +89,12 @@ export type GithubRepo = {
   nameWithOwner: string;
   isPrivate: boolean;
   isFork: boolean;
+  isArchived: boolean;
   url: string;
   updatedAt: string;
+  description: string;
+  language: string;
+  stars: number;
 };
 
 export const listGithubRepos = () => invoke<GithubRepo[]>('list_github_repos');

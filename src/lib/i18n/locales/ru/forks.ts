@@ -56,11 +56,17 @@ export default {
   githubOnlyEmptyFilter: 'Нет репозиториев под текущий фильтр.',
   ghPrivate: 'приватный',
   ghPrivateTip: 'Закрытый репозиторий на GitHub',
+  ghArchived: 'архив',
+  ghArchivedTip: 'Репозиторий заархивирован на GitHub (только чтение)',
   ghOpen: 'Открыть на GitHub',
+  ghOpenShort: 'GitHub ↗',
   ghOpenTip: 'Открыть страницу репозитория на GitHub',
   ghColName: 'Репозиторий',
   ghColRepo: 'owner/repo',
   ghColKind: 'Тип',
+  ghColUpdated: 'Обновлён',
+  ghColLang: 'Язык',
+  ghColStars: '★',
   ghColActions: 'Действия',
 
   // ── ForksTab: empty state ──
@@ -85,11 +91,11 @@ export default {
   recManualPlain: 'разобраться вручную (идёт незавершённая git-операция)',
   recManualLabel: 'Открыть терминал',
   recManualTip: 'Незавершённая git-операция / detached HEAD — разреши вручную в терминале',
-  recConflictPlain: 'разрешить конфликты слияния с оригиналом',
+  recConflictPlain: 'разрешить конфликты с оригиналом в {n} ветк. — мешают обновлению',
   recConflictCopied: '✓ Промпт скопирован',
   recConflictLabel: 'Скопировать AI-промпт',
   recConflictTip: 'Скопируй готовый промпт и попроси Claude Code разрешить конфликты',
-  recDirtyPlain: 'разобрать незакоммиченные изменения',
+  recDirtyPlain: 'есть несохранённые изменения — закоммить, спрятать (stash) или отменить',
   recDirtyCopied: '✓ Промпт скопирован',
   recDirtyLabel: 'Скопировать AI-промпт',
   recDirtyTip: 'Скопируй промпт и попроси Claude Code разобрать и закоммитить изменения',
@@ -97,6 +103,9 @@ export default {
   recFfLabel: 'Подтянуть из upstream',
   recDeletePlain: 'удалить ветки, уже влитые в оригинал',
   recDeleteLabel: 'Удалить влитые ветки',
+  recDivergedPlain: 'ветка по умолчанию разошлась с оригиналом — нужен rebase вручную',
+  recDivergedLabel: 'Открыть терминал',
+  recDivergedTip: 'Fast-forward невозможен (история разошлась — вероятно, коммитили прямо в main). Открой терминал и выполни rebase/merge вручную.',
 
   // ── ForkRepoCard: health badge ──
   healthAnalysisError: 'ошибка анализа',
@@ -109,7 +118,10 @@ export default {
   healthConflictTip: 'Есть ветки, которые не вольются без ручного разрешения конфликтов',
   healthBehind: 'отстаёт на {n} {commits}',
   healthBehindTip:
-    'Ветка по умолчанию отстаёт от upstream на {n} — можно подтянуть (FF)',
+    'Ветка по умолчанию отстаёт от оригинала на {n} — можно безопасно подтянуть (fast-forward, без слияния)',
+  healthDiverged: 'разошлась с оригиналом',
+  healthDivergedTip:
+    'Ветка по умолчанию разошлась с оригиналом: fast-forward невозможен (вероятно, в неё коммитили напрямую) — нужен rebase вручную',
   healthClean: 'чисто',
   healthCleanTip: 'Всё синхронизировано, действий не требуется',
 
@@ -143,9 +155,18 @@ export default {
   badgeDirtyTip: 'Есть незакоммиченные изменения в отслеживаемых файлах',
   badgeUntracked: 'новые файлы',
   badgeUntrackedTip: 'Есть новые файлы вне контроля версий (untracked) — ещё не добавлены в git',
-  badgeRolesGuessed: 'remote — приблизительно',
+  badgeRolesGuessed: 'remote — догадка',
   badgeRolesGuessedTip:
-    'gh недоступен — какой remote оригинал (upstream), а какой ваш форк (origin), определено по догадке',
+    'GitHub недоступен — какой remote оригинал (upstream), а какой ваш форк (origin), определено по догадке; статусы ниже могут быть неточны',
+  badgeMainAhead: '+{n} в main',
+  badgeMainAheadTip:
+    'В твоей ветке по умолчанию {n} коммит(ов), которых нет в оригинале — поэтому fast-forward невозможен (вероятно, коммитили прямо в main вместо тематической ветки)',
+  badgeUpstreamArchived: 'оригинал в архиве',
+  badgeUpstreamArchivedTip: 'Оригинальный репозиторий заархивирован на GitHub — форк больше не получит обновлений (можно удалить)',
+  badgeUpstreamRenamed: 'оригинал → {branch}',
+  badgeUpstreamRenamedTip:
+    'Оригинал сменил ветку по умолчанию на «{branch}», а форк отслеживает другую — синхронизация молча не работает; переключись на «{branch}»',
+  upstreamUpdated: 'оригинал обновлён',
   upstream: 'upstream',
   upstreamTip: 'Оригинальный репозиторий',
   fork: 'форк',
@@ -158,6 +179,8 @@ export default {
   noTopicBranches: 'Топик-веток нет.',
   branchAhead: '+{n} от upstream',
   branchAheadTip: 'Коммитов в этой ветке сверх upstream: {n}',
+  contribute: 'Предложить в оригинал',
+  contributeTip: 'Открыть на GitHub форму Pull Request этой ветки в оригинал',
 
   // ── ForkRepoCard: wip-local (личная рабочая ветка) ──
   wipBehind: 'wip-local отстал на {n} {commits}',
@@ -166,6 +189,8 @@ export default {
   wipLabel: 'wip-local',
   wipBehindRow: 'отстаёт на {n} {commits}',
   wipMergedPatches: 'влито патчей: {n}',
+  wipUniqueRow: 'своих коммитов: {n}',
+  wipRedundantRow: 'нет своих коммитов — можно удалить',
 
   // ── ForkRepoCard: action row ──
   recommended: 'Рекомендуется:',
@@ -175,9 +200,14 @@ export default {
   externalTerminal: 'Внешний терминал (cmd)',
   externalTerminalTip: 'Открыть обычный системный cmd в папке репозитория (для ручных git-операций)',
   moreActionsTip: 'Ещё действия',
+  compareGithub: 'Сравнить на GitHub',
+  compareGithubTip: 'Открыть на GitHub сравнение оригинала с твоим форком (ветка по умолчанию)',
   actionFf: 'Подтянуть из upstream',
   actionDelete: 'Удалить влитые ветки',
   actionRebase: 'Перебазировать на upstream',
+  actionPrune: 'Убрать устаревшие ветки',
+  pruneTip: 'Удалить локальные ветки, чья ветка на форке уже удалена (обычно после слияния PR). Локально, с бэкапом; без push.',
+  labelPrune: '{name}: убрать устаревшие ветки (локально)',
   actionNormalize: 'Исправить имена remotes',
 
   // ── Labels passed to onAction (shown in confirm/log UI) ──
@@ -186,6 +216,7 @@ export default {
   labelRebase: '{name}: перебазировать открытые ветки на upstream',
   labelNormalize: '{name}: нормализовать remotes',
   labelSyncWip: '{name}: синхронизировать wip-local с upstream',
+  labelDeleteWip: '{name}: удалить wip-local (локально)',
 
   // ── ForkRepoCard: sync wip-local action ──
   recSyncWipPlain: 'синхронизировать wip-local с оригиналом (отстаёт на {n})',
@@ -197,6 +228,14 @@ export default {
   syncWipTipSynced: 'Недоступно: wip-local уже синхронизирован',
   syncWipTipDirty: 'Недоступно: есть незакоммиченные изменения',
   syncWipTipUnavailable: 'Недоступно: нет ветки wip-local',
+  recDeleteWipPlain: 'wip-local избыточна (нет своих коммитов) → удалить',
+  recDeleteWipLabel: 'Удалить wip-local',
+  recDeleteWipTip: 'В wip-local нет коммитов, которых не было бы в оригинале — её можно удалить (локально, с бэкапом; без push)',
+  actionDeleteWip: 'Удалить wip-local',
+  deleteWipTip: 'Удалить ветку wip-local (локально, с бэкапом; без push). В ней нет своих коммитов.',
+  deleteWipTipNone: 'Недоступно: нет ветки wip-local',
+  deleteWipTipHasUnique: 'Недоступно: в wip-local есть свои коммиты ({n}) — сначала влей/перенеси их',
+  deleteWipTipUnavailable: 'Недоступно',
   runStarting: 'запуск…',
   runDone: 'обновлено',
   runFailed: 'ошибка (код {code})',

@@ -122,12 +122,18 @@
   type Gh = GithubRepo;
   const GH_COLS: DTColumn[] = $derived([
     { key: 'name', label: t('forks.ghColName'), grow: true, sortable: true },
-    { key: 'full', label: t('forks.ghColRepo'), width: '300px', sortable: true },
+    { key: 'full', label: t('forks.ghColRepo'), width: '240px', sortable: true },
+    { key: 'language', label: t('forks.ghColLang'), width: '110px', sortable: true },
+    { key: 'stars', label: t('forks.ghColStars'), width: '90px', align: 'right', sortable: true },
+    { key: 'updated', label: t('forks.ghColUpdated'), width: '120px', sortable: true },
     { key: 'kind', label: t('forks.ghColKind'), width: '150px' },
-    { key: 'actions', label: t('forks.ghColActions'), width: '100px', align: 'right', interactive: true }
+    { key: 'actions', label: t('forks.ghColActions'), width: '110px', align: 'right', interactive: true }
   ]);
   function ghSort(g: Gh, key: string): string | number {
     if (key === 'full') return g.nameWithOwner.toLowerCase();
+    if (key === 'updated') return g.updatedAt;
+    if (key === 'language') return g.language.toLowerCase();
+    if (key === 'stars') return g.stars;
     return g.name.toLowerCase();
   }
 </script>
@@ -271,16 +277,23 @@
           >
             {#snippet cell(g, col)}
               {#if col.key === 'name'}
-                <span class="font-medium truncate" title={g.name}>{g.name}</span>
+                <span class="font-medium truncate" title={g.description || g.name}>{g.name}</span>
               {:else if col.key === 'full'}
                 <span class="font-mono text-sw-xs text-sw-text-muted truncate block" title={g.nameWithOwner}>{g.nameWithOwner}</span>
+              {:else if col.key === 'language'}
+                <span class="text-sw-xs text-sw-text-muted truncate block">{g.language}</span>
+              {:else if col.key === 'stars'}
+                <span class="text-sw-xs text-sw-text-muted tabular-nums whitespace-nowrap">{g.stars > 0 ? `★ ${g.stars}` : ''}</span>
+              {:else if col.key === 'updated'}
+                <span class="text-sw-xs text-sw-text-muted whitespace-nowrap" title={fmtTime(g.updatedAt)}>{relTime(g.updatedAt) || fmtTime(g.updatedAt)}</span>
               {:else if col.key === 'kind'}
                 <span class="flex flex-wrap gap-sw-1">
+                  {#if g.isArchived}<span class="badge badge-warn" title={t('forks.ghArchivedTip')}>{t('forks.ghArchived')}</span>{/if}
                   {#if g.isPrivate}<span class="badge badge-warn" title={t('forks.ghPrivateTip')}>{t('forks.ghPrivate')}</span>{/if}
                   <span class="badge badge-muted">{g.isFork ? t('forks.badgeFork') : t('forks.badgeOwn')}</span>
                 </span>
               {:else if col.key === 'actions'}
-                <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenUrl?.(g.url)} title={t('forks.ghOpenTip')}>{t('forks.ghOpen')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs whitespace-nowrap" onclick={() => onOpenUrl?.(g.url)} title={t('forks.ghOpenTip')}>{t('forks.ghOpenShort')}</button>
               {/if}
             {/snippet}
           </DataTable>

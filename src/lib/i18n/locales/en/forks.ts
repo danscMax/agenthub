@@ -56,11 +56,17 @@ export default {
   githubOnlyEmptyFilter: 'No repositories match the current filter.',
   ghPrivate: 'private',
   ghPrivateTip: 'Private repository on GitHub',
+  ghArchived: 'archived',
+  ghArchivedTip: 'Repository is archived on GitHub (read-only)',
   ghOpen: 'Open on GitHub',
+  ghOpenShort: 'GitHub ↗',
   ghOpenTip: 'Open the repository page on GitHub',
   ghColName: 'Repository',
   ghColRepo: 'owner/repo',
   ghColKind: 'Kind',
+  ghColUpdated: 'Updated',
+  ghColLang: 'Language',
+  ghColStars: '★',
   ghColActions: 'Actions',
 
   // ── ForksTab: empty state ──
@@ -85,11 +91,11 @@ export default {
   recManualPlain: 'resolve manually (an unfinished git operation is in progress)',
   recManualLabel: 'Open terminal',
   recManualTip: 'Unfinished git operation / detached HEAD — resolve manually in the terminal',
-  recConflictPlain: 'resolve merge conflicts with upstream',
+  recConflictPlain: 'resolve conflicts with the original in {n} branch(es) — they block updates',
   recConflictCopied: '✓ Prompt copied',
   recConflictLabel: 'Copy AI prompt',
   recConflictTip: 'Copy the ready-made prompt and ask Claude Code to resolve the conflicts',
-  recDirtyPlain: 'sort out uncommitted changes',
+  recDirtyPlain: 'uncommitted changes — commit, stash or discard them',
   recDirtyCopied: '✓ Prompt copied',
   recDirtyLabel: 'Copy AI prompt',
   recDirtyTip: 'Copy the prompt and ask Claude Code to sort out and commit the changes',
@@ -97,6 +103,9 @@ export default {
   recFfLabel: 'Pull from upstream',
   recDeletePlain: 'delete branches already merged into upstream',
   recDeleteLabel: 'Delete merged branches',
+  recDivergedPlain: 'default branch diverged from the original — needs a manual rebase',
+  recDivergedLabel: 'Open terminal',
+  recDivergedTip: 'Fast-forward is impossible (history diverged — likely committed straight to main). Open a terminal and rebase/merge manually.',
 
   // ── ForkRepoCard: health badge ──
   healthAnalysisError: 'analysis error',
@@ -109,7 +118,10 @@ export default {
     'HEAD is not on a branch (detached HEAD) — actions are blocked, resolve manually in the terminal',
   healthConflictTip: 'Some branches will not merge without manual conflict resolution',
   healthBehind: 'behind by {n} {commits}',
-  healthBehindTip: 'The default branch is behind upstream by {n} — can fast-forward (FF)',
+  healthBehindTip: 'The default branch is behind the original by {n} — can be pulled safely (fast-forward, no merge)',
+  healthDiverged: 'diverged from original',
+  healthDivergedTip:
+    'The default branch has diverged from the original: fast-forward is impossible (likely committed to directly) — needs a manual rebase',
   healthClean: 'clean',
   healthCleanTip: 'Everything is in sync, no action required',
 
@@ -145,7 +157,16 @@ export default {
   badgeUntrackedTip: 'There are new files outside version control (untracked) — not yet added to git',
   badgeRolesGuessed: 'remotes — guessed',
   badgeRolesGuessedTip:
-    'gh unavailable — which remote is the original (upstream) and which is your fork (origin) was guessed by heuristic',
+    'GitHub unavailable — which remote is the original (upstream) vs your fork (origin) was guessed; statuses below may be imprecise',
+  badgeMainAhead: '+{n} in main',
+  badgeMainAheadTip:
+    'Your default branch has {n} commit(s) the original lacks — that is why fast-forward is impossible (likely committed straight to main instead of a topic branch)',
+  badgeUpstreamArchived: 'original archived',
+  badgeUpstreamArchivedTip: 'The original repository is archived on GitHub — the fork will never get updates again (consider deleting it)',
+  badgeUpstreamRenamed: 'original → {branch}',
+  badgeUpstreamRenamedTip:
+    'The original renamed its default branch to “{branch}” but your fork tracks a different one — sync silently fails; switch to “{branch}”',
+  upstreamUpdated: 'original updated',
   upstream: 'upstream',
   upstreamTip: 'Original repository',
   fork: 'fork',
@@ -158,6 +179,8 @@ export default {
   noTopicBranches: 'No topic branches.',
   branchAhead: '+{n} ahead of upstream',
   branchAheadTip: 'Commits in this branch beyond upstream: {n}',
+  contribute: 'Propose to original',
+  contributeTip: 'Open the Pull-Request form for this branch into the original on GitHub',
 
   // ── ForkRepoCard: wip-local (personal integration branch) ──
   wipBehind: 'wip-local behind by {n} {commits}',
@@ -166,6 +189,8 @@ export default {
   wipLabel: 'wip-local',
   wipBehindRow: 'behind by {n} {commits}',
   wipMergedPatches: 'patches merged: {n}',
+  wipUniqueRow: 'own commits: {n}',
+  wipRedundantRow: 'no own commits — can be deleted',
 
   // ── ForkRepoCard: action row ──
   recommended: 'Recommended:',
@@ -175,9 +200,14 @@ export default {
   externalTerminal: 'External terminal (cmd)',
   externalTerminalTip: 'Open a plain system cmd in the repo folder (for manual git operations)',
   moreActionsTip: 'More actions',
+  compareGithub: 'Compare on GitHub',
+  compareGithubTip: 'Open the original-vs-your-fork comparison on GitHub (default branch)',
   actionFf: 'Pull from upstream',
   actionDelete: 'Delete merged branches',
   actionRebase: 'Rebase onto upstream',
+  actionPrune: 'Prune stale branches',
+  pruneTip: 'Delete local branches whose fork branch was already deleted (usually after a PR merged). Local, backed up; no push.',
+  labelPrune: '{name}: prune stale branches (local)',
   actionNormalize: 'Fix remote names',
 
   // ── Labels passed to onAction (shown in confirm/log UI) ──
@@ -186,6 +216,7 @@ export default {
   labelRebase: '{name}: rebase open branches onto upstream',
   labelNormalize: '{name}: normalize remotes',
   labelSyncWip: '{name}: sync wip-local with upstream',
+  labelDeleteWip: '{name}: delete wip-local (local)',
 
   // ── ForkRepoCard: sync wip-local action ──
   recSyncWipPlain: 'sync wip-local with the original (behind by {n})',
@@ -197,6 +228,14 @@ export default {
   syncWipTipSynced: 'Unavailable: wip-local is already in sync',
   syncWipTipDirty: 'Unavailable: there are uncommitted changes',
   syncWipTipUnavailable: 'Unavailable: no wip-local branch',
+  recDeleteWipPlain: 'wip-local is redundant (no own commits) → delete it',
+  recDeleteWipLabel: 'Delete wip-local',
+  recDeleteWipTip: 'wip-local has no commits that the original lacks — it can be deleted (local, backed up; no push)',
+  actionDeleteWip: 'Delete wip-local',
+  deleteWipTip: 'Delete the wip-local branch (local, backed up; no push). It has no own commits.',
+  deleteWipTipNone: 'Unavailable: no wip-local branch',
+  deleteWipTipHasUnique: 'Unavailable: wip-local has own commits ({n}) — merge/move them first',
+  deleteWipTipUnavailable: 'Unavailable',
   runStarting: 'starting…',
   runDone: 'updated',
   runFailed: 'failed (code {code})',

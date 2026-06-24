@@ -3,6 +3,23 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-06-24
+
+A full pass over the **Forks** tab: clearer status wording, redundant-`wip-local` detection, real fork operations (compare / contribute / prune), upstream lifecycle awareness, and a richer repository table.
+
+### Added
+- **wip-local redundancy** — the tab now counts a `wip-local` branch's *unique* commits (`git cherry`). When it holds nothing new, the card says "no own commits — can be deleted" and recommends **Delete wip-local** (local, backed up, never pushed; refuses if it still has unique work) instead of "sync it forever".
+- **Compare on GitHub** — one click opens the original‑vs‑your‑fork comparison.
+- **Contribute back** — branches with unique work get a link straight to the upstream Pull‑Request form.
+- **"main has own commits"** — a badge when your default branch is ahead of upstream (the real reason fast‑forward is blocked — usually committing straight to `main`).
+- **Upstream lifecycle** — badges for an **archived original** ("dead fork") and a **default‑branch rename** (`master`→`main` drift that silently breaks sync), plus "original updated <when>".
+- **Prune stale branches** — delete local branches whose fork branch was already removed (after a merged PR); local, backed up, no push.
+- **Richer GitHub table** — Language · ★Stars · Updated columns, an *archived* badge, and description on hover; the wasted right‑hand space is gone. The "Open on GitHub" button is a compact link (no more 3‑line wrap).
+
+### Changed
+- **Behind vs diverged** — a branch that is merely behind (fast‑forwardable) is now visually and verbally distinct from one that has *diverged* (needs a manual rebase).
+- **Plain‑language status** — reworded the cryptic lines (e.g. "remote — guessed", "uncommitted changes — commit, stash or discard", "resolve conflicts in N branch(es)") with clearer tooltips explaining what they mean and what to do.
+
 ## [0.4.0] — 2026-06-24
 
 Parallel sessions grow up: run any tool **locally or over SSH**, spread them across **multiple monitors**, and drive everything from a redesigned launcher — plus a large reliability and DRY hardening pass.

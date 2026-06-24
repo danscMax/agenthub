@@ -386,7 +386,7 @@
         t('page.confirm_fork_msg', { label: label ?? action }),
         t('page.confirm_fork_btn'),
         () => startForkRepo(action, path),
-        { danger: action === 'delete' }
+        { danger: action === 'delete' || action === 'delete-wip' || action === 'prune' }
       );
     } else {
       startForks(action);
