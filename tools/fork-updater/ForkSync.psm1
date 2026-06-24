@@ -594,7 +594,12 @@ function Write-RepoHuman {
 function Write-ForkSyncJson {
     param([string]$Root, [pscustomobject]$Payload, [string]$OutFile)
     $path = if ($OutFile) { $OutFile } else { Join-Path $Root 'fork-sync.last.json' }
-    [System.IO.File]::WriteAllText($path, ($Payload | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))
+    # Atomic publish: write a sibling temp, then replace. The Rust reader polls this file right after
+    # the run finishes; a plain WriteAllText truncates-then-writes, so a poll mid-write would read a
+    # torn / empty JSON and the card would go stale. Move-with-overwrite swaps it in as one step.
+    $tmp = "$path.tmp"
+    [System.IO.File]::WriteAllText($tmp, ($Payload | ConvertTo-Json -Depth 8), [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::Move($tmp, $path, $true)
     return $path
 }
 
@@ -972,7 +977,15 @@ function Invoke-ForkSync {
                     # reflects reality — not the pre-action snapshot. Without this the UI keeps the
                     # "needs sync" recommendation for a repo that was JUST synced. -NoFetch: the actions
                     # rebase/ff onto the already-fetched upstream, so no new network fetch is needed.
-                    $fresh = Get-RepoReport -RepoPath $rep.Path -Config $cfg -NoFetch -GhAvailable:$ghAvailable -IsOwn:([bool]$rep.isOwn)
+                    try {
+                        $fresh = Get-RepoReport -RepoPath $rep.Path -Config $cfg -NoFetch -GhAvailable:$ghAvailable -IsOwn:([bool]$rep.isOwn)
+                    } catch {
+                        # The mutation already happened on disk; a re-analysis failure must NOT abort the run
+                        # ($ErrorActionPreference='Stop') and discard every repo's status. Fall back to the
+                        # pre-action report + actionsTaken (mirrors the guarded initial analysis pass above).
+                        Write-Status "$($rep.Path): повторный анализ после действий не удался — $($_.Exception.Message)" 'FAIL'
+                        $fresh = $null
+                    }
                     if ($fresh -and -not $fresh.Skipped) {
                         $fresh | Add-Member -NotePropertyName 'actionsTaken' -NotePropertyValue $acts -Force
                         $i = [array]::IndexOf($managed, $rep)

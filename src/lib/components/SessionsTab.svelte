@@ -7,8 +7,6 @@
   import {
     sessionWrite,
     type SessionTool,
-    openMonitorWindow,
-    prepareDetach,
     type DetachPane,
     type SshHost,
     readSshHosts,
@@ -19,10 +17,10 @@
     parseSshTarget,
     pickFolder
   } from '$lib/ipc';
-  import { getMonitors } from '$lib/monitors';
+  import { getMonitors, invalidateMonitors, openDetached } from '$lib/monitors';
   import Select from './Select.svelte';
   import { markMoved, peekMoved } from '$lib/sessionMove';
-  import { listen } from '@tauri-apps/api/event';
+  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { ARG_PRESETS, toggleFlag } from '$lib/sessionPresets';
   import { pushToast } from '$lib/toast.svelte';
 
@@ -60,7 +58,6 @@
   let panes = $state<Pane[]>([]);
   let seq = 0;
   let columns = $state(2);
-  let cwd = $state(''); // default folder for quick launches
   let maximized = $state<string | null>(null); // key of the pane shown full-screen, or null
 
   // Persisted prefs: column count + last folder used per profile (so re-launching a profile lands
@@ -69,6 +66,7 @@
   const CKEY = 'cmh-sessions-cols';
   const WKEY = 'cmh-sessions-workspaces';
   const DAKEY = 'cmh-sessions-defargs';
+  const RRKEY = 'cmh-remote-recent'; // recently-used SSH remote start dirs (datalist for #19)
   const MLKEY = 'cmh-monitor-layout'; // saved "разнести" arrangement, offered for restore on launch
   let savedLayoutExists = $state(false); // is there a saved monitor layout to restore / forget (#13)
   let lastFolders = $state<Record<string, string>>({});
@@ -79,6 +77,15 @@
   // A workspace is a named set of session configs you can re-launch with one click.
   type WsConfig = { tool: SessionTool; profile: string; cwd: string; args: string; remoteDir?: string; sshTarget?: string };
   let workspaces = $state<Record<string, WsConfig[]>>({});
+  // Lifecycle: this tab unmounts/remounts on every tab switch, so event listeners MUST be torn down
+  // (else they pile up and a returned pane gets added N times). `mounted` also gates async state
+  // writes (checkReach) that may resolve after unmount.
+  let mounted = true;
+  let disposed = false;
+  const offs: UnlistenFn[] = [];
+  const track = (p: Promise<UnlistenFn>) => {
+    p.then((un) => (disposed ? un() : offs.push(un))).catch(() => {});
+  };
   onMount(() => {
     try {
       lastFolders = JSON.parse(localStorage.getItem(FKEY) ?? '{}');
@@ -86,8 +93,7 @@
       defaultArgs = localStorage.getItem(DAKEY) ?? '';
       favorites = JSON.parse(localStorage.getItem(VKEY) ?? '[]');
       projectsRoot = localStorage.getItem(ROOT) ?? '';
-      lFolder = cwd;
-      lArgs = defaultArgs;
+      remoteRecent = JSON.parse(localStorage.getItem(RRKEY) ?? '[]');
       const c = Number(localStorage.getItem(CKEY));
       if (c >= 1 && c <= 3) columns = c;
       const fz = Number(localStorage.getItem('cmh-sessions-fontsize'));
@@ -104,18 +110,33 @@
       })
       .catch(() => {});
     // A pane returned from a detached monitor window (← Castellyn): re-attach it here as the owner.
-    listen<{ target: string; pane: DetachPane }>('pane:add', (e) => {
-      const p = e.payload;
-      if (p?.target !== 'main' || !p.pane?.sessionId) return;
-      addPane({
-        tool: p.pane.tool,
-        profile: p.pane.profile ?? '',
-        cwd: p.pane.cwd ?? '',
-        args: p.pane.args ?? '',
-        attachId: p.pane.sessionId,
-        ownsSession: true
-      });
-    });
+    track(
+      listen<{ target: string; pane: DetachPane }>('pane:add', (e) => {
+        const p = e.payload;
+        if (p?.target !== 'main' || !p.pane?.sessionId) return;
+        addPane({
+          tool: p.pane.tool,
+          profile: p.pane.profile ?? '',
+          cwd: p.pane.cwd ?? '',
+          args: p.pane.args ?? '',
+          attachId: p.pane.sessionId,
+          ownsSession: true
+        });
+      })
+    );
+    // A detached monitor window failed to build (open_monitor_window worker thread). The live session
+    // is still running but its window never appeared — recover the single-pane case by re-attaching it
+    // here, and always tell the user instead of silently "losing" the pane.
+    track(
+      listen<{ label: string; error: string }>('monitor-window-failed', (e) => {
+        const label = e.payload?.label ?? '';
+        if (label.startsWith('pane-')) {
+          const sessionId = label.slice('pane-'.length);
+          addPane({ tool: 'shell', profile: '', cwd: '', args: '', attachId: sessionId, ownsSession: true });
+        }
+        pushToast({ kind: 'error', title: t('sessions.monitorOpenFailed') });
+      })
+    );
     // Offer to restore the last monitor arrangement (the user's "restore on launch" choice). A toast
     // with a one-click action — non-aggressive: we don't auto-spawn a grid of terminals every start.
     try {
@@ -131,6 +152,11 @@
     } catch {
       /* ignore */
     }
+    return () => {
+      mounted = false;
+      disposed = true;
+      offs.forEach((un) => un());
+    };
   });
   $effect(() => {
     try {
@@ -179,6 +205,7 @@
   // panes across them as a grid. Each pane mirrors its LIVE session via attach (no respawn); the main
   // window keeps its panes too. If there's only one monitor, this is a no-op (with a hint).
   async function distributeToMonitors() {
+    invalidateMonitors(); // a monitor may have been (un)plugged since the cached enumeration
     let mons;
     try {
       mons = await getMonitors();
@@ -222,25 +249,21 @@
     const removeKeys = new Set<string>();
     const layout: Record<number, DetachPane[]> = {};
     for (const [idx, list] of byMon) {
-      try {
-        await prepareDetach(`mon-${idx}`, { panes: list.map((e) => e.dp) });
-        await openMonitorWindow(`mon-${idx}`, idx);
-        for (const e of list) {
-          if (e.dp.sessionId) markMoved(e.dp.sessionId);
-          removeKeys.add(e.key);
-        }
-        // Persist the LAUNCH config (no live session id) so this monitor can be restored next launch.
-        layout[idx] = list.map((e) => ({
-          title: e.dp.title,
-          tool: e.dp.tool,
-          profile: e.dp.profile,
-          cwd: e.dp.cwd,
-          args: e.dp.args,
-          owns: true
-        }));
-      } catch {
-        /* monitor/window unavailable — leave those panes in the main grid */
+      const ok = await openDetached(`mon-${idx}`, idx, list.map((e) => e.dp));
+      if (!ok) continue; // monitor/window unavailable — leave those panes in the main grid
+      for (const e of list) {
+        if (e.dp.sessionId) markMoved(e.dp.sessionId);
+        removeKeys.add(e.key);
       }
+      // Persist the LAUNCH config (no live session id) so this monitor can be restored next launch.
+      layout[idx] = list.map((e) => ({
+        title: e.dp.title,
+        tool: e.dp.tool,
+        profile: e.dp.profile,
+        cwd: e.dp.cwd,
+        args: e.dp.args,
+        owns: true
+      }));
     }
     if (removeKeys.size) panes = panes.filter((p) => !removeKeys.has(p.key));
     if (Object.keys(layout).length) {
@@ -273,6 +296,7 @@
     } catch {
       return;
     }
+    invalidateMonitors(); // re-enumerate: the saved layout may target monitors that are now gone
     let mons;
     try {
       mons = await getMonitors();
@@ -283,12 +307,7 @@
     for (const [idxStr, list] of Object.entries(saved)) {
       const idx = Number(idxStr);
       if (!have.has(idx) || !list?.length) continue;
-      try {
-        await prepareDetach(`mon-${idx}`, { panes: list });
-        await openMonitorWindow(`mon-${idx}`, idx);
-      } catch {
-        /* monitor/window unavailable — skip */
-      }
+      await openDetached(`mon-${idx}`, idx, list);
     }
   }
 
@@ -511,11 +530,16 @@
   // Auto reachability check: ping each host's port (test_ssh_host, TCP) and show a status dot.
   let sshReach = $state<Record<string, 'checking' | 'ok' | 'fail'>>({});
   async function checkReach(hosts: SshHost[]) {
-    for (const h of hosts) {
-      sshReach = { ...sshReach, [h.id]: 'checking' };
-      const ok = await testSshHost(h.host, h.port ?? null).catch(() => false);
-      sshReach = { ...sshReach, [h.id]: ok ? 'ok' : 'fail' };
-    }
+    if (!hosts.length) return;
+    // Probe all hosts at once (was a sequential for-await: N×2s of dots stuck on "checking"). Each
+    // result lands as it returns; the `mounted` guard drops writes that resolve after a tab switch.
+    sshReach = { ...sshReach, ...Object.fromEntries(hosts.map((h) => [h.id, 'checking' as const])) };
+    await Promise.allSettled(
+      hosts.map(async (h) => {
+        const ok = await testSshHost(h.host, h.port ?? null).catch(() => false);
+        if (mounted) sshReach = { ...sshReach, [h.id]: ok ? 'ok' : 'fail' };
+      })
+    );
   }
   // ─── Launcher: environment × location × folder × args, read as a phrase (№20 + №8) ───
   type Env = 'claude' | 'opencode' | 'shell';
@@ -544,7 +568,24 @@
   let lLoc = $state(''); // '' = this PC; else an SSH host id
   let lFolder = $state(''); // local folder (when lLoc==='')
   let lRemoteDir = $state(''); // remote start dir (when lLoc!=='')
+  let remoteRecent = $state<string[]>([]); // recent remote dirs → datalist for the remote-dir input (#19)
   let lArgs = $state('');
+  // The args field mirrors the ⚙ default-args until the user edits it (then it's theirs). This is
+  // what makes editing "default args" in settings actually flow into the phrase (#16 — was seeded once).
+  let argsTouched = $state(false);
+  $effect(() => {
+    if (!argsTouched) lArgs = defaultArgs;
+  });
+  function rememberRemote(dir: string) {
+    const d = dir.trim();
+    if (!d) return;
+    remoteRecent = [d, ...remoteRecent.filter((x) => x !== d)].slice(0, 10);
+    try {
+      localStorage.setItem(RRKEY, JSON.stringify(remoteRecent));
+    } catch {
+      /* ignore */
+    }
+  }
   const LOC_ADD = '__add__';
   const locOptions = $derived([
     { value: '', label: t('sessions.locThisPc'), icon: '💻' },
@@ -581,7 +622,10 @@
   }
   function launchPhrase() {
     const v = paneFrom(lEnv, lProfile, lLoc, lFolder, lRemoteDir, lArgs);
-    if (v) addPane(v);
+    if (v) {
+      if (lLoc && lRemoteDir.trim()) rememberRemote(lRemoteDir); // SSH: keep the remote dir for next time
+      addPane(v);
+    }
   }
   // ─── Favorites: pin the whole phrase → 1-click relaunch ───
   type Fav = { id: string; env: Env; profile: string; locId: string; folder: string; remoteDir: string; args: string; label: string };
@@ -598,10 +642,12 @@
   }
   function pinCurrent() {
     const id = `f${Date.now()}${Math.round(Math.random() * 1e4)}`;
+    const label = favLabel(lEnv, lProfile, lLoc, lFolder);
     favorites = [
       ...favorites,
-      { id, env: lEnv, profile: lProfile, locId: lLoc, folder: lFolder, remoteDir: lRemoteDir, args: lEnv === 'shell' ? '' : lArgs, label: favLabel(lEnv, lProfile, lLoc, lFolder) }
+      { id, env: lEnv, profile: lProfile, locId: lLoc, folder: lFolder, remoteDir: lRemoteDir, args: lEnv === 'shell' ? '' : lArgs, label }
     ];
+    pushToast({ kind: 'success', title: t('sessions.pinned', { label }) }); // feedback — pinning was silent (#17)
   }
   function launchFav(f: Fav) {
     const v = paneFrom(f.env, f.profile, f.locId, f.folder, f.remoteDir, f.args);
@@ -783,7 +829,7 @@
       <span class="text-sw-xs text-sw-text-muted">{t('sessions.layout')}</span>
       {#each [1, 2, 3] as c (c)}
         <button class="sw-btn sw-btn-ghost text-sw-xs" class:active={columns === c} onclick={() => (columns = c)}
-          title={t('sessions.layoutCols', { n: c })}>{c}</button>
+          title="{t('sessions.layoutCols', { n: c })} · Alt+{c}">{c}</button>
       {/each}
       {#if panes.length}
         <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={closeAll} title={t('sessions.closeAllTip')}>
@@ -822,15 +868,21 @@
         <div class="pfolder"><FolderField bind:value={lFolder} placeholder={t('sessions.cwdShort')} /></div>
       {:else}
         <input class="sw-input grow font-mono text-sw-xs pfolder" bind:value={lRemoteDir}
-          placeholder={t('sessions.dlgSshRemoteDirPlaceholder')} spellcheck="false" autocomplete="off" />
+          list="remote-dirs" placeholder={t('sessions.dlgSshRemoteDirPlaceholder')} spellcheck="false" autocomplete="off" />
+        <datalist id="remote-dirs">
+          {#each remoteRecent as d (d)}<option value={d}></option>{/each}
+        </datalist>
       {/if}
       {#if lEnv !== 'shell'}
         <span class="pw">{t('sessions.phWith')}</span>
-        <input class="sw-input grow font-mono text-sw-xs pargs" bind:value={lArgs}
+        <input class="sw-input grow font-mono text-sw-xs pargs" bind:value={lArgs} oninput={() => (argsTouched = true)}
           placeholder={t('sessions.dlgArgsPlaceholder')} spellcheck="false" autocomplete="off" />
       {/if}
+      {#if lLoc && lEnv !== 'shell'}
+        <span class="ssh-hint" title={t('sessions.sshToolHint', { tool: lEnv })}>{t('sessions.sshToolHint', { tool: lEnv })}</span>
+      {/if}
       <button type="button" class="sw-btn sw-btn-ghost star" onclick={pinCurrent} title={t('sessions.pin')} aria-label={t('sessions.pin')}>★</button>
-      <button type="button" class="sw-btn sw-btn-primary text-sw-xs" onclick={launchPhrase}>▶ {t('sessions.phLaunch')}</button>
+      <button type="button" class="sw-btn sw-btn-primary text-sw-xs" onclick={launchPhrase} title="{t('sessions.phLaunch')} · Ctrl+T">▶ {t('sessions.phLaunch')}</button>
     </div>
 
     <!-- Favorites (pinned phrases) + save-workspace -->
@@ -1088,6 +1140,12 @@
   .phrase .pargs {
     min-width: 160px;
     flex: 1;
+  }
+  .phrase .ssh-hint {
+    flex-basis: 100%;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-muted);
+    opacity: 0.85;
   }
   .phrase .star {
     margin-left: auto;

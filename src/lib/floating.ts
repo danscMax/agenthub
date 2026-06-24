@@ -11,6 +11,9 @@ type AnchoredParams = {
   anchor: HTMLElement;
   align?: 'left' | 'right'; // which edge of the anchor the popover lines up with (default left)
   matchWidth?: boolean; // force the popover width to the anchor's (for full-width selects)
+  // Called on a pointer press outside BOTH the popover and its anchor — the one place the
+  // "click outside → close" check lives (Select/FolderField/DropdownMenu used to each hand-roll it).
+  onOutside?: () => void;
 };
 
 export function anchored(node: HTMLElement, params: AnchoredParams) {
@@ -57,6 +60,14 @@ export function anchored(node: HTMLElement, params: AnchoredParams) {
   const onScroll = () => place();
   window.addEventListener('scroll', onScroll, true);
   window.addEventListener('resize', onScroll);
+  // Outside-press dismissal: a press inside the popover OR its anchor (the trigger lives there, and
+  // toggles open itself) is NOT outside. capture=true so it fires before inner handlers.
+  const onOutside = (e: PointerEvent) => {
+    if (!p.onOutside) return;
+    const t = e.target as Node;
+    if (!node.contains(t) && !p.anchor.contains(t)) p.onOutside();
+  };
+  window.addEventListener('pointerdown', onOutside, true);
 
   return {
     update(next: AnchoredParams) {
@@ -66,6 +77,7 @@ export function anchored(node: HTMLElement, params: AnchoredParams) {
     destroy() {
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
+      window.removeEventListener('pointerdown', onOutside, true);
     }
   };
 }

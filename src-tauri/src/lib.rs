@@ -250,6 +250,12 @@ struct RunState(Mutex<Option<u32>>);
 #[derive(Default)]
 struct ForkRuns(Mutex<std::collections::HashMap<String, u32>>);
 
+// True while a GLOBAL run_forks sweep is in flight. The global sweep and per-repo runs are two
+// separate concurrency domains; without this flag they could `git fetch` the SAME repo at once and
+// one would die on git's `.lock` file. Used for mutual exclusion (global ⟷ any per-repo), not to
+// serialize per-repo runs against each other (that stays independent, by design).
+static FORKS_GLOBAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[derive(Serialize, Clone)]
 struct LogLine {
     component: String,
@@ -534,9 +540,17 @@ fn fork_repo_out_file(path: &str) -> Option<String> {
     let comp = raw_components().into_iter().find(|c| c.id == "forks")?;
     let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
     let dir = std::path::Path::new(&script).parent()?.to_string_lossy().to_string();
-    let safe: String =
-        path.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-    Some(format!("{dir}\\fork-sync.{safe}.last.json"))
+    // A short readable hint + a stable hash of the FULL path. The old "every non-alphanumeric → '_'"
+    // map collapsed distinct paths (Cyrillic, or `a-b` vs `a_b`) onto one file → concurrent per-repo
+    // runs raced it. DefaultHasher::new() has fixed keys, so the hash is stable across processes —
+    // read_fork_repo_status recomputes the same name. (Same-volume: dir is the script's own folder.)
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut h);
+    let hint: String =
+        path.chars().rev().take_while(|c| *c != '\\' && *c != '/').collect::<String>();
+    let hint: String = hint.chars().rev().filter(|c| c.is_ascii_alphanumeric()).take(24).collect();
+    Some(format!("{dir}\\fork-sync.{hint}.{:016x}.last.json", h.finish()))
 }
 
 /// Run a Forks-tab action. `path` (a repo path) scopes the action to one repo via -Paths;
@@ -545,6 +559,7 @@ fn fork_repo_out_file(path: &str) -> Option<String> {
 async fn run_forks(
     app: AppHandle,
     state: State<'_, RunState>,
+    runs: State<'_, ForkRuns>,
     action: String,
     path: Option<String>,
 ) -> Result<i32, String> {
@@ -570,7 +585,16 @@ async fn run_forks(
         args.push(t.to_string());
     }
     let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
-    spawn_streamed(app, state, "forks".to_string(), script, args).await
+    // Claim the global slot, then bail if any per-repo run is active (would `git fetch` the same repo
+    // concurrently). Order: set the flag first so a per-repo run starting now sees it; reset on reject.
+    FORKS_GLOBAL.store(true, Ordering::SeqCst);
+    if !runs.0.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        FORKS_GLOBAL.store(false, Ordering::SeqCst);
+        return Err(tr("err.fork_busy", cur_lang()).to_string());
+    }
+    let r = spawn_streamed(app, state, "forks".to_string(), script, args).await;
+    FORKS_GLOBAL.store(false, Ordering::SeqCst);
+    r
 }
 
 /// Run a Forks action scoped to ONE repo, concurrently and independently of other repos and of
@@ -596,6 +620,11 @@ async fn run_fork_repo(
     // Reserve this repo (reject a second concurrent run on the same one).
     {
         let mut m = runs.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A global run_forks sweep is in flight — it processes every repo, so running this one now
+        // would double-fetch it. Reject (the residual set-vs-check race is backstopped by git's .lock).
+        if FORKS_GLOBAL.load(Ordering::SeqCst) {
+            return Err(tr("err.fork_busy", cur_lang()).into());
+        }
         if m.contains_key(&path) {
             return Err(tr("err.fork_busy", cur_lang()).into());
         }
@@ -5530,12 +5559,30 @@ fn session_spawn(
     let ring: std::sync::Arc<Mutex<std::collections::VecDeque<u8>>> =
         std::sync::Arc::new(Mutex::new(std::collections::VecDeque::new()));
 
+    // Register the session under the SAME lock that enforces the ceiling, BEFORE spawning the reader
+    // thread. This (a) makes the limit check + insert atomic, so two concurrent spawns can't both slip
+    // past SESSION_LIMIT (the early check above is just a fast fail), and (b) guarantees the reader's
+    // EOF cleanup below can never race ahead of the insert and leave a dead map entry.
+    {
+        let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        if map.len() >= SESSION_LIMIT {
+            let mut k = killer;
+            let _ = k.kill(); // lost the race against a concurrent spawn — tear the child back down
+            return Err(trv("err.session_limit", cur_lang(), &[("max", &SESSION_LIMIT)]));
+        }
+        map.insert(
+            id.clone(),
+            PtySession { master: pair.master, writer, killer, chans: chans.clone(), ring: ring.clone(), next_token: std::sync::atomic::AtomicU64::new(1) },
+        );
+    }
+
     // Reader thread: stream PTY output as raw bytes to EVERY attached channel (no base64/JSON event
     // per chunk) until EOF, keeping a bounded scrollback; then wait for the child and signal exit.
     // The session stays alive even with zero attached windows (output keeps buffering into the ring).
     let app2 = app.clone();
-    let chans_r = chans.clone();
-    let ring_r = ring.clone();
+    let chans_r = chans;
+    let ring_r = ring;
+    let id_r = id.clone();
     std::thread::spawn(move || {
         use std::io::Read;
         let mut buf = [0u8; 8192];
@@ -5554,16 +5601,11 @@ fn session_spawn(
         // EOF means the child has exited; surface its real exit code (-1 if wait() fails).
         let code = Child::wait(&mut *child).map(|s| s.exit_code() as i32).unwrap_or(-1);
         let _ = app2.emit(exit_event.as_str(), code);
+        // Reap from the map: a naturally-exited but still-open pane otherwise holds its SESSION_LIMIT
+        // slot + master/ring until session_kill (which only runs when the pane is explicitly closed).
+        let _ = app2.state::<SessionState>().0.lock().unwrap_or_else(|e| e.into_inner()).remove(&id_r);
     });
 
-    state
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(
-            id.clone(),
-            PtySession { master: pair.master, writer, killer, chans, ring, next_token: std::sync::atomic::AtomicU64::new(1) },
-        );
     update_tray_tooltip(&app);
     Ok(id)
 }
@@ -5713,9 +5755,21 @@ fn write_ssh_hosts_saved(list: &[SshHost]) -> Result<(), String> {
     write_json_atomic(&path, &json).map_err(|e| format!("write sshhosts.json: {e}"))
 }
 
+/// Strip ONE pair of surrounding double/single quotes (OpenSSH allows quoted values, e.g. an
+/// IdentityFile path with spaces). Leaves unquoted strings untouched.
+fn unquote(s: &str) -> &str {
+    let b = s.as_bytes();
+    if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
 /// Parse `~/.ssh/config` text into hosts (read-only). Honors Host (skips wildcard/negated patterns),
 /// HostName, User, Port, IdentityFile. A `Host a b` line is ONE host (named after its first concrete
 /// alias). Best-effort: unknown keywords ignored; tokens split on whitespace or '=' (OpenSSH accepts both).
+/// `Include` directives are spliced in by read_ssh_config_hosts before this runs (this fn is pure text).
 fn parse_ssh_config(text: &str) -> Vec<SshHost> {
     let mut out: Vec<SshHost> = Vec::new();
     let mut cur: Option<usize> = None; // out-index of the current Host block (None for wildcard-only blocks)
@@ -5744,10 +5798,10 @@ fn parse_ssh_config(text: &str) -> Vec<SshHost> {
             });
         } else if let Some(i) = cur {
             match key.to_ascii_lowercase().as_str() {
-                "hostname" => out[i].host = val.to_string(),
-                "user" => out[i].user = Some(val.to_string()),
-                "port" => out[i].port = val.parse::<u16>().ok(),
-                "identityfile" => out[i].key_path = Some(val.to_string()),
+                "hostname" => out[i].host = unquote(val).to_string(),
+                "user" => out[i].user = Some(unquote(val).to_string()),
+                "port" => out[i].port = unquote(val).parse::<u16>().ok(),
+                "identityfile" => out[i].key_path = Some(unquote(val).to_string()),
                 _ => {}
             }
         }
@@ -5757,9 +5811,69 @@ fn parse_ssh_config(text: &str) -> Vec<SshHost> {
 
 fn read_ssh_config_hosts() -> Vec<SshHost> {
     let home = std::env::var("USERPROFILE").unwrap_or_default();
-    std::fs::read_to_string(format!("{home}\\.ssh\\config"))
-        .map(|t| parse_ssh_config(&t))
-        .unwrap_or_default()
+    let main = format!("{home}\\.ssh\\config");
+    let mut text = String::new();
+    expand_ssh_config(std::path::Path::new(&main), &home, 0, &mut text);
+    parse_ssh_config(&text)
+}
+
+/// Inline `Include` directives into one config blob (OpenSSH semantics: the included file's contents
+/// are spliced in at that point), so hosts defined in included files (a common `~/.ssh/config.d/*`
+/// layout) are no longer silently dropped. Bounded recursion guards against include cycles.
+fn expand_ssh_config(path: &std::path::Path, home: &str, depth: u8, out: &mut String) {
+    if depth > 16 {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return;
+    };
+    for line in text.lines() {
+        let t = line.trim();
+        // Match the `Include` keyword followed by whitespace/'=' (not e.g. "IncludeFoo").
+        let is_include = t.len() > 7
+            && t[..7].eq_ignore_ascii_case("include")
+            && t[7..].starts_with(|c: char| c.is_whitespace() || c == '=');
+        if is_include {
+            let patterns = t[7..].trim_start_matches(|c: char| c.is_whitespace() || c == '=');
+            for pat in patterns.split_whitespace() {
+                for f in resolve_ssh_include(unquote(pat), home) {
+                    expand_ssh_config(&f, home, depth + 1, out);
+                }
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+/// Resolve one Include pattern to concrete file paths. Supports `~/`, absolute and ~/.ssh-relative
+/// paths, plus a single trailing `*` (the common `config.d/*` = every file directly under that dir).
+/// ponytail: no general globbing (no extra dep) — `dir/prefix*` style patterns resolve to nothing.
+fn resolve_ssh_include(pat: &str, home: &str) -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let expanded = if let Some(rest) = pat.strip_prefix("~/") {
+        format!("{home}\\{rest}")
+    } else if std::path::Path::new(pat).is_absolute() {
+        pat.to_string()
+    } else {
+        format!("{home}\\.ssh\\{pat}")
+    };
+    let expanded = expanded.replace('/', "\\");
+    if let Some(prefix) = expanded.strip_suffix('*') {
+        let dir = prefix.trim_end_matches('\\');
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        files.sort();
+        files
+    } else {
+        vec![PathBuf::from(expanded)]
+    }
 }
 
 /// Saved hosts (synced registry) merged with read-only hosts imported from ~/.ssh/config, each added
@@ -5811,10 +5925,11 @@ fn test_ssh_host(host: String, port: Option<u16>) -> bool {
     use std::net::{TcpStream, ToSocketAddrs};
     let p = port.unwrap_or(22);
     match format!("{host}:{p}").to_socket_addrs() {
-        Ok(mut addrs) => addrs
-            .next()
-            .map(|a| TcpStream::connect_timeout(&a, std::time::Duration::from_secs(2)).is_ok())
-            .unwrap_or(false),
+        // Try EVERY resolved address (short-circuits on the first success). Probing only the first
+        // wrongly reported IPv6-first hosts as unreachable when only their IPv4 endpoint was up.
+        Ok(addrs) => addrs.into_iter().any(|a| {
+            TcpStream::connect_timeout(&a, std::time::Duration::from_secs(2)).is_ok()
+        }),
         Err(_) => false,
     }
 }
@@ -5862,6 +5977,16 @@ Host *\n\
         assert_eq!(mini.port, Some(22));
         assert_eq!(mini.key_path.as_deref(), Some("~/.ssh/id_ed25519"));
         assert!(hosts.iter().all(|h| h.source == "sshconfig"));
+    }
+
+    #[test]
+    fn strips_surrounding_quotes_from_values() {
+        let cfg = "Host q\n  HostName \"10.0.0.5\"\n  User 'bob'\n  IdentityFile \"C:/keys/my key\"\n";
+        let hosts = parse_ssh_config(cfg);
+        let h = hosts.iter().find(|h| h.name == "q").expect("host q");
+        assert_eq!(h.host, "10.0.0.5", "double quotes stripped");
+        assert_eq!(h.user.as_deref(), Some("bob"), "single quotes stripped");
+        assert_eq!(h.key_path.as_deref(), Some("C:/keys/my key"), "quoted path with space kept intact");
     }
 
     #[test]
@@ -5974,10 +6099,22 @@ fn open_monitor_window(app: AppHandle, label: String, monitor_index: usize) -> R
             .build();
         // Physical position/size — correct across mixed-DPI monitors (the window-state plugin is
         // denylisted for mon-* so it can't override these with a stale restored rect).
-        if let Ok(win) = built {
-            let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
-            let _ = win.set_size(tauri::PhysicalSize::new(size.width, size.height));
-            let _ = win.set_focus();
+        match built {
+            Ok(win) => {
+                let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
+                let _ = win.set_size(tauri::PhysicalSize::new(size.width, size.height));
+                let _ = win.set_focus();
+            }
+            Err(e) => {
+                // Build failed — don't fail silently. The frontend stashed the pane spec under this
+                // label (prepare_detach) before calling us; clear it so it can't leak, and tell the UI
+                // so it can re-home the pane / toast instead of "losing" the detached session.
+                let _ = take_detach(label.clone());
+                let _ = app2.emit(
+                    "monitor-window-failed",
+                    serde_json::json!({ "label": label, "error": e.to_string() }),
+                );
+            }
         }
     });
     Ok(())

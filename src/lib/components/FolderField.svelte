@@ -61,14 +61,7 @@
     favorites = isFav ? favorites.filter((f) => f !== value) : [value, ...favorites];
     localStorage.setItem(FAV, JSON.stringify(favorites));
   }
-  $effect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (rootEl && !rootEl.contains(e.target as Node)) open = false;
-    };
-    window.addEventListener('mousedown', h);
-    return () => window.removeEventListener('mousedown', h);
-  });
+  // Outside-press dismissal is handled by the `anchored` action (onOutside) — one shared impl.
 </script>
 
 <div class="ff" bind:this={rootEl}>
@@ -77,7 +70,7 @@
   <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
   <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}>★</button>
   {#if open}
-    <div class="menu" use:anchored={{ anchor: rootEl!, align: 'left' }}>
+    <div class="menu" use:anchored={{ anchor: rootEl!, align: 'left', onOutside: () => (open = false) }}>
       {#if favorites.length}
         <div class="sec">{t('sessions.favorites')}</div>
         {#each favorites as f (f)}

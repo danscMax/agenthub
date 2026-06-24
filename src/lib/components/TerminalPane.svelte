@@ -15,11 +15,9 @@
     sessionKill,
     sessionDetach,
     type SessionTool,
-    openMonitorWindow,
-    prepareDetach,
     type MonitorInfo
   } from '$lib/ipc';
-  import { getMonitors } from '$lib/monitors';
+  import { getMonitors, openDetached } from '$lib/monitors';
   import DropdownMenu from './DropdownMenu.svelte';
   import { markMoved, consumeMoved } from '$lib/sessionMove';
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
@@ -128,16 +126,12 @@
   });
   async function sendToMonitor(idx: number) {
     if (!id) return;
-    const wlabel = `pane-${id}`;
-    try {
-      await prepareDetach(wlabel, {
-        panes: [{ sessionId: id, title: displayName || label, tool, profile, cwd, args, owns: true }]
-      });
-      await openMonitorWindow(wlabel, idx);
+    const ok = await openDetached(`pane-${id}`, idx, [
+      { sessionId: id, title: displayName || label, tool, profile, cwd, args, owns: true }
+    ]);
+    if (ok) {
       markMoved(id); // this pane leaves the main grid; its unmount must not kill the live session
       onClose?.();
-    } catch {
-      /* window/monitor unavailable — ignore */
     }
   }
   const monItems = $derived(
@@ -258,13 +252,13 @@
     setFontSize(fontSize + delta);
   }
   // Snippets: insert a templated first message into THIS pane (#57). No auto-Enter — user reviews
-  // then sends. Default templates live in sessionPresets; the menu is a small bar popover.
-  let snipOpen = $state(false);
+  // then sends. Default templates live in sessionPresets; rendered via the shared DropdownMenu (so it
+  // escapes the toolbar overflow, gets roving focus + Esc, instead of a hand-rolled clipped popover).
   function insertSnippet(text: string) {
     if (id && !exited) sessionWrite(id, text);
-    snipOpen = false;
     term?.focus();
   }
+  const snipItems = $derived(MSG_SNIPPETS.map((s) => ({ label: s, onClick: () => insertSnippet(s) })));
   function onWheel(e: WheelEvent) {
     if (!e.ctrlKey) return; // plain wheel → xterm scrollback
     e.preventDefault();
@@ -494,18 +488,7 @@
     {#if exited}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="snip-wrap" onmouseleave={() => (snipOpen = false)}>
-      <button class="x" onclick={() => (snipOpen = !snipOpen)} title={t('sessions.snippets')}
-        aria-label={t('sessions.snippets')} aria-haspopup="menu" aria-expanded={snipOpen}>❡</button>
-      {#if snipOpen}
-        <div class="snip-menu" role="menu">
-          {#each MSG_SNIPPETS as s (s)}
-            <button class="snip-item" role="menuitem" onclick={() => insertSnippet(s)}>{s}</button>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    <DropdownMenu glyph="❡" title={t('sessions.snippets')} items={snipItems} />
     <button class="x" onclick={openSearch} title={t('sessions.find')} aria-label={t('sessions.find')}>🔍</button>
     <button class="x" onclick={() => term?.clear()} title={t('sessions.clearOutput')} aria-label={t('sessions.clearOutput')}>⌫</button>
     <button class="x" onclick={exportLog} title={t('sessions.exportLog')} aria-label={t('sessions.exportLog')}>⭳</button>
@@ -684,39 +667,6 @@
     line-height: 1;
   }
   .x:hover {
-    color: var(--sw-text-primary);
-  }
-  .snip-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-  .snip-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    min-width: 120px;
-    padding: 4px;
-    background: var(--sw-bg-secondary);
-    border: 1px solid var(--sw-border);
-    border-radius: var(--sw-radius-md);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-  }
-  .snip-item {
-    text-align: left;
-    padding: 4px 8px;
-    border: none;
-    background: transparent;
-    color: var(--sw-text-secondary);
-    font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 11px;
-    border-radius: var(--sw-radius-sm);
-    cursor: pointer;
-  }
-  .snip-item:hover {
-    background: var(--sw-accent-glow);
     color: var(--sw-text-primary);
   }
   .term {

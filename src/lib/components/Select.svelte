@@ -68,14 +68,7 @@
       if (active >= 0) choose(opts[active].value);
     }
   }
-  $effect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (root && !root.contains(e.target as Node)) open = false;
-    };
-    window.addEventListener('mousedown', onDoc);
-    return () => window.removeEventListener('mousedown', onDoc);
-  });
+  // Outside-press dismissal is handled by the `anchored` action (onOutside) — one shared impl.
   // Keep the keyboard-highlighted option visible in long lists.
   $effect(() => {
     if (!open || active < 0 || !listEl) return;
@@ -107,7 +100,7 @@
     <span class="chev" class:up={open} aria-hidden="true">▾</span>
   </button>
   {#if open}
-    <ul class="panel" id={listboxId} role="listbox" bind:this={listEl} use:anchored={{ anchor: root!, matchWidth: true }}>
+    <ul class="panel" id={listboxId} role="listbox" bind:this={listEl} use:anchored={{ anchor: root!, matchWidth: true, onOutside: () => (open = false) }}>
       {#each opts as o, i (o.value)}
         <li>
           <button

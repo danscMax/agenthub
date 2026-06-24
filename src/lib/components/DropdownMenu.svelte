@@ -13,7 +13,8 @@
     items,
     align = 'right',
     variant = 'ghost',
-    disabled = false
+    disabled = false,
+    glyph
   }: {
     label?: string;
     title?: string;
@@ -21,6 +22,7 @@
     align?: 'left' | 'right';
     variant?: 'ghost' | 'primary';
     disabled?: boolean;
+    glyph?: string; // custom trigger glyph (no caret); falls back to ⋯ when no label/glyph given
   } = $props();
 
   let open = $state(false);
@@ -36,9 +38,7 @@
     open = false;
     it.onClick();
   }
-  function onDocClick(e: MouseEvent) {
-    if (open && root && !root.contains(e.target as Node)) open = false;
-  }
+  // Outside-press dismissal is handled by the `anchored` action (onOutside) — one shared impl.
   // Roving focus across menuitems with the arrow keys (plus Home/End).
   function onMenuKey(e: KeyboardEvent) {
     const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
@@ -56,7 +56,7 @@
   }
 </script>
 
-<svelte:window onclick={onDocClick} onkeydown={(e) => e.key === 'Escape' && (open = false)} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
 
 <div class="dd" bind:this={root}>
   <button
@@ -68,10 +68,10 @@
     aria-haspopup="menu"
     aria-expanded={open}
   >
-    {#if label}{label} <span class="caret">▾</span>{:else}<span class="dots" aria-hidden="true">⋯</span>{/if}
+    {#if label}{label} <span class="caret">▾</span>{:else if glyph}<span class="dots" aria-hidden="true">{glyph}</span>{:else}<span class="dots" aria-hidden="true">⋯</span>{/if}
   </button>
   {#if open}
-    <div class="menu" role="menu" tabindex="-1" bind:this={menuEl} onkeydown={onMenuKey} use:anchored={{ anchor: root!, align }}>
+    <div class="menu" role="menu" tabindex="-1" bind:this={menuEl} onkeydown={onMenuKey} use:anchored={{ anchor: root!, align, onOutside: () => (open = false) }}>
       {#each items as it (it.label)}
         <button
           class="item"
