@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Newer pushes cancel an in-flight run on the same ref (saves CI minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast feedback: the frontend gates that don't need a Rust toolchain.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check        # svelte-check — type + i18n shape gate (0/0)
+      - run: npm run check:i18n    # ru/en/zh leaf-key parity
+      - run: npm test              # vitest (i18n parity, outcome, attention)
+
+  # The native gates. Windows because Castellyn ships a Windows Tauri app
+  # (WebView2 is preinstalled on the runner — no extra system deps needed).
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # generate_context! reads frontendDist (../build), so the lib won't
+      # compile — clippy/test included — until the frontend is built.
+      - run: npm run build
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
