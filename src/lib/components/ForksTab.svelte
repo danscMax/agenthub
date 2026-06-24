@@ -148,10 +148,20 @@
       </p>
     </div>
     <div class="flex shrink-0 gap-sw-2">
-      <button class="sw-btn sw-btn-ghost" disabled={anyRunning || anyForkRunning} onclick={() => onAction('check')}
-        title={t('forks.checkTip')}>
-        {running === 'forks' ? t('common.busy') : t('common.check')}
-      </button>
+      {#if running === 'forks'}
+        <!-- While a whole-stack refresh runs, the Check button becomes a clear Cancel (was only a
+             hover-revealed ✕ in the corner — easy to miss). Stops the run via cancel_run. -->
+        <button class="sw-btn sw-btn-ghost forks-cancel-btn" onclick={() => onCancelCheck?.()}
+          title={t('forks.cancelCheckTip')}>
+          <span class="refresh-dot"></span>
+          {t('forks.cancelCheck')}
+        </button>
+      {:else}
+        <button class="sw-btn sw-btn-ghost" disabled={anyRunning || anyForkRunning} onclick={() => onAction('check')}
+          title={t('forks.checkTip')}>
+          {t('common.check')}
+        </button>
+      {/if}
       <button class="sw-btn sw-btn-ghost" disabled={anyRunning || anyForkRunning} onclick={() => onAction('plan')}
         title={t('forks.planTip')}>
         {t('forks.planBtn')}
@@ -185,11 +195,11 @@
       <div class="ml-auto text-right text-sw-xs text-sw-text-muted">
         <div>
           {#if running === 'forks'}
-            <span class="refresh-chip" title={t('forks.cancelCheckTip')}>
+            <button class="refresh-chip" onclick={() => onCancelCheck?.()} aria-label={t('forks.cancelCheck')} title={t('forks.cancelCheckTip')}>
               <span class="refresh-dot"></span>
               {t('forks.refreshing')}
-              <button class="cancel-x" onclick={() => onCancelCheck?.()} aria-label={t('forks.cancelCheck')} title={t('forks.cancelCheckTip')}>✕</button>
-            </span>
+              <span class="cancel-x" aria-hidden="true">✕</span>
+            </button>
           {:else}
             {t('forks.modeLine', { mode: forkMode(status?.mode) })}
           {/if}
@@ -220,7 +230,7 @@
       </button>
     </div>
     <div class="card-grid">
-      {#each sortedRepos as repo, i (repo.Path)}
+      {#each sortedRepos as repo (repo.Path)}
         <ForkRepoCard
           {repo}
           {anyRunning}
@@ -229,7 +239,6 @@
           onCancel={() => onCancelFork?.(repo.Path)}
           {onOpenSession}
           refreshing={running === 'forks'}
-          index={i}
         />
       {/each}
     </div>
@@ -307,12 +316,20 @@
 </div>
 
 <style>
-  /* Live refresh status with an inline cancel (revealed on hover) — stops the auto-check on tab open. */
+  /* Live refresh status — the whole chip is a click target that stops the refresh (the cancel ✕
+     used to be opacity:0 until hover, so it read as "no cancel exists"). Now always visible. */
   .refresh-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     color: var(--sw-accent-text);
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 9999px;
+    padding: 1px 4px;
+    transition: color 0.15s;
   }
   .refresh-dot {
     width: 7px;
@@ -330,21 +347,29 @@
       opacity: 0.3;
     }
   }
+  /* The pulsing dot inside the header "Cancel" button. */
+  .forks-cancel-btn .refresh-dot {
+    margin-right: 2px;
+  }
   .cancel-x {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
     border: 1px solid var(--sw-border);
-    background: transparent;
-    color: var(--sw-text-muted);
     border-radius: 9999px;
-    cursor: pointer;
-    padding: 0 6px;
-    line-height: 1.4;
-    opacity: 0;
-    transition: opacity 0.15s;
+    color: var(--sw-text-muted);
+    font-size: 10px;
+    line-height: 1;
+    transition:
+      color 0.15s,
+      border-color 0.15s;
+  }
+  .refresh-chip:hover {
+    color: var(--sw-text);
   }
   .refresh-chip:hover .cancel-x {
-    opacity: 1;
-  }
-  .cancel-x:hover {
     color: var(--sw-danger);
     border-color: var(--sw-danger);
   }
