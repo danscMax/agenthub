@@ -168,8 +168,6 @@
   const setLoading = (id: string, v: boolean) => {
     loading[id] = v;
   };
-  // Forks status is cached on disk; refresh it the first time its tab opens this session.
-  let forksChecked = $state(false);
   // All of the user's GitHub repos (gh repo list) — to surface repos not cloned locally.
   let githubRepos = $state<GithubRepo[]>([]);
   let githubLoaded = $state(false);
@@ -1030,13 +1028,9 @@
   const blockingRefresh = $derived(tabRefreshing && active !== 'forks');
 
   // Lazy: refresh forks on first open this session (cached on disk → can be stale).
-  // Re-runs once the run lock frees if something else was running when the tab opened.
-  $effect(() => {
-    if (active === 'forks' && !forksChecked && !running) {
-      forksChecked = true;
-      startForks('check');
-    }
-  });
+  // Forks status is cached on disk and loaded on mount; we do NOT auto-run a check on tab open —
+  // that sweep is slow (sequential git fetch + gh per repo) and holds the single global run lock,
+  // which would block unrelated backup/restore. The user refreshes explicitly via the Check button.
 
   // Native gh call (not run-locked) — load the full GitHub repo list once on first open.
   $effect(() => {
