@@ -26,8 +26,11 @@
   } = $props();
 
   // Real profile list from the backup payload; falls back to the canonical set on first paint.
+  // 'main' (~/.claude) is a restorable target too (stored under main\ in every snapshot); list it as
+  // a selectable chip so a scoped restore includes/excludes it like any other profile — the restore
+  // script now gates the main files on `-Profiles` containing 'main'.
   const FALLBACK = ['ccmy', 'cc1', 'cc2', 'cc3', 'cc4', 'cc5'];
-  const list = $derived(profiles.length ? profiles : FALLBACK);
+  const list = $derived(['main', ...(profiles.length ? profiles : FALLBACK).filter((p) => p !== 'main')]);
   let sel = $state<Record<string, boolean>>({});
   let includeCreds = $state(false);
   let hasPreviewed = $state(false);
