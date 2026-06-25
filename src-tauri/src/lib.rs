@@ -6158,6 +6158,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         // Remember window position/size across launches (auto-restores on start, saves on exit).
         // Denylist the ephemeral monitor windows: they're positioned explicitly per-monitor on every
         // open, so restoring a saved rect would misplace/shrink them (pane-<id> labels are unique per

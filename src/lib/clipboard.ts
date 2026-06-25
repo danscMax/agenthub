@@ -1,8 +1,17 @@
+import { writeText as tauriWriteText } from '@tauri-apps/plugin-clipboard-manager';
+
 // Copy text to the clipboard. Returns true on success so callers can flash feedback.
-// `navigator.clipboard` is unavailable or silently blocked in some WebView2 contexts (the Tauri
-// shell), which made every copy button no-op with no feedback. Fall back to the legacy
-// hidden-textarea + execCommand('copy') path, which works in WebView2 without the clipboard plugin.
+// In the Tauri WebView2 shell the WEB clipboard is silently non-functional — both
+// `navigator.clipboard.writeText` AND `execCommand('copy')` no-op with no error — so the native
+// clipboard plugin (OS clipboard via Rust) is the reliable path. The web paths remain as a fallback
+// for non-Tauri contexts (browser dev / screenshot harness), where the plugin's IPC call rejects.
 export async function copyText(text: string): Promise<boolean> {
+  try {
+    await tauriWriteText(text);
+    return true;
+  } catch {
+    /* not running under Tauri (browser/dev) or plugin error — try the web clipboard paths */
+  }
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);

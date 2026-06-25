@@ -23,6 +23,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
 # Native folder/file pickers (Windows Explorer dialog) for working-folder inputs.
 tauri-plugin-dialog = "2"
+# Native clipboard — the web clipboard (navigator.clipboard + execCommand) is silently
+# non-functional in the WebView2 shell, so copy buttons need the OS clipboard via this plugin.
+tauri-plugin-clipboard-manager = "2"
 # OS-level hotkey to show/hide the window from anywhere (registered from Rust only).
 tauri-plugin-global-shortcut = "2"
 # Native HTTP probes for provider liveness / model lists (replaces the PowerShell Invoke-RestMethod
