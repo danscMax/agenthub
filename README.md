@@ -21,15 +21,19 @@
 
 <table>
 <tr>
+<td colspan="2" align="center"><b>Parallel sessions · Параллельные сессии · 并行会话</b><br><img src="docs/img/screenshot-sessions.png" alt="Parallel sessions tab" /></td>
+</tr>
+<tr>
 <td width="50%" align="center"><b>Profiles · Профили · 配置</b><br><img src="docs/img/screenshot-profiles.png" alt="Profiles tab" /></td>
-<td width="50%" align="center"><b>Plugins &amp; skills · Плагины и скиллы · 插件与技能</b><br><img src="docs/img/screenshot-plugins-skills.png" alt="Plugins and skills tab" /></td>
+<td width="50%" align="center"><b>Providers &amp; engines · Провайдеры · 提供商</b><br><img src="docs/img/screenshot-providers.png" alt="Providers tab" /></td>
 </tr>
 <tr>
 <td align="center"><b>MCP</b><br><img src="docs/img/screenshot-mcp.png" alt="MCP tab" /></td>
-<td align="center"><b>Providers &amp; engines · Провайдеры · 提供商</b><br><img src="docs/img/screenshot-providers.png" alt="Providers tab" /></td>
+<td align="center"><b>Plugins &amp; skills · Плагины и скиллы · 插件与技能</b><br><img src="docs/img/screenshot-plugins-skills.png" alt="Plugins and skills tab" /></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><b>Sync · Синхронизация · 同步</b><br><img src="docs/img/screenshot-sync.png" alt="Sync tab" /></td>
+<td align="center"><b>Forks · Форки · 分叉</b><br><img src="docs/img/screenshot-forks.png" alt="Forks tab" /></td>
+<td align="center"><b>Sync · Синхронизация · 同步</b><br><img src="docs/img/screenshot-sync.png" alt="Sync tab" /></td>
 </tr>
 </table>
 

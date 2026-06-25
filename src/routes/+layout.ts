@@ -5,3 +5,22 @@
 export const ssr = false;
 // SPA mode: no prerendering — the app is fully client-rendered behind Tauri.
 export const prerender = false;
+
+// DEV-only screenshot harness: when launched as `/?shot`, mock the whole Tauri IPC layer with
+// public demo fixtures so the UI renders populated tabs in a plain browser (no backend). Guarded
+// by `import.meta.env.DEV`, so it is dead-stripped from release builds. Capture: tools/shoot.py.
+if (import.meta.env.DEV && typeof window !== 'undefined' && window.location.search.includes('shot')) {
+  const [{ mockIPC, mockWindows }, { emit }, { fixtureFor }] = await Promise.all([
+    import('@tauri-apps/api/mocks'),
+    import('@tauri-apps/api/event'),
+    import('$lib/shot/fixtures')
+  ]);
+  mockWindows('main');
+  // run_* commands stream a `run-done` event from the real backend to clear the run lock; the mock
+  // returns a code but emits nothing, so synthesize the completion (component = run_forks → 'forks').
+  const runComponent: Record<string, string> = { run_forks: 'forks', run_sync: 'sync', run_mcp: 'mcp', run_profiles: 'profiles' };
+  mockIPC((cmd, args) => {
+    if (cmd in runComponent) setTimeout(() => emit('run-done', { component: runComponent[cmd], code: 0 }), 0);
+    return fixtureFor(cmd, args as Record<string, unknown>);
+  }, { shouldMockEvents: true });
+}
