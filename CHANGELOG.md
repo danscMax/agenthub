@@ -3,6 +3,21 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-06-25
+
+Follow-up fixes after the 0.5.0 Forks pass, plus the release/CI pipeline.
+
+### Fixed
+- **Copy buttons did nothing** — `navigator.clipboard` is blocked in the WebView2 shell, so every copy button (fork conflict / dirty prompts, secret keys) silently no‑oped. `copyText` now falls back to the legacy `execCommand('copy')` path, which works in WebView2; the "copied ✓" flash fires again.
+- **Delete wip-local / Prune failed from the tab** — the entry script never declared or forwarded `-DeleteWip` / `-Prune`, so running either action errored immediately ("a parameter cannot be found"). Both switches are now wired through.
+- **Refresh-cancel was undiscoverable** — during a whole‑stack refresh the header button now reads **"Отменить"** and the entire status chip is a click target with an always‑visible ✕ (the wiring was fine; only discoverability was broken). The greyed‑out staggered "reveal wave" is replaced with a soft accent shimmer that keeps every card readable.
+- **Light-theme contrast on Forks** — KPI numbers, conflict‑file lines and per‑repo run ✓/✗ used raw colours (≈1.7–2.9:1 on the near‑white card); migrated onto the `statusColor` canon so both themes clear WCAG 4.5:1.
+
+### Internal
+- **Release automation** — publishing a GitHub Release now builds the Windows binaries in CI (standalone exe + NSIS setup + MSI) and attaches them, replacing the manual `build_all.ps1` + upload.
+- **CI gates + repo hygiene** — GitHub Actions runs `check` / `check:i18n` / vitest / clippy / `cargo test` on push and PR; added CONTRIBUTING and issue/PR templates.
+- **Backup tests** — pinned the restore security‑gate and atomic‑write integrity (`cargo test` 28 → 30).
+
 ## [0.5.0] — 2026-06-24
 
 A full pass over the **Forks** tab: clearer status wording, redundant-`wip-local` detection, real fork operations (compare / contribute / prune), upstream lifecycle awareness, and a richer repository table.
