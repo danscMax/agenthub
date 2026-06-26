@@ -125,6 +125,7 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("err.open_path", ["не удалось открыть {path}: {e}", "failed to open {path}: {e}", "无法打开 {path}: {e}"]),
     ("err.no_active_run", ["Нет активного прогона", "No active run", "没有正在进行的任务"]),
     ("err.kill_failed", ["Не удалось остановить процесс (возможно, он запущен от администратора): {e}", "Could not stop the process (it may be running elevated): {e}", "无法停止进程（可能以管理员身份运行）：{e}"]),
+    ("err.bad_url_scheme", ["Отклонён небезопасный URL (разрешены только http/https): {url}", "Refused an unsafe URL (only http/https are allowed): {url}", "已拒绝不安全的 URL（仅允许 http/https）：{url}"]),
     ("err.bad_hotkey", ["неверная комбинация: {e}", "invalid shortcut: {e}", "快捷键无效: {e}"]),
     ("err.unknown_tool", ["неизвестный инструмент: {tool}", "unknown tool: {tool}", "未知工具: {tool}"]),
     ("err.session_limit", ["достигнут предел сессий ({max})", "session limit reached ({max})", "已达到会话上限 ({max})"]),

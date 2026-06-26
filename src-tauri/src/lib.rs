@@ -1213,8 +1213,17 @@ fn write_json_atomic(path: &str, content: &str) -> std::io::Result<()> {
         .map(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
         .unwrap_or(false);
     let was_ro = meta.as_ref().map(|m| m.permissions().readonly()).unwrap_or(false);
-    // Back up the prior good copy before we touch anything (best-effort, mirrors the old writers).
-    if p.exists() {
+    // Back up the prior good copy before we touch anything (best-effort, mirrors the old writers) —
+    // EXCEPT for secret-bearing files: a profile's settings.json carries the ANTHROPIC_AUTH_TOKEN and
+    // opencode.json a literal apiKey, both living outside Castellyn's own dir where they may be synced.
+    // An in-place .bak would strand a prior cleartext secret after rotation. The atomic temp+rename
+    // below already guarantees the target is never blanked, so skipping the .bak costs no crash safety.
+    let is_secret_file = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.eq_ignore_ascii_case("settings.json") || n.eq_ignore_ascii_case("opencode.json"))
+        .unwrap_or(false);
+    if p.exists() && !is_secret_file {
         let _ = std::fs::copy(path, format!("{path}.bak"));
     }
     if was_hidden || was_ro {
@@ -3048,6 +3057,12 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
         return Err(tr("err.invalid_connectvia", cur_lang()).into());
     }
     let id = p.id.clone().filter(|s| !s.is_empty()).unwrap_or_else(gen_provider_id);
+    // The id becomes a Credential Manager slot key (`provider:{id}` / `provider:{id}:{idx}`); a colon
+    // or other separator in it could alias another provider's stored key. Validate like the opencode
+    // path already does (alnum + _/- only) — gen_provider_id's 12-hex output passes this.
+    if !valid_profile_name(&id) {
+        return Err(trv("err.invalid_provider_id", cur_lang(), &[("id", &id)]));
+    }
     let auth = if !p.auth_scheme.is_empty() {
         p.auth_scheme.clone()
     } else if p.protocol == "anthropic" {
@@ -5224,6 +5239,13 @@ fn open_path(path: String) -> Result<(), String> {
 #[tauri::command]
 fn open_url(app: AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
+    // Only ever hand http/https to the OS opener. A file://, UNC, or custom-scheme value (which can
+    // reach here via fork remote/upstream metadata in a compare link) would otherwise launch a
+    // program rather than a browser — restrict the scheme before calling the plugin.
+    let scheme = url.split_once(':').map(|(s, _)| s.trim().to_ascii_lowercase()).unwrap_or_default();
+    if scheme != "http" && scheme != "https" {
+        return Err(trv("err.bad_url_scheme", cur_lang(), &[("url", &url)]));
+    }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
@@ -6457,6 +6479,22 @@ mod tests {
         assert_eq!(std::fs::read_to_string(format!("{p}.bak")).unwrap(), "{\"v\":1}");
         assert!(!std::path::Path::new(&format!("{p}.tmp")).exists()); // no stray temp left
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_json_atomic_skips_bak_for_secret_files() {
+        // Security: a secret-bearing file (profile settings.json / opencode.json) must NEVER get an
+        // in-place .bak that would strand a prior cleartext token; the atomic write still updates it.
+        let dir = std::env::temp_dir().join(format!("castellyn_wja_secret_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["settings.json", "opencode.json"] {
+            let p = dir.join(name).to_string_lossy().to_string();
+            write_json_atomic(&p, "{\"token\":\"old\"}").unwrap();
+            write_json_atomic(&p, "{\"token\":\"new\"}").unwrap(); // overwrite — prior secret must not survive
+            assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"token\":\"new\"}");
+            assert!(!std::path::Path::new(&format!("{p}.bak")).exists(), "{name} left a secret .bak");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
