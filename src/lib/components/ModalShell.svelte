@@ -14,6 +14,7 @@
     size = 'md',
     role = 'dialog',
     closeOnBackdrop = true,
+    initialFocus = null,
     children
   }: {
     open?: boolean;
@@ -22,6 +23,9 @@
     size?: 'sm' | 'md' | 'lg' | 'xl';
     role?: 'dialog' | 'alertdialog';
     closeOnBackdrop?: boolean;
+    /** CSS selector (within the card) of the element to focus on open; defaults to the card itself.
+        Lets a destructive dialog put initial focus on its SAFE choice (Cancel) instead of nothing. */
+    initialFocus?: string | null;
     children: Snippet;
   } = $props();
 
@@ -40,7 +44,10 @@
   $effect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
-    tick().then(() => cardEl?.focus());
+    tick().then(() => {
+      const target = initialFocus ? cardEl?.querySelector<HTMLElement>(initialFocus) : null;
+      (target ?? cardEl)?.focus();
+    });
     return () => prev?.focus?.();
   });
 
@@ -65,7 +72,7 @@
     }
     if (e.key === 'Enter' && onEnter) {
       const a = document.activeElement;
-      if (a instanceof HTMLElement && ['BUTTON', 'A', 'TEXTAREA', 'SELECT'].includes(a.tagName)) return;
+      if (a instanceof HTMLElement && ['BUTTON', 'A', 'INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName)) return;
       onEnter();
       return;
     }

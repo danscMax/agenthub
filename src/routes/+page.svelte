@@ -411,9 +411,10 @@
     if (running || names.length === 0) return;
     askConfirm(
       t('page.confirm_batchff_title'),
-      t('page.confirm_batchff_msg', { n: names.length, names: names.join(', ') }),
+      t('page.confirm_batchff_msg', { n: names.length }),
       t('page.confirm_batchff_btn'),
-      () => startForks('ff')
+      () => startForks('ff'),
+      { details: names }
     );
   }
 
@@ -1114,7 +1115,7 @@
         t('page.confirm_plugin_bulk_remove_msg', { count: ids.length }),
         t('page.confirm_plugin_remove_btn'),
         () => runBulkPlugins('remove', ids),
-        { danger: true }
+        { danger: true, details: ids }
       );
     } else {
       runBulkPlugins(action, ids);

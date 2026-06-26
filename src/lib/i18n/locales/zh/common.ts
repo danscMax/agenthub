@@ -11,6 +11,7 @@ export default {
   cancel: '取消',
   confirm: '确认',
   close: '关闭',
+  notifications: '通知',
   paletteSearch: '搜索命令和标签页…  (Ctrl+K)',
   typeToConfirm: '输入「{text}」以确认',
   open: '打开',

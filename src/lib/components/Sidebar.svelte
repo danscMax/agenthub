@@ -139,6 +139,7 @@
       class="nav-item"
       class:active={active === it.id}
       class:dragging={dragId === it.id}
+      aria-current={active === it.id ? 'page' : undefined}
       disabled={!it.enabled}
       title={collapsed ? t(it.labelKey) : t(it.tipKey)}
       draggable="true"

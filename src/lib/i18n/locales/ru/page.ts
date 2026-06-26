@@ -73,7 +73,7 @@ export default {
   confirm_fork_btn: 'Выполнить',
   confirm_batchff_title: 'Подтянуть все обновления?',
   confirm_batchff_msg:
-    'Будет выполнен безопасный fast-forward для {n} форков: {names}. Это только перемотка вперёд (без слияния и force-push). Продолжить?',
+    'Будет выполнен безопасный fast-forward для {n} форков (список ниже). Это только перемотка вперёд (без слияния и force-push). Продолжить?',
   confirm_batchff_btn: 'Подтянуть',
 
   // Backup

@@ -73,7 +73,7 @@ export default {
   confirm_fork_btn: 'Run',
   confirm_batchff_title: 'Pull all updates?',
   confirm_batchff_msg:
-    'A safe fast-forward will run for {n} forks: {names}. This is fast-forward only (no merge, no force-push). Continue?',
+    'A safe fast-forward will run for {n} forks (listed below). This is fast-forward only (no merge, no force-push). Continue?',
   confirm_batchff_btn: 'Pull',
 
   // Backup

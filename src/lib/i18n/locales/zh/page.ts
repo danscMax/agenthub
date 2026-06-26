@@ -73,7 +73,7 @@ export default {
   confirm_fork_btn: '执行',
   confirm_batchff_title: '拉取所有更新？',
   confirm_batchff_msg:
-    '将对 {n} 个分叉执行安全的快进：{names}。仅快进（不合并、不强制推送）。是否继续？',
+    '将对 {n} 个分叉执行安全的快进（见下方列表）。仅快进（不合并、不强制推送）。是否继续？',
   confirm_batchff_btn: '拉取',
 
   // Backup

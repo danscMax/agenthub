@@ -67,11 +67,21 @@ export const locale = {
     if (!isLocale(newLocale)) return;
     _locale = newLocale;
     if (typeof localStorage !== 'undefined') localStorage.setItem(LANG_STORAGE_KEY, newLocale);
+    syncHtmlLang(newLocale);
   },
   get supported(): Locale[] {
     return [...SUPPORTED];
   }
 };
+
+// Mirror the active locale onto <html lang> so a screen reader picks the right TTS voice and
+// pronunciation rules — otherwise zh/ru content is announced by an English voice (zh unintelligible).
+// 'zh' → BCP-47 'zh-Hans' (Simplified). Guarded for non-DOM contexts.
+function syncHtmlLang(loc: Locale): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = loc === 'zh' ? 'zh-Hans' : loc;
+  }
+}
 
 /**
  * Re-resolve the locale from storage/OS. Locale is already resolved at module
@@ -79,6 +89,7 @@ export const locale = {
  */
 export function initLocale(): void {
   _locale = getInitialLocale();
+  syncHtmlLang(_locale);
 }
 
 function traverseKeys(loc: Locale, key: string): unknown {

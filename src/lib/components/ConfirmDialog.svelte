@@ -38,7 +38,17 @@
   }
 </script>
 
-<ModalShell {open} onClose={onCancel} onEnter={confirm} size="sm" role="alertdialog">
+<!-- For a destructive confirm, focus the SAFE choice (Cancel) on open and do NOT let a stray Enter
+     fire the action: onEnter is wired only for benign confirms; requireText dialogs let the input's
+     own Enter handle it (and are gated on the typed match). -->
+<ModalShell
+  {open}
+  onClose={onCancel}
+  onEnter={!danger && !requireText ? confirm : undefined}
+  initialFocus={requireText ? 'input' : danger ? '[data-confirm-cancel]' : null}
+  size="sm"
+  role="alertdialog"
+>
       <h3>{title}</h3>
       <p>{message}</p>
       {#if details.length}
@@ -60,7 +70,7 @@
         </label>
       {/if}
       <div class="row">
-        <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('common.cancel')}</button>
+        <button class="sw-btn sw-btn-ghost" data-confirm-cancel onclick={onCancel}>{t('common.cancel')}</button>
         <button
           class="sw-btn {danger ? 'sw-btn-danger' : 'sw-btn-primary'}"
           disabled={blocked}

@@ -1,11 +1,21 @@
 <script lang="ts">
-  import { toastStore, dismiss } from '$lib/toast.svelte';
+  import { toastStore, dismiss, pauseToasts, resumeToasts } from '$lib/toast.svelte';
   import { t } from '$lib/i18n';
 </script>
 
-<div class="toast-host">
+<!-- Hovering or focusing the stack pauses auto-dismiss so a toast can't vanish mid-read / mid-reach. -->
+<div
+  class="toast-host"
+  role="region"
+  aria-label={t('common.notifications')}
+  onmouseenter={pauseToasts}
+  onmouseleave={resumeToasts}
+  onfocusin={pauseToasts}
+  onfocusout={resumeToasts}
+>
   {#each toastStore.items as toast (toast.id)}
-    <div class="toast {toast.kind}" role="status">
+    <!-- Errors/warnings interrupt (assertive); success/info stay polite so a failure is announced. -->
+    <div class="toast {toast.kind}" role={toast.kind === 'error' || toast.kind === 'warn' ? 'alert' : 'status'}>
       <div class="body">
         <div class="title">{toast.title}</div>
         {#if toast.detail}<div class="detail">{toast.detail}</div>{/if}
@@ -30,6 +40,10 @@
     flex-direction: column;
     gap: 8px;
     max-width: min(380px, 90vw);
+    /* A burst of sticky error toasts can't grow off-screen / out of reach — the stack scrolls. */
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   .toast {
     display: flex;

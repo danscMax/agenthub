@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { anchored } from '$lib/floating';
   type Item = {
     label: string;
@@ -54,6 +55,13 @@
     else next = cur <= 0 ? btns.length - 1 : cur - 1;
     btns[next].focus();
   }
+
+  // Move focus into the menu when it opens (WAI-ARIA menu-button pattern): without this, focus stays
+  // on the trigger after Enter/Space and the arrow-key roving above does nothing until a blind Tab.
+  $effect(() => {
+    if (!open || !menuEl) return;
+    tick().then(() => menuEl?.querySelector<HTMLButtonElement>('.item:not(:disabled)')?.focus());
+  });
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
