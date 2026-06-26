@@ -35,8 +35,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.93.0"   # match rust-toolchain.toml (1.94 breaks the `time` crate)
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:

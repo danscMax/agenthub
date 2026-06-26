@@ -75,7 +75,9 @@
   --sw-text-primary: #f1f5f9;
   --sw-text: var(--sw-text-primary);
   --sw-text-secondary: #94a3b8;
-  --sw-text-muted: #9ca3af;
+  /* muted sits BELOW secondary on dark (was #9ca3af — actually lighter than secondary, inverting
+     the hierarchy). Kept above dimmed so the primary>secondary>muted>dimmed ladder is monotonic. */
+  --sw-text-muted: #8f9aab;
   --sw-text-dimmed: #8b95a5;
   --sw-accent: #3b82f6;
   --sw-accent-hover: #2563eb;
@@ -88,7 +90,7 @@
   --sw-sidebar-item-hover: rgba(51, 65, 85, 0.5);
   --sw-sidebar-item-active: rgba(59, 130, 246, 0.15);
 
-  /* Semantic status / feedback colors (shared by StatusDot, badges, dots across tabs). */
+  /* Semantic status / feedback colors (shared via statusColor.ts + dot CSS across tabs). */
   --sw-status-up: #10b981;
   --sw-status-degraded: #f59e0b;
   --sw-status-down: #ef4444;

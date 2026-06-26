@@ -138,6 +138,13 @@
         {/if}
       {/snippet}
     </DataTable>
+  {:else if data === null}
+    <!-- First open: skeleton rows until read_mcp resolves, instead of a misleading "empty" pane. -->
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(4) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem;width:100%"></div>
+      {/each}
+    </div>
   {:else}
     <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
       <div>

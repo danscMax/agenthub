@@ -226,5 +226,7 @@ export default {
   cmd_check_all: '检查全部更新',
   cmd_refresh_forks: '刷新分叉',
   cmd_backup_now: '立即备份',
-  cmd_open_log: '打开运行日志'
+  cmd_open_log: '打开运行日志',
+  cmd_stack_start: '启动 LLM 堆栈',
+  cmd_stack_stop: '停止 LLM 堆栈'
 };

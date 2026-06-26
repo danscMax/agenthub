@@ -28,6 +28,7 @@ export default {
   copy: 'Copy',
   copied: 'Copied',
   copyPath: 'Copy path',
+  dismissAll: 'Dismiss all',
   show: 'Show',
   hide: 'Hide',
   clear: 'Clear',

@@ -1,7 +1,7 @@
 {
   "name": "castellyn",
   "version": "0.5.3",
-  "description": "",
+  "description": "Castellyn — control center for your AI coding dev environment",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

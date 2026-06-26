@@ -2,7 +2,7 @@
 name = "castellyn"
 version = "0.5.3"
 description = "Castellyn — control center for your AI coding dev environment"
-authors = ["you"]
+authors = ["danscMax"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -40,4 +40,13 @@ keyring = { version = "3", features = ["windows-native"] }
 # Real PTYs for the parallel-sessions tab: run each profile's `claude` in a true terminal so
 # its TUI renders (xterm.js on the frontend). Output streams as raw bytes over a Tauri channel.
 portable-pty = "0.8"
+
+# Release profile: strip symbols + thin LTO + one codegen unit. Measured: exe 16.0->14.2 MB (~10%
+# — Rust release carries no debuginfo for strip to remove, so the real win is LTO/codegen, not size).
+# NOT panic="abort": native ops rely on unwinding a panicked spawn_blocking closure into a JoinError
+# (the .unwrap_or fallbacks) — abort would crash the whole app instead.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
 

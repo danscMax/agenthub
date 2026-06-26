@@ -5,7 +5,8 @@
   import { initTheme } from '$lib/theme';
   import { initLocale } from '$lib/i18n';
   import WindowTitleBar from '$lib/components/WindowTitleBar.svelte';
-  import DetachedView from '$lib/components/DetachedView.svelte';
+  // DetachedView pulls in xterm (~480K). Only detached windows ever render it, so import it
+  // lazily — otherwise the static import drags xterm into the main window's startup chunk.
 
   let { children } = $props();
 
@@ -25,7 +26,9 @@
 </script>
 
 {#if isDetached}
-  <DetachedView />
+  {#await import('$lib/components/DetachedView.svelte') then { default: DetachedView }}
+    <DetachedView />
+  {/await}
 {:else}
   <div class="flex h-screen flex-col overflow-hidden">
     <WindowTitleBar />

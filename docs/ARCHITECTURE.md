@@ -77,7 +77,7 @@ block at the bottom of `lib.rs` (~80 commands; frontend calls them via typed wra
   built on `ModalShell`: `ConfirmDialog`, `RestoreDialog`, `ProfileEditDialog`, `LaunchConfigDialog`,
   `SessionLaunchDialog`, `ProviderEditDialog`, `MyProviderEditDialog`, `RouterConnectDialog`,
   `HotkeyHelp`), shell (`Sidebar`, `Console`, `WindowTitleBar`, `ToastHost`, `CommandPalette`),
-  and shared widgets (`Toggle`, `Select`, `FolderField`, `DropdownMenu`, `DataTable`, `StatusDot`,
+  and shared widgets (`Toggle`, `Select`, `FolderField`, `DropdownMenu`, `DataTable`,
   `Sparkline`, `Spinner`, `SecretInput`, `TerminalPane`, `ComponentCard`, `StackHealthCard`).
   Popovers (`DropdownMenu`/`Select`/`FolderField`) pin to their anchor via `lib/floating.ts`
   (`use:anchored`, `position: fixed`) so they escape overflow-clipping tables/modals.

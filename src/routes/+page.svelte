@@ -1203,7 +1203,13 @@
   let paletteOpen = $state(false);
   let hotkeyHelpOpen = $state(false);
   const paletteCommands = $derived([
-    ...NAV_IDS.map((id) => ({ id: `tab:${id}`, label: t(`nav.${id}`), run: () => (active = id) })),
+    // Mirror the Ctrl+1..9 jumps (first 9 tabs) as visible hints so the shortcuts are discoverable.
+    ...NAV_IDS.map((id, i) => ({
+      id: `tab:${id}`,
+      label: t(`nav.${id}`),
+      hint: i < 9 ? `Ctrl+${i + 1}` : undefined,
+      run: () => (active = id)
+    })),
     {
       id: 'act:density',
       label: `${t('settings.density')}: ${density === 'compact' ? t('settings.densityComfortable') : t('settings.densityCompact')}`,
@@ -1219,7 +1225,19 @@
     { id: 'act:checkall', label: t('page.cmd_check_all'), run: () => startRun('all', 'check') },
     { id: 'act:forks', label: t('page.cmd_refresh_forks'), run: () => startForks('check') },
     { id: 'act:backup', label: t('page.cmd_backup_now'), run: () => startBackup('backup') },
-    { id: 'act:log', label: t('page.cmd_open_log'), run: () => consoleReveal++ }
+    { id: 'act:stack_start', label: t('page.cmd_stack_start'), run: () => onStack('start') },
+    { id: 'act:stack_stop', label: t('page.cmd_stack_stop'), run: () => onStack('stop') },
+    { id: 'act:log', label: t('page.cmd_open_log'), run: () => consoleReveal++ },
+    // Per-component check/apply so "check rtk" / "apply plugins" are one Ctrl+K away, not a tab hunt.
+    ...components.flatMap((c) => {
+      const verbs = [
+        { id: `check:${c.id}`, label: `${t('common.check')}: ${c.name}`, run: () => startRun(c.id, 'check') }
+      ];
+      if (c.supportsApply) {
+        verbs.push({ id: `apply:${c.id}`, label: `${t('common.apply')}: ${c.name}`, run: () => startRun(c.id, 'apply') });
+      }
+      return verbs;
+    })
   ]);
   function onGlobalKey(e: KeyboardEvent) {
     if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {

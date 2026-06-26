@@ -231,5 +231,7 @@ export default {
   cmd_check_all: 'Проверить все обновления',
   cmd_refresh_forks: 'Обновить форки',
   cmd_backup_now: 'Сделать бэкап',
-  cmd_open_log: 'Открыть журнал выполнения'
+  cmd_open_log: 'Открыть журнал выполнения',
+  cmd_stack_start: 'Запустить LLM-стек',
+  cmd_stack_stop: 'Остановить LLM-стек'
 };

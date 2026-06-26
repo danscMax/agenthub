@@ -231,5 +231,7 @@ export default {
   cmd_check_all: 'Check all for updates',
   cmd_refresh_forks: 'Refresh forks',
   cmd_backup_now: 'Backup now',
-  cmd_open_log: 'Open the run log'
+  cmd_open_log: 'Open the run log',
+  cmd_stack_start: 'Start the LLM stack',
+  cmd_stack_stop: 'Stop the LLM stack'
 };

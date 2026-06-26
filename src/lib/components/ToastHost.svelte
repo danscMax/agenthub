@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { toastStore, dismiss, pauseToasts, resumeToasts } from '$lib/toast.svelte';
+  import { toastStore, dismiss, dismissAll, pauseToasts, resumeToasts } from '$lib/toast.svelte';
+  import { copyText } from '$lib/clipboard';
   import { t } from '$lib/i18n';
 </script>
 
@@ -13,17 +14,25 @@
   onfocusin={pauseToasts}
   onfocusout={resumeToasts}
 >
+  {#if toastStore.items.length >= 2}
+    <button class="dismiss-all" onclick={dismissAll}>{t('common.dismissAll')}</button>
+  {/if}
   {#each toastStore.items as toast (toast.id)}
     <!-- Errors/warnings interrupt (assertive); success/info stay polite so a failure is announced. -->
     <div class="toast {toast.kind}" role={toast.kind === 'error' || toast.kind === 'warn' ? 'alert' : 'status'}>
       <div class="body">
         <div class="title">{toast.title}</div>
         {#if toast.detail}<div class="detail">{toast.detail}</div>{/if}
-        {#if toast.action}
-          <button class="act" onclick={() => { toast.action!.onClick(); dismiss(toast.id); }}>
-            {toast.action.label}
-          </button>
-        {/if}
+        <div class="acts">
+          {#if toast.action}
+            <button class="act" onclick={() => { toast.action!.onClick(); dismiss(toast.id); }}>
+              {toast.action.label}
+            </button>
+          {/if}
+          {#if toast.detail && (toast.kind === 'error' || toast.kind === 'warn')}
+            <button class="act" onclick={() => copyText(`${toast.title}\n${toast.detail}`)}>{t('common.copy')}</button>
+          {/if}
+        </div>
       </div>
       <button class="x" aria-label={t('common.close')} title={t('common.close')} onclick={() => dismiss(toast.id)}>×</button>
     </div>
@@ -74,7 +83,6 @@
     word-break: break-word;
   }
   .act {
-    margin-top: 8px;
     padding: 3px 10px;
     font-size: var(--sw-text-xs);
     font-weight: 500;
@@ -85,6 +93,19 @@
     cursor: pointer;
   }
   .act:hover { border-color: var(--sw-border-focus, #64748b); }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .acts:empty { display: none; }
+  .dismiss-all {
+    align-self: flex-end;
+    padding: 2px 10px;
+    font-size: var(--sw-text-xs);
+    color: var(--sw-text-secondary);
+    background: var(--sw-bg-secondary);
+    border: 1px solid var(--sw-border);
+    border-radius: var(--sw-radius-sm);
+    cursor: pointer;
+  }
+  .dismiss-all:hover { color: var(--sw-text-primary); }
   .x {
     border: none;
     background: transparent;

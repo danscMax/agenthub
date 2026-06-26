@@ -93,6 +93,13 @@
   // Per-profile launch config (full vs lean) and provider.
   const launchByName = $derived(new Map((launchConfig?.profiles ?? []).map((p) => [p.name, p])));
   const providerByName = $derived(new Map((providers ?? []).map((p) => [p.name, p])));
+  // Precompute labels once: the provider-column sort comparator ran engines.find + new URL() per
+  // comparison (O(E)+parse on every compare); this turns each into an O(1) lookup.
+  const providerLabelByName = $derived.by(() => {
+    const m = new Map<string, string>();
+    for (const p of providers ?? []) m.set(p.name, providerLabel(p.name));
+    return m;
+  });
   function providerLabel(name: string): string {
     const p = providerByName.get(name);
     if (!p || !p.baseUrl) return t('profiles.providerDefault');
@@ -321,7 +328,7 @@
   }
   function profSort(p: Prof, key: string): string | number {
     if (key === 'status') return p.exists ? (p.credentialsPresent ? 0 : 1) : 2;
-    if (key === 'provider') return providerLabel(p.name).toLowerCase();
+    if (key === 'provider') return (providerLabelByName.get(p.name) ?? t('profiles.providerDefault')).toLowerCase();
     if (key === 'links') return linkedCount(p);
     return p.name.toLowerCase();
   }

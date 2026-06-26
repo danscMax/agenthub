@@ -43,3 +43,10 @@ export function dismiss(id: number): void {
   timers.delete(id);
   toastStore.items = toastStore.items.filter((x) => x.id !== id);
 }
+
+// Clear the whole stack at once (a bulk failure can spawn many sticky error toasts).
+export function dismissAll(): void {
+  for (const tm of timers.values()) clearTimeout(tm.handle);
+  timers.clear();
+  toastStore.items = [];
+}

@@ -219,12 +219,11 @@
       {t('sync.footnote')}
     </p>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">⇄</div>
-        <div class="font-medium text-sw-text">{t('sync.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('sync.emptyHint')}</div>
-      </div>
+    <!-- data is null only on first open (read_sync pending) — skeleton, not a misleading empty pane. -->
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(5) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem;width:100%"></div>
+      {/each}
     </div>
   {/if}
 </div>

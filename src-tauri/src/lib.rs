@@ -173,7 +173,10 @@ struct Component {
 }
 
 fn raw_components() -> Vec<RawComponent> {
+    // A corrupt on-disk manifest (bad JSON) must not silently blank the dashboard — fall back to the
+    // embedded copy on a PARSE error too, not just a read error (manifest_text handles missing file).
     serde_json::from_str::<RawManifest>(&manifest_text())
+        .or_else(|_| serde_json::from_str::<RawManifest>(MANIFEST_FALLBACK))
         .map(|m| m.components)
         .unwrap_or_default()
 }
@@ -316,6 +319,20 @@ async fn spawn_streamed(
     spawn_streamed_io(app, state, id, script, args, None).await
 }
 
+/// The pwsh launcher prefix every script spawn shares: `-NoProfile -ExecutionPolicy Bypass
+/// -File <script>` followed by the script's own args. One definition so the contract can't drift.
+fn pwsh_file_args(script: String, args: Vec<String>) -> Vec<String> {
+    let mut full = vec![
+        "-NoProfile".to_string(),
+        "-ExecutionPolicy".to_string(),
+        "Bypass".to_string(),
+        "-File".to_string(),
+        script,
+    ];
+    full.extend(args);
+    full
+}
+
 /// Like `spawn_streamed`, but optionally feeds `stdin_payload` to the script's STDIN. Secrets
 /// (e.g. provider tokens) are passed this way so they never appear in the process command line —
 /// on Windows any process can read another's argv via WMI / Get-CimInstance Win32_Process.
@@ -328,14 +345,7 @@ async fn spawn_streamed_io(
     stdin_payload: Option<String>,
 ) -> Result<i32, String> {
     // Run the PowerShell script through the generic program runner.
-    let mut full = vec![
-        "-NoProfile".to_string(),
-        "-ExecutionPolicy".to_string(),
-        "Bypass".to_string(),
-        "-File".to_string(),
-        script,
-    ];
-    full.extend(args);
+    let full = pwsh_file_args(script, args);
     spawn_streamed_prog(app, state, id, "pwsh".to_string(), full, stdin_payload).await
 }
 
@@ -408,14 +418,7 @@ async fn spawn_pwsh_phase(
     args: Vec<String>,
     done_event: &'static str,
 ) -> i32 {
-    let mut full = vec![
-        "-NoProfile".to_string(),
-        "-ExecutionPolicy".to_string(),
-        "Bypass".to_string(),
-        "-File".to_string(),
-        script,
-    ];
-    full.extend(args);
+    let full = pwsh_file_args(script, args);
     let mut cmd = Command::new("pwsh");
     for a in &full {
         cmd.arg(a);
@@ -671,8 +674,7 @@ async fn run_fork_repo(
         full.push(t.to_string());
     }
     let mut cmd = Command::new("pwsh");
-    cmd.arg("-NoProfile").arg("-ExecutionPolicy").arg("Bypass").arg("-File").arg(&script);
-    for a in &full {
+    for a in &pwsh_file_args(script, full) {
         cmd.arg(a);
     }
     cmd.stdout(std::process::Stdio::piped());
@@ -694,26 +696,31 @@ async fn run_fork_repo(
     Ok(code)
 }
 
+/// taskkill /T /F a process tree by PID. Exit 128 = "process not found" (already exited) is benign;
+/// any other failure (e.g. a non-elevated app can't kill an elevated child → Access denied) is
+/// surfaced instead of a false Ok. Shared by cancel_run / cancel_fork_repo / measure_context timeout.
+fn kill_tree(pid: u32) -> Result<(), String> {
+    match std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(o) if o.status.success() || o.status.code() == Some(128) => Ok(()),
+        Ok(o) => {
+            let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            Err(trv("err.kill_failed", cur_lang(), &[("e", &msg)]))
+        }
+        Err(e) => Err(trv("err.kill_failed", cur_lang(), &[("e", &e)])),
+    }
+}
+
 /// Cancel the in-flight fork run for `path` (kills its process tree). No-op if none is running.
 #[tauri::command]
 fn cancel_fork_repo(runs: State<'_, ForkRuns>, path: String) -> Result<(), String> {
     let pid = { runs.0.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied() };
     if let Some(p) = pid {
         if p != 0 {
-            // Surface a failed kill (e.g. elevated child → Access denied) instead of a false Ok.
-            // Exit 128 = process already gone — benign.
-            match std::process::Command::new("taskkill")
-                .args(["/PID", &p.to_string(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-            {
-                Ok(o) if o.status.success() || o.status.code() == Some(128) => {}
-                Ok(o) => {
-                    let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                    return Err(trv("err.kill_failed", cur_lang(), &[("e", &msg)]));
-                }
-                Err(e) => return Err(trv("err.kill_failed", cur_lang(), &[("e", &e)])),
-            }
+            kill_tree(p)?;
         }
     }
     Ok(())
@@ -1039,13 +1046,17 @@ async fn repair_profile_elevated(
     // silently breaks (elevated pwsh can't find the script) while `-Wait` swallows the child's
     // exit code → false success. Pass the script via `-Command "& '<path>' -Name '<n>'"` (single-
     // quoted path survives) and check the real ExitCode via -PassThru.
-    // Write-Host args are localized; the translations are deliberately apostrophe-free so they stay
-    // safe inside PowerShell single-quoted strings.
+    // Write-Host args are localized; escape single quotes (PowerShell '' ) so a future translation
+    // containing an apostrophe can't break out of the single-quoted literal in this ELEVATED command.
+    // Defense in depth: current translations are apostrophe-free, but that invariant shouldn't rest on
+    // a comment alone. (name is charset-validated above; repair is escaped here for completeness.)
     let lang = cur_lang();
-    let s_start = tr("log.relink_start", lang);
-    let s_done = tr("log.done", lang);
-    let s_err = tr("log.relink_error_code", lang);
-    let s_cancel = tr("log.relink_cancelled", lang);
+    let esc = |s: &str| s.replace('\'', "''");
+    let s_start = esc(tr("log.relink_start", lang));
+    let s_done = esc(tr("log.done", lang));
+    let s_err = esc(tr("log.relink_error_code", lang));
+    let s_cancel = esc(tr("log.relink_cancelled", lang));
+    let repair = esc(&repair);
     let inner = format!(
         "Write-Host '{s_start}'; \
          try {{ $p = Start-Process -FilePath pwsh -Verb RunAs -PassThru -Wait -ArgumentList \
@@ -1506,9 +1517,24 @@ fn port_listening(port: u16) -> bool {
     std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(250)).is_ok()
 }
 
+/// Probe a set of ports concurrently. Each probe blocks up to 250ms, so thread::scope bounds the
+/// total by the slowest single probe instead of N*250ms. (port 0 → false, handled by port_listening.)
+fn probe_ports(ports: &[u16]) -> Vec<bool> {
+    std::thread::scope(|scope| {
+        let handles: Vec<_> =
+            ports.iter().map(|&p| scope.spawn(move || port_listening(p))).collect();
+        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect()
+    })
+}
+
 /// Engine registry (config\engines.json) + live running status (port probe). Read-only.
 #[tauri::command]
-fn read_engines() -> Vec<EngineStatus> {
+async fn read_engines() -> Vec<EngineStatus> {
+    // Off the main/event-loop thread — the port probe blocks up to 250ms per dashboard refresh.
+    tokio::task::spawn_blocking(read_engines_blocking).await.unwrap_or_default()
+}
+
+fn read_engines_blocking() -> Vec<EngineStatus> {
     let content = match std::fs::read_to_string(abs(ENGINES_CONFIG_REL)) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
@@ -1542,19 +1568,8 @@ fn read_engines() -> Vec<EngineStatus> {
             }
         })
         .collect();
-    // Probe ports concurrently: each port_listening blocks up to 250ms, so doing them
-    // sequentially would be N*250ms. thread::scope keeps it bounded by the slowest single probe.
-    let running: Vec<bool> = std::thread::scope(|scope| {
-        let handles: Vec<_> = engines
-            .iter()
-            .map(|e| {
-                let p = e.port;
-                scope.spawn(move || port_listening(p))
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect()
-    });
-    for (e, r) in engines.iter_mut().zip(running) {
+    let ports: Vec<u16> = engines.iter().map(|e| e.port).collect();
+    for (e, r) in engines.iter_mut().zip(probe_ports(&ports)) {
         e.running = r;
     }
     engines
@@ -1563,6 +1578,16 @@ fn read_engines() -> Vec<EngineStatus> {
 const STACK_CONFIG_REL: &str = "llm-stack\\stack.json";
 const STACK_START_REL: &str = "llm-stack\\start-stack.ps1";
 const STACK_STOP_REL: &str = "llm-stack\\stop-stack.ps1";
+
+/// The `services` array from stack.json, parsed once. Empty on any failure (missing/corrupt file
+/// or no services key). Callers extract the fields they need — one read+parse, not five copies.
+fn stack_services() -> Vec<serde_json::Value> {
+    let Ok(content) = std::fs::read_to_string(abs(STACK_CONFIG_REL)) else {
+        return Vec::new();
+    };
+    let Ok(v) = parse_json_bom(&content) else { return Vec::new() };
+    v.get("services").and_then(|s| s.as_array()).cloned().unwrap_or_default()
+}
 
 #[derive(Serialize)]
 struct StackService {
@@ -1582,22 +1607,16 @@ struct StackService {
 /// manifest is missing. `protocol`/`port`/`dashboard` come straight from the manifest —
 /// nothing is hardcoded here.
 #[tauri::command]
-fn read_stack() -> Vec<StackService> {
-    let content = match std::fs::read_to_string(abs(STACK_CONFIG_REL)) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let v = match parse_json_bom(&content) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-    let Some(arr) = v.get("services").and_then(|s| s.as_array()) else {
-        return Vec::new();
-    };
+async fn read_stack() -> Vec<StackService> {
+    // Off the main/event-loop thread — the port probe blocks up to 250ms per dashboard refresh.
+    tokio::task::spawn_blocking(read_stack_blocking).await.unwrap_or_default()
+}
+
+fn read_stack_blocking() -> Vec<StackService> {
     let s = |e: &serde_json::Value, k: &str| {
         e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
     };
-    let mut svcs: Vec<StackService> = arr
+    let mut svcs: Vec<StackService> = stack_services()
         .iter()
         .map(|e| StackService {
             id: s(e, "id"),
@@ -1611,18 +1630,8 @@ fn read_stack() -> Vec<StackService> {
             running: false,
         })
         .collect();
-    // Probe ports concurrently (each probe blocks up to 250ms) — same pattern as read_engines.
-    let running: Vec<bool> = std::thread::scope(|scope| {
-        let handles: Vec<_> = svcs
-            .iter()
-            .map(|svc| {
-                let p = svc.port;
-                scope.spawn(move || p != 0 && port_listening(p))
-            })
-            .collect();
-        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect()
-    });
-    for (svc, r) in svcs.iter_mut().zip(running) {
+    let ports: Vec<u16> = svcs.iter().map(|s| s.port).collect();
+    for (svc, r) in svcs.iter_mut().zip(probe_ports(&ports)) {
         svc.running = r;
     }
     svcs
@@ -1706,11 +1715,21 @@ struct StackProc {
     uptime_sec: u64,
 }
 
+/// Configured stack ports (no probe) — for callers that need only the port list, not live status.
+fn stack_ports() -> Vec<u16> {
+    stack_services()
+        .iter()
+        .filter_map(|e| e.get("port").and_then(|p| p.as_u64()))
+        .map(|p| p as u16)
+        .filter(|&p| p != 0)
+        .collect()
+}
+
 /// PID + uptime for every currently-listening stack port (one process snapshot via pwsh). Ports
 /// with no listener are omitted. Read-only; never touches the services. Empty on any failure.
 #[tauri::command]
 async fn read_stack_procs() -> Vec<StackProc> {
-    let ports: Vec<u16> = read_stack().iter().filter(|s| s.port != 0).map(|s| s.port).collect();
+    let ports = stack_ports();
     if ports.is_empty() {
         return Vec::new();
     }
@@ -1794,16 +1813,12 @@ struct FreellmapiAnalytics {
 /// Path to the freellmapi SQLite DB, from the `gateway` service `dir` in stack.json (placeholders
 /// expanded). None if the manifest or the entry is missing.
 fn gateway_db_path() -> Option<String> {
-    let content = std::fs::read_to_string(abs(STACK_CONFIG_REL)).ok()?;
-    let v = parse_json_bom(&content).ok()?;
-    let dir = v
-        .get("services")?
-        .as_array()?
+    let dir = stack_services()
         .iter()
         .find(|e| e.get("id").and_then(|x| x.as_str()) == Some("gateway"))
-        .and_then(|e| e.get("dir"))
-        .and_then(|x| x.as_str())?;
-    Some(format!("{}\\data\\freeapi.db", expand_placeholders(dir)))
+        .and_then(|e| e.get("dir").and_then(|x| x.as_str()))
+        .map(String::from)?;
+    Some(format!("{}\\data\\freeapi.db", expand_placeholders(&dir)))
 }
 
 /// freellmapi usage analytics for the last `range_hours`, read **read-only** (WAL-safe) by a node
@@ -1891,18 +1906,12 @@ struct StackHealth {
 /// Real health of llm-stack services: a TCP port probe plus — when `health` is set in stack.json —
 /// an HTTP GET to that path expecting 2xx. Concurrent, read-only. Powers the System Health card.
 #[tauri::command]
-fn read_stack_health() -> Vec<StackHealth> {
-    let content = match std::fs::read_to_string(abs(STACK_CONFIG_REL)) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let v = match parse_json_bom(&content) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-    let Some(arr) = v.get("services").and_then(|s| s.as_array()) else {
-        return Vec::new();
-    };
+async fn read_stack_health() -> Vec<StackHealth> {
+    // Off the main/event-loop thread — probe + HTTP health checks block up to ~1.1s per refresh.
+    tokio::task::spawn_blocking(read_stack_health_blocking).await.unwrap_or_default()
+}
+
+fn read_stack_health_blocking() -> Vec<StackHealth> {
     let s = |e: &serde_json::Value, k: &str| {
         e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
     };
@@ -1914,7 +1923,7 @@ fn read_stack_health() -> Vec<StackHealth> {
         enabled: bool,
         health: String,
     }
-    let rows: Vec<Row> = arr
+    let rows: Vec<Row> = stack_services()
         .iter()
         .map(|e| Row {
             id: s(e, "id"),
@@ -1986,16 +1995,6 @@ fn update_engine(id: String, base_url: String, port: u16) -> Result<(), String> 
     // Atomic temp+rename (+ .bak): a crash mid-write must never blank the engines tab.
     write_json_atomic(&path, &json).map_err(|e| format!("write engines.json: {e}"))?;
     Ok(())
-}
-
-/// Start / stop a local engine via Manage-Engine.ps1 (streamed).
-#[tauri::command]
-/// Expand engines.json path placeholders (machine-independent config): {{SCRIPTS_ROOT}} and
-/// {{USERPROFILE}}. A string without placeholders passes through unchanged.
-fn expand_manifest(p: &str) -> String {
-    let home = std::env::var("USERPROFILE").unwrap_or_default();
-    p.replace("{{SCRIPTS_ROOT}}", &scripts_root())
-        .replace("{{USERPROFILE}}", &home)
 }
 
 struct EngineCfg {
@@ -2116,14 +2115,14 @@ async fn run_engine(
         // streaming-until-exit would hang the run slot forever. Status comes from the port probe.
         // Shell start command (ccr, llmstack): run via `cmd /c` in a fresh console.
         if !cfg.start.trim().is_empty() {
-            let sh = expand_manifest(&cfg.start);
+            let sh = expand_placeholders(&cfg.start);
             spawn_engine_detached("cmd", &["/c".to_string(), sh], None)?;
             emit_engine_started(&app);
             return Ok(0);
         }
         // File-based engine: run the file directly in its own console (.py via python), cwd = its dir.
         if !cfg.command.trim().is_empty() {
-            let cmd = expand_manifest(&cfg.command);
+            let cmd = expand_placeholders(&cfg.command);
             let path = std::path::Path::new(&cmd);
             if !path.is_file() {
                 return Err(trv("err.launch_file_missing", cur_lang(), &[("cmd", &cmd)]));
@@ -2143,7 +2142,7 @@ async fn run_engine(
 
     // stop
     if !cfg.stop.trim().is_empty() {
-        let sh = expand_manifest(&cfg.stop);
+        let sh = expand_placeholders(&cfg.stop);
         return spawn_streamed_prog(app, state, "engine".into(), "cmd".into(), vec!["/c".into(), sh], None).await;
     }
     // Fallback: kill whatever listens on the engine's port.
@@ -2452,15 +2451,17 @@ struct GithubRepo {
 /// unauthenticated; read-only (no network writes).
 #[tauri::command]
 async fn list_github_repos() -> Vec<GithubRepo> {
-    let out = tokio::process::Command::new("gh")
+    let fut = tokio::process::Command::new("gh")
         .args([
             "repo", "list", "--limit", "1000", "--json",
             "name,owner,nameWithOwner,isPrivate,isFork,isArchived,url,updatedAt,description,primaryLanguage,stargazerCount",
         ])
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .await;
-    let Ok(out) = out else { return Vec::new() };
+        .output();
+    // Bound a hung `gh` (flaky network / auth prompt) — Err = timed out, Ok(Err) = spawn failed.
+    let Ok(Ok(out)) = tokio::time::timeout(std::time::Duration::from_secs(30), fut).await else {
+        return Vec::new();
+    };
     if !out.status.success() {
         return Vec::new();
     }
@@ -3248,15 +3249,10 @@ fn freellmapi_auth_status() -> serde_json::Value {
 
 /// freellmapi gateway base URL from the `gateway` service port in stack.json. None if absent.
 fn gateway_base_url() -> Option<String> {
-    let content = std::fs::read_to_string(abs(STACK_CONFIG_REL)).ok()?;
-    let v = parse_json_bom(&content).ok()?;
-    let port = v
-        .get("services")?
-        .as_array()?
+    let port = stack_services()
         .iter()
         .find(|e| e.get("id").and_then(|x| x.as_str()) == Some("gateway"))
-        .and_then(|e| e.get("port"))
-        .and_then(|x| x.as_u64())?;
+        .and_then(|e| e.get("port").and_then(|x| x.as_u64()))?;
     Some(format!("http://localhost:{port}"))
 }
 
@@ -3412,7 +3408,13 @@ async fn connect_my_provider(
     let s = |k: &str| e.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let (protocol, via, base_url) = (s("protocol"), s("connectVia"), s("baseUrl"));
     valid_base_url(&base_url)?;
-    let api_key = active_provider_key(&id, e)
+    // active_provider_key hits the Windows Credential Manager (a blocking syscall that can stall) —
+    // move it off the async runtime. read_myproviders_raw above is a fast local fs read, left inline.
+    let e_owned = e.clone();
+    let id_for_key = id.clone();
+    let api_key = tokio::task::spawn_blocking(move || active_provider_key(&id_for_key, &e_owned))
+        .await
+        .map_err(|err| err.to_string())?
         .ok_or(tr("err.provider_no_apikey", cur_lang()))?;
 
     match (via.as_str(), protocol.as_str()) {
@@ -4221,7 +4223,7 @@ const SCHEDULES_JSON_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\sc
 #[tauri::command]
 async fn read_schedules() -> Result<Option<serde_json::Value>, String> {
     let script = abs(SCHEDULE_SCRIPT_REL);
-    let _ = tokio::process::Command::new("pwsh")
+    let fut = tokio::process::Command::new("pwsh")
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
@@ -4232,8 +4234,9 @@ async fn read_schedules() -> Result<Option<serde_json::Value>, String> {
             "query",
         ])
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .await;
+        .output();
+    // Best-effort refresh, bounded — if the query hangs, fall through and read the last JSON anyway.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(30), fut).await;
     read_json_opt(abs(SCHEDULES_JSON_REL), "schedules")
 }
 
@@ -4347,12 +4350,19 @@ fn plugin_descriptions() -> std::collections::HashMap<String, String> {
 /// List installed plugins via `claude plugin list --json`, enriched with descriptions from disk.
 #[tauri::command]
 async fn list_plugins() -> Result<serde_json::Value, String> {
-    let out = tokio::process::Command::new("pwsh")
+    let fut = tokio::process::Command::new("pwsh")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "claude plugin list --json"])
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .await
-        .map_err(|e| trv("err.claude_launch", cur_lang(), &[("e", &e)]))?;
+        .output();
+    let out = match tokio::time::timeout(std::time::Duration::from_secs(30), fut).await {
+        Ok(r) => r.map_err(|e| trv("err.claude_launch", cur_lang(), &[("e", &e)]))?,
+        Err(_) => return Err(trv("err.claude_launch", cur_lang(), &[("e", &"timed out".to_string())])),
+    };
+    // Surface a clean error when `claude` is missing/fails, not the confusing "parse plugins" below.
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(trv("err.claude_launch", cur_lang(), &[("e", &msg)]));
+    }
     let stdout = String::from_utf8_lossy(&out.stdout);
     let mut v = parse_json_bom(stdout.trim()).map_err(|e| format!("parse plugins: {e}"))?;
     let desc = plugin_descriptions();
@@ -5136,11 +5146,30 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
     for (k, v) in profile_env_pairs(&name) {
         cmd.env(k, v);
     }
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = tokio::time::timeout(std::time::Duration::from_secs(180), cmd.output())
-        .await
-        .map_err(|_| tr("err.measure_timeout", cur_lang()).to_string())?
+    cmd.creation_flags(CREATE_NO_WINDOW)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    // Spawn explicitly (not cmd.output()) so a timeout can kill the orphaned tree: tokio drops the
+    // Child on timeout but does NOT kill it, leaving `cmd /c claude` (+ its node child) running after
+    // a real model call. kill_tree reaps the whole tree on the timeout branch.
+    let child = cmd
+        .spawn()
         .map_err(|e| trv("err.claude_failed", cur_lang(), &[("e", &e)]))?;
+    let pid = child.id();
+    let out = match tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(r) => r.map_err(|e| trv("err.claude_failed", cur_lang(), &[("e", &e)]))?,
+        Err(_) => {
+            if let Some(p) = pid {
+                let _ = kill_tree(p);
+            }
+            return Err(tr("err.measure_timeout", cur_lang()).to_string());
+        }
+    };
     let stdout = String::from_utf8_lossy(&out.stdout);
     // claude may print startup/log lines before the single JSON result (esp. with MCP servers),
     // so extract the outermost {...} rather than assuming the whole output is JSON.
@@ -5342,23 +5371,7 @@ fn open_profile_dir(name: String) -> Result<(), String> {
 fn cancel_run(state: State<'_, RunState>) -> Result<(), String> {
     let pid = { *state.0.lock().unwrap_or_else(|e| e.into_inner()) };
     match pid {
-        Some(p) if p != 0 => {
-            // Don't swallow the kill result: a non-elevated app cannot taskkill an elevated child
-            // (Access denied), and returning Ok then would falsely report "cancelled" while the run
-            // lives on in its slot. Exit 128 = "process not found" (already exited) is benign.
-            match std::process::Command::new("taskkill")
-                .args(["/PID", &p.to_string(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-            {
-                Ok(o) if o.status.success() || o.status.code() == Some(128) => Ok(()),
-                Ok(o) => {
-                    let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                    Err(trv("err.kill_failed", cur_lang(), &[("e", &msg)]))
-                }
-                Err(e) => Err(trv("err.kill_failed", cur_lang(), &[("e", &e)])),
-            }
-        }
+        Some(p) if p != 0 => kill_tree(p),
         _ => Err(tr("err.no_active_run", cur_lang()).into()),
     }
 }
@@ -6415,6 +6428,57 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_slot_reserves_releases_and_survives_panic() {
+        let state = RunState::default();
+        let slot = RunSlot::reserve(&state).expect("first reserve succeeds");
+        assert!(RunSlot::reserve(&state).is_err(), "a second reserve while held must fail");
+        drop(slot);
+        assert!(RunSlot::reserve(&state).is_ok(), "the slot frees on drop");
+
+        // A panic on the run path must NOT wedge the slot (the whole point of the RAII guard).
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _slot = RunSlot::reserve(&state).expect("reserve before panic");
+            panic!("boom");
+        }));
+        std::panic::set_hook(prev);
+        assert!(RunSlot::reserve(&state).is_ok(), "the slot frees after a panic, not wedged busy");
+    }
+
+    #[test]
+    fn read_config_at_bom_missing_and_corrupt() {
+        use std::io::Write;
+        let pid = std::process::id();
+        let dir = std::env::temp_dir();
+        // Missing file → None.
+        let missing = dir.join(format!("castellyn_none_{pid}.json"));
+        assert!(read_config_at(Some(missing.display().to_string())).is_none());
+        // A UTF-8 BOM-prefixed config still parses — the migration fallback chain depends on it.
+        let ok = dir.join(format!("castellyn_ok_{pid}.json"));
+        std::fs::File::create(&ok)
+            .unwrap()
+            .write_all("\u{feff}{\"scriptsRoot\":\"X:\\\\S\"}".as_bytes())
+            .unwrap();
+        let cfg = read_config_at(Some(ok.display().to_string())).expect("BOM config parses");
+        assert_eq!(cfg.scripts_root.as_deref(), Some("X:\\S"));
+        let _ = std::fs::remove_file(&ok);
+        // Corrupt JSON → None (a malformed primary falls through the chain, never panics).
+        let bad = dir.join(format!("castellyn_bad_{pid}.json"));
+        std::fs::write(&bad, "{ not json").unwrap();
+        assert!(read_config_at(Some(bad.display().to_string())).is_none());
+        let _ = std::fs::remove_file(&bad);
+    }
+
+    #[test]
+    fn embedded_manifest_fallback_is_valid() {
+        // raw_components falls back to MANIFEST_FALLBACK on a corrupt on-disk manifest — that embedded
+        // copy must itself parse and list components, else the fallback can't save a blank dashboard.
+        let m: RawManifest = serde_json::from_str(MANIFEST_FALLBACK).expect("fallback is valid JSON");
+        assert!(!m.components.is_empty(), "fallback must list components");
+    }
 
     #[test]
     fn snapshot_name_format() {
