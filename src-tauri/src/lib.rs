@@ -245,6 +245,31 @@ fn read_status(path: String) -> Result<Option<serde_json::Value>, String> {
 #[derive(Default)]
 struct RunState(Mutex<Option<u32>>);
 
+/// RAII guard for the single global run slot. `reserve` claims it (Err if a run is already in
+/// progress); `Drop` ALWAYS clears it back to None — so a panic or early return anywhere on the run
+/// path can't wedge the slot into a permanent "run in progress" that no cancel can clear (the old
+/// hand-reset after the await never ran if the future panicked/was dropped).
+struct RunSlot<'a>(&'a RunState);
+impl<'a> RunSlot<'a> {
+    fn reserve(state: &'a RunState) -> Result<Self, String> {
+        let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        if g.is_some() {
+            return Err(tr("err.run_in_progress", cur_lang()).into());
+        }
+        *g = Some(0);
+        Ok(RunSlot(state))
+    }
+    /// Record the real child pid so cancel_run can target it (slot still resets on drop).
+    fn set_pid(&self, pid: u32) {
+        *self.0 .0.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+    }
+}
+impl Drop for RunSlot<'_> {
+    fn drop(&mut self) {
+        *self.0 .0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
 // Per-repo fork runs (path -> pid). Lets each fork update run concurrently and independently,
 // keyed by repo path, without the single RunState slot blocking the whole Forks tab.
 #[derive(Default)]
@@ -322,13 +347,7 @@ async fn spawn_streamed_prog(
     // cleanly would need a cancel-flag the spawn re-checks (then kills the just-spawned child), i.e.
     // extra RunState and a kill path that races spawn — risk to a working cancel for a window of a
     // few ms before any process exists. Deliberately left as-is; cancel works the instant a pid lands.
-    {
-        let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if g.is_some() {
-            return Err(tr("err.run_in_progress", cur_lang()).into());
-        }
-        *g = Some(0);
-    }
+    let slot = RunSlot::reserve(state.inner())?;
 
     let mut cmd = Command::new(&program);
     for a in &args {
@@ -345,13 +364,12 @@ async fn spawn_streamed_prog(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
             return Err(trv("err.spawn_failed", cur_lang(), &[("program", &program), ("e", &e)]));
         }
     };
 
     if let Some(pid) = child.id() {
-        *state.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(pid);
+        slot.set_pid(pid);
     }
 
     // Feed the secret to STDIN and close it so the script's [Console]::In.ReadToEnd() returns.
@@ -364,7 +382,7 @@ async fn spawn_streamed_prog(
     }
 
     let code = pump_and_wait(app, id, child, "run-log", "run-done").await;
-    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    drop(slot); // release the single run slot (also happens on any early return / panic above)
     Ok(code)
 }
 
@@ -459,13 +477,7 @@ async fn run_native_streamed<F>(
 where
     F: FnOnce(&dyn Fn(&str), &dyn Fn(&str)) -> i32 + Send + 'static,
 {
-    {
-        let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if g.is_some() {
-            return Err(tr("err.run_in_progress", cur_lang()).into());
-        }
-        *g = Some(0);
-    }
+    let _slot = RunSlot::reserve(state.inner())?;
     let app_job = app.clone();
     let id_job = id.clone();
     let code = tokio::task::spawn_blocking(move || {
@@ -485,7 +497,7 @@ where
     })
     .await
     .unwrap_or(-1);
-    *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    drop(_slot); // release the single run slot (also released on early return / panic above)
     let _ = app.emit("run-done", RunDone { component: id, code });
     Ok(code)
 }
@@ -678,10 +690,20 @@ fn cancel_fork_repo(runs: State<'_, ForkRuns>, path: String) -> Result<(), Strin
     let pid = { runs.0.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied() };
     if let Some(p) = pid {
         if p != 0 {
-            let _ = std::process::Command::new("taskkill")
+            // Surface a failed kill (e.g. elevated child → Access denied) instead of a false Ok.
+            // Exit 128 = process already gone — benign.
+            match std::process::Command::new("taskkill")
                 .args(["/PID", &p.to_string(), "/T", "/F"])
                 .creation_flags(CREATE_NO_WINDOW)
-                .output();
+                .output()
+            {
+                Ok(o) if o.status.success() || o.status.code() == Some(128) => {}
+                Ok(o) => {
+                    let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    return Err(trv("err.kill_failed", cur_lang(), &[("e", &msg)]));
+                }
+                Err(e) => return Err(trv("err.kill_failed", cur_lang(), &[("e", &e)])),
+            }
         }
     }
     Ok(())
@@ -1615,13 +1637,7 @@ async fn run_stack(
     // Restart = stop then start under ONE run slot, with a single run-done at the end. The stop
     // phase emits an event the UI ignores so it doesn't read as a completed run mid-way.
     if action == "restart" {
-        {
-            let mut g = state.0.lock().unwrap_or_else(|e| e.into_inner());
-            if g.is_some() {
-                return Err(tr("err.run_in_progress", cur_lang()).into());
-            }
-            *g = Some(0);
-        }
+        let _slot = RunSlot::reserve(state.inner())?;
         let (stop_args, start_args) = match &only {
             Some(id) => (
                 vec!["-Only".to_string(), id.clone()],
@@ -1633,7 +1649,7 @@ async fn run_stack(
         // ponytail: a cancel during the stop phase still proceeds to start; fine for a restart.
         let _ = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_STOP_REL), stop_args, "run-restart-stop").await;
         let code = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_START_REL), start_args, "run-done").await;
-        *state.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        drop(_slot); // release the run slot (also released on early return / panic above)
         return Ok(code);
     }
 
@@ -5293,11 +5309,21 @@ fn cancel_run(state: State<'_, RunState>) -> Result<(), String> {
     let pid = { *state.0.lock().unwrap_or_else(|e| e.into_inner()) };
     match pid {
         Some(p) if p != 0 => {
-            let _ = std::process::Command::new("taskkill")
+            // Don't swallow the kill result: a non-elevated app cannot taskkill an elevated child
+            // (Access denied), and returning Ok then would falsely report "cancelled" while the run
+            // lives on in its slot. Exit 128 = "process not found" (already exited) is benign.
+            match std::process::Command::new("taskkill")
                 .args(["/PID", &p.to_string(), "/T", "/F"])
                 .creation_flags(CREATE_NO_WINDOW)
-                .output();
-            Ok(())
+                .output()
+            {
+                Ok(o) if o.status.success() || o.status.code() == Some(128) => Ok(()),
+                Ok(o) => {
+                    let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    Err(trv("err.kill_failed", cur_lang(), &[("e", &msg)]))
+                }
+                Err(e) => Err(trv("err.kill_failed", cur_lang(), &[("e", &e)])),
+            }
         }
         _ => Err(tr("err.no_active_run", cur_lang()).into()),
     }
@@ -5428,7 +5454,9 @@ const SESSION_LIMIT: usize = 24; // global ceiling across ALL windows (main grid
 
 struct PtySession {
     master: Box<dyn portable_pty::MasterPty + Send>,
-    writer: Box<dyn std::io::Write + Send>,
+    // Per-session writer behind its own lock so session_write doesn't hold the whole SessionState map
+    // lock across a (potentially blocking) PTY write — mirrors `chans`/`ring` below.
+    writer: std::sync::Arc<Mutex<Box<dyn std::io::Write + Send>>>,
     // Killer handle only: the Child itself moves into the reader thread so it can wait() for the
     // real exit code. session_kill signals termination through this.
     killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
@@ -5577,7 +5605,8 @@ fn session_spawn(
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
     drop(pair.slave); // close the slave in the parent so EOF arrives when the child exits
     let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
-    let writer = pair.master.take_writer().map_err(|e| format!("writer: {e}"))?;
+    let writer: std::sync::Arc<Mutex<Box<dyn std::io::Write + Send>>> =
+        std::sync::Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| format!("writer: {e}"))?));
     // Keep a killer handle for session_kill; the Child moves into the reader thread so it can
     // wait() and report the tool's REAL exit code instead of a hardcoded 0.
     let killer: Box<dyn ChildKiller + Send + Sync> = child.clone_killer();
@@ -5647,10 +5676,17 @@ fn session_spawn(
 #[tauri::command]
 fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Result<(), String> {
     use std::io::Write;
-    let mut map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    let s = map.get_mut(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
-    s.writer.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
-    s.writer.flush().map_err(|e| format!("flush: {e}"))
+    // Clone out the per-session writer handle under the map lock, then RELEASE the map lock before the
+    // (potentially blocking) PTY write — otherwise one stalled child head-of-lines every other session
+    // op (spawn's atomic insert, kill, resize, tray tooltip) that needs the same map lock.
+    let writer = {
+        let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
+        s.writer.clone()
+    };
+    let mut w = writer.lock().unwrap_or_else(|e| e.into_inner());
+    w.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
+    w.flush().map_err(|e| format!("flush: {e}"))
 }
 
 /// Resize the PTY when its pane changes size (xterm fit addon).
@@ -6320,8 +6356,20 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            // On exit, kill every live PTY session so no headless child (claude/opencode/pwsh/ssh)
+            // outlives the app. PtySession has no Drop and the tray "quit" is a hard app.exit(0), so
+            // without this every parallel session keeps running invisibly after the window closes.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<SessionState>() {
+                    for (_, mut s) in state.0.lock().unwrap_or_else(|e| e.into_inner()).drain() {
+                        let _ = s.killer.kill();
+                    }
+                }
+            }
+        });
 }
 
 #[cfg(test)]
