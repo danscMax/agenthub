@@ -3,6 +3,23 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-06-26
+
+Forks get smarter at handing work to an AI agent, plus the copy buttons are *actually* fixed and the restore flow is clearer.
+
+### Added
+- **Auto-assembled AI prompt for every fork state** — previously only the *conflict* and *dirty* cases produced a prompt; a diverged default branch (needs a manual rebase), a mid-operation/detached repo, and combinations were left with only "Open terminal". The card now inspects the real repo state and assembles one tailored prompt from every detected problem (mid-op, detached HEAD, branch conflicts, diverged/behind/ahead default, dirty/untracked tree, upstream rename/archive, redundant/behind `wip-local`). Every hand-off recommendation copies the prompt as its primary action, and a universal **Copy AI prompt** item is in the ⋯ menu for any repo.
+
+### Fixed
+- **Copy buttons — really this time** — the 0.5.1 `execCommand('copy')` fallback is *also* a silent no-op in the WebView2 shell, so copying still failed. Switched to the native clipboard plugin (OS clipboard via Rust); the web paths remain only for the browser/dev harness.
+- **Single-file conflict prompt wouldn't copy** — PowerShell's `Select-Object -Unique` returns a scalar string for a single conflicting file (an array only for 2+), and the unguarded `.join` threw, so the click did nothing on repos with exactly one conflict file. The value is normalized to an array at the boundary.
+- **Restore could implicitly overwrite `main` (`~/.claude`)** — it is now a first-class, selectable profile in the restore dialog instead of always being restored.
+- **Restore plan shown inside the dialog** — the preview/restore output renders as a readable, localized summary (which profiles are overwritten, credential status, what is left untouched) with the raw script output under a collapsible section, instead of streaming only to the run-log behind the modal.
+- **Forks status auto-check no longer blocks Backup/Restore** — opening the Forks tab no longer kicks off a status check that held the global run-lock.
+
+### Docs
+- **README screenshots refreshed** — 7 tabs at 2720×1800 including the new **Sessions** and **Forks** tabs, captured via a reusable DEV-only mock-IPC harness.
+
 ## [0.5.1] — 2026-06-25
 
 Follow-up fixes after the 0.5.0 Forks pass, plus the release/CI pipeline.
