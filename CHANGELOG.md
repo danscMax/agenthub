@@ -3,6 +3,35 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] — 2026-06-26
+
+A hardening pass: backend stability, tighter security defaults, accessibility, faster startup, and power-user keyboard control — no behaviour changes to the workflows themselves.
+
+### Added
+- **Power-user keyboard control** — `Ctrl + 1 … 9` jumps straight to a tab, `Esc` cancels the running operation, and the command palette gained direct action verbs (Check all for updates, Refresh forks, Backup now, Open the run log). The shortcut help (`?`) lists them all.
+- **Pausable toasts** — hovering or focusing the notification stack pauses its auto-dismiss timers so a toast can actually be read; error/warn toasts announce as `alert`, others as `status`.
+
+### Changed
+- **Tighter security defaults** — CSP now sets `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`; detached monitor/pane windows run under a least-privilege capability (no opener/dialog access) instead of inheriting the main window's grants; `open_url` only opens `http`/`https`; provider ids are validated before use.
+- **Faster, leaner startup** — `HubConfig` is parsed once and cached; the elevation check is warmed off the UI path; the xterm/Sessions terminal bundle is now lazy-loaded, so the first paint no longer pulls a ~250 KB chunk that most launches never use.
+
+### Fixed
+- **Self-healing run-lock** — the single global run-slot is now released via an RAII guard, so an early-return or panic in any spawn path can no longer leave the app permanently "busy".
+- **Terminal sessions are cleaned up on exit** — open PTY sessions are killed when the app quits instead of being orphaned.
+- **Honest cancel** — cancelling a run now reports a real failure if the kill fails, while treating "process already gone" (exit 128) as success.
+- **Non-blocking terminal input** — `session_write` no longer holds the session map lock across the write, so one busy terminal can't stall input to the others.
+- **Safer destructive confirms** — destructive dialogs focus Cancel (not the action) by default, and Enter no longer fires a dangerous or text-gated action; batch/bulk dialogs list exactly what will be affected.
+- **No `.bak` for secret files** — atomic writes skip the `.bak` sidecar for `settings.json` / `opencode.json` so a credential file is never copied in plaintext next to itself.
+
+### Accessibility
+- Notification region, `aria-current` on the active nav item, `<html lang>` kept in sync with the chosen locale (zh → `zh-Hans`), focus moved into dropdown menus on open, and modal focus targeting via an `initialFocus` hook.
+
+### Internal
+- The Rust locale table is now gated for placeholder parity (every `{…}` token must match across ru/en/zh), alongside the existing leaf-key parity check.
+
+### Docs
+- **README** gained a **Download** section linking to the latest release and a clear **PowerShell 7 (`pwsh`)** prerequisite — maintenance scripts run under `pwsh`, which Windows does not install by default (en/ru/zh).
+
 ## [0.5.2] — 2026-06-26
 
 Forks get smarter at handing work to an AI agent, plus the copy buttons are *actually* fixed and the restore flow is clearer.
