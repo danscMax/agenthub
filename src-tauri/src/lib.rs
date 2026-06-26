@@ -89,11 +89,21 @@ fn read_config_at(path: Option<String>) -> Option<HubConfig> {
     serde_json::from_str(c.trim_start_matches('\u{feff}')).ok()
 }
 
+/// Cached parse of config.json, invalidated by write_config_file (the single writer) so a settings
+/// save / language change is reflected at once — while hot paths (scripts_root → abs →
+/// expand_placeholders, list_components, run_forks) avoid a disk read + serde parse on every call.
+static CONFIG_CACHE: std::sync::RwLock<Option<HubConfig>> = std::sync::RwLock::new(None);
+
 fn read_config_file() -> HubConfig {
-    read_config_at(config_path())
+    if let Some(c) = CONFIG_CACHE.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return c.clone();
+    }
+    let cfg = read_config_at(config_path())
         .or_else(|| read_config_at(agenthub_config_path()))
         .or_else(|| read_config_at(legacy_config_path()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    *CONFIG_CACHE.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    cfg
 }
 
 /// Scripts root: $SCRIPTS_ROOT env → config.scriptsRoot → default E:\Scripts.
@@ -4814,6 +4824,8 @@ fn write_config_file(config: &HubConfig) -> Result<(), String> {
     // Atomic temp+rename (+ .bak), UTF-8 no BOM — a crash must never blank config.json.
     write_json_atomic(&p, &json)
         .map_err(|e| trv("err.write_config", cur_lang(), &[("e", &e.to_string())]))?;
+    // Keep the read cache consistent with what we just persisted (the single invalidation point).
+    *CONFIG_CACHE.write().unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
     Ok(())
 }
 
@@ -6314,6 +6326,12 @@ pub fn run() {
             cancel_run
         ])
         .setup(|app| {
+            // Warm the elevation check off the main/UI thread: is_elevated() shells out to pwsh
+            // (~100-300ms cold) and the first read_profiles would otherwise pay it on a user-facing
+            // sync command. Its OnceLock makes this a one-time cost that the background thread absorbs.
+            std::thread::spawn(|| {
+                let _ = is_elevated();
+            });
             // Seed the backend locale from config so the tray builds in the right language. The
             // frontend also re-syncs on mount (covers a fresh config with no language yet).
             if let Some(lang) = read_config_file().language {
