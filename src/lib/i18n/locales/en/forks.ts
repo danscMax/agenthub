@@ -79,33 +79,46 @@ export default {
   promptConflictFiles: '; conflicting files: {files}',
   promptRepo: 'Repository: {name}  ({path})',
   promptRemotes: 'upstream: {upstream} | fork: {fork} | default branch: {branch}',
-  promptTask: 'Task: verify and, if needed, resolve merge conflicts with upstream for branches:',
-  promptInstructions:
-    'First establish the facts — do not trust the status blindly: run `git fetch upstream` and confirm the ref upstream/{branch} exists (if not, check `git remote -v` and use the real tracking branch). For each branch, verify whether a REAL conflict exists against fresh upstream/{branch} via `git merge-tree` (or a trial merge/rebase). If there is no conflict, do NOT invent work: no empty commits, no token merges, no force-push — just report that there is nothing to resolve. If the conflict is real, switch to the branch, merge/rebase onto fresh upstream/{branch}, carefully resolve the conflicts (keeping meaningful changes from both sides), run the build/tests, and commit. Never force-push without confirmation.',
-  promptTaskDirty:
-    'Task: the working tree has uncommitted changes (and/or new files outside git). Sort them out and finish cleanly.',
-  promptInstructionsDirty:
-    'Review the changes (git status, git diff). Understand what they are: group related edits into clear commits; throwaway/junk goes into .gitignore or gets deleted. Special case — vendored/auto-synced files (the file header marks it VENDORED/CANON, or a sync tool exists for it): do NOT commit the local copy blindly — first compare it against the canonical source and, if it diverges, update it from the canon (or run the sync tool), and only then commit, otherwise you would freeze a stale version. Run the build/tests if present. Do not force-push and do not push without confirmation. If the purpose of some change is unclear, leave it untouched and report back.',
+  promptOnBranch: 'current branch: {branch}',
+  promptTaskGeneric:
+    'Task: sort out the state of this fork and bring it back to a clean state. Below is what was detected automatically; do not trust the status blindly — re-check it yourself.',
+  promptSituation: 'Detected state:',
+  promptIssueMidOp:
+    '- the repository is in the middle of an unfinished git operation (“{op}”) — finish it properly or abort it safely (see git status; git rebase/merge --abort, etc.)',
+  promptIssueDetached: '- HEAD is off any branch (detached HEAD) — get back onto the default branch without losing commits',
+  promptIssueConflicts: '- the following branches conflict when merged with fresh upstream/{branch}:',
+  promptIssueDiverged:
+    '- the default branch “{branch}” has diverged from upstream: {behind} commit(s) behind and {ahead} ahead — fast-forward is impossible, a rebase/merge onto fresh upstream/{branch} is needed (likely committed straight to “{branch}”)',
+  promptIssueBehind:
+    '- the default branch “{branch}” is {behind} commit(s) behind upstream — a safe fast-forward is possible',
+  promptIssueDefaultAhead: '- the default branch has {n} commit(s) that are not in upstream',
+  promptIssueDirty: '- the working tree has uncommitted changes',
+  promptIssueUntracked: '- there are new files outside git (untracked)',
+  promptIssueUpstreamRenamed: '- upstream renamed its default branch to “{branch}”, but the fork still tracks “{old}”',
+  promptIssueUpstreamArchived:
+    '- the original repository is archived on GitHub — the fork is effectively frozen (no more updates)',
+  promptIssueWipRedundant: '- the personal wip-local branch holds no unique commits (redundant — it can be deleted)',
+  promptIssueWipBehind: '- the personal wip-local branch is {n} commit(s) behind upstream',
+  promptIssueNone: '- no obvious problems detected; re-check the state and report back if everything is clean',
+  promptInstructionsGeneric:
+    'First establish the facts: `git fetch upstream`, `git status`, `git remote -v`; confirm the ref upstream/{branch} exists (if not, find the real tracking branch). For any merge/rebase, first verify whether a REAL conflict exists against fresh upstream/{branch} via `git merge-tree` (or a trial merge/rebase). Do NOT invent work: if there is no actual problem, say so — no empty commits, no token merges, no force-push. Resolve real problems carefully, keeping meaningful changes from both sides; group uncommitted edits into clear commits, send junk to .gitignore or delete it (compare vendored/auto-synced files marked VENDORED/CANON against the canon before committing, otherwise you would freeze a stale version). Run the build/tests if present, then commit. Never force-push and never push without confirmation. If the purpose of some change is unclear, leave it untouched and report back.',
 
   // ── ForkRepoCard: recommended action ──
+  recCopyLabel: 'Copy AI prompt',
+  recCopyCopied: '✓ Prompt copied',
+  actionCopyPromptTip: 'Copy a ready-made prompt describing this repository’s state and hand it to Claude Code',
   recManualPlain: 'resolve manually (an unfinished git operation is in progress)',
-  recManualLabel: 'Open terminal',
-  recManualTip: 'Unfinished git operation / detached HEAD — resolve manually in the terminal',
+  recManualTip: 'Unfinished git operation / detached HEAD. Copy the prompt and ask Claude Code to sort it out (or open a terminal).',
   recConflictPlain: 'resolve conflicts with the original in {n} branch(es) — they block updates',
-  recConflictCopied: '✓ Prompt copied',
-  recConflictLabel: 'Copy AI prompt',
   recConflictTip: 'Copy the ready-made prompt and ask Claude Code to resolve the conflicts',
   recDirtyPlain: 'uncommitted changes — commit, stash or discard them',
-  recDirtyCopied: '✓ Prompt copied',
-  recDirtyLabel: 'Copy AI prompt',
   recDirtyTip: 'Copy the prompt and ask Claude Code to sort out and commit the changes',
   recFfPlain: 'pull updates from upstream (behind by {n} {commits})',
   recFfLabel: 'Pull from upstream',
   recDeletePlain: 'delete branches already merged into upstream',
   recDeleteLabel: 'Delete merged branches',
   recDivergedPlain: 'default branch diverged from the original — needs a manual rebase',
-  recDivergedLabel: 'Open terminal',
-  recDivergedTip: 'Fast-forward is impossible (history diverged — likely committed straight to main). Open a terminal and rebase/merge manually.',
+  recDivergedTip: 'Fast-forward is impossible (history diverged — likely committed straight to main). Copy the prompt and ask Claude Code to rebase/merge (or open a terminal).',
 
   // ── ForkRepoCard: health badge ──
   healthAnalysisError: 'analysis error',

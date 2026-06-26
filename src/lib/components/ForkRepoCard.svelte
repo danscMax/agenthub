@@ -41,43 +41,66 @@
   const confFiles = (cf: string | string[] | null): string[] =>
     Array.isArray(cf) ? cf : cf ? [cf] : [];
 
-  function aiPrompt(): string {
-    const lines = conflictBranches.map((b) => {
-      const files = confFiles(b.conflictFiles);
-      return (
-        t('forks.promptBranchLine', { name: b.name }) +
-        (b.prNumber ? t('forks.promptPrSuffix', { n: b.prNumber }) : '') +
-        (files.length ? t('forks.promptConflictFiles', { files: files.join(', ') }) : '')
-      );
-    });
-    return [
-      t('forks.promptRepo', { name: repo.Name, path: repo.Path }),
-      t('forks.promptRemotes', {
-        upstream: repo.upstream ?? t('common.dash'),
-        fork: repo.fork ?? t('common.dash'),
-        branch: repo.defaultBranch ?? t('common.dash')
-      }),
-      '',
-      t('forks.promptTask'),
-      ...lines,
-      '',
-      t('forks.promptInstructions', { branch: repo.defaultBranch ?? 'main' })
-    ].join('\n');
-  }
+  // Auto-assemble ONE AI prompt from whatever is actually wrong with this repo. Every detected
+  // problem (mid-op, detached HEAD, branch conflicts, diverged/behind default, dirty tree, upstream
+  // rename/archive, redundant/behind wip-local…) contributes a line, so combinations are covered by
+  // construction and no hand-off state is left without a prompt. References derived state declared
+  // further down — fine because this only runs on click, long after those are initialized.
+  function buildPrompt(): string {
+    const dash = t('common.dash');
+    const branch = repo.defaultBranch ?? 'main';
+    const issues: string[] = [];
 
-  // Prompt for a repo with uncommitted/untracked changes — ask Claude Code to sort them out.
-  function dirtyPrompt(): string {
+    if (repo.midOp) issues.push(t('forks.promptIssueMidOp', { op: repo.opName ?? t('forks.healthOpName') }));
+    if (repo.detached) issues.push(t('forks.promptIssueDetached'));
+
+    if (conflictBranches.length) {
+      issues.push(t('forks.promptIssueConflicts', { branch }));
+      for (const b of conflictBranches) {
+        const files = confFiles(b.conflictFiles);
+        issues.push(
+          '  ' +
+            t('forks.promptBranchLine', { name: b.name }) +
+            (b.prNumber ? t('forks.promptPrSuffix', { n: b.prNumber }) : '') +
+            (files.length ? t('forks.promptConflictFiles', { files: files.join(', ') }) : '')
+        );
+      }
+    }
+
+    const behind = repo.behindBy ?? 0;
+    if (behind > 0 && !repo.ffSafe)
+      issues.push(t('forks.promptIssueDiverged', { branch, behind, ahead: repo.defaultAhead ?? 0 }));
+    else if (behind > 0) issues.push(t('forks.promptIssueBehind', { branch, behind }));
+    else if ((repo.defaultAhead ?? 0) > 0) issues.push(t('forks.promptIssueDefaultAhead', { n: repo.defaultAhead ?? 0 }));
+
+    if (repo.dirty) issues.push(t('forks.promptIssueDirty'));
+    if (repo.untracked) issues.push(t('forks.promptIssueUntracked'));
+
+    if (upstreamRenamed)
+      issues.push(t('forks.promptIssueUpstreamRenamed', { branch: repo.upstreamDefaultBranch ?? '', old: branch }));
+    if (repo.upstreamArchived) issues.push(t('forks.promptIssueUpstreamArchived'));
+
+    if (wipRedundant) issues.push(t('forks.promptIssueWipRedundant'));
+    else if (wipBehind > 0) issues.push(t('forks.promptIssueWipBehind', { n: wipBehind }));
+
+    if (!issues.length) issues.push(t('forks.promptIssueNone'));
+
+    const onBranch =
+      repo.currentBranch && repo.currentBranch !== repo.defaultBranch
+        ? [t('forks.promptOnBranch', { branch: repo.currentBranch })]
+        : [];
+
     return [
       t('forks.promptRepo', { name: repo.Name, path: repo.Path }),
-      t('forks.promptRemotes', {
-        upstream: repo.upstream ?? t('common.dash'),
-        fork: repo.fork ?? t('common.dash'),
-        branch: repo.defaultBranch ?? t('common.dash')
-      }),
+      t('forks.promptRemotes', { upstream: repo.upstream ?? dash, fork: repo.fork ?? dash, branch }),
+      ...onBranch,
       '',
-      t('forks.promptTaskDirty'),
+      t('forks.promptTaskGeneric'),
       '',
-      t('forks.promptInstructionsDirty')
+      t('forks.promptSituation'),
+      ...issues,
+      '',
+      t('forks.promptInstructionsGeneric', { branch })
     ].join('\n');
   }
 
@@ -87,8 +110,7 @@
       setTimeout(() => (copied = false), 1500);
     }
   }
-  const copyPrompt = () => flashCopy(aiPrompt());
-  const copyDirtyPrompt = () => flashCopy(dirtyPrompt());
+  const copyPrompt = () => flashCopy(buildPrompt());
   const isDirty = $derived(repo.dirty || repo.untracked);
   const hasMerged = $derived(branches.some((b) => b.outcome === 'merged'));
   const hasClean = $derived(branches.some((b) => b.outcome === 'clean'));
@@ -143,9 +165,9 @@
   // Single recommended next action for this repo (the "what do I do now" answer).
   const rec = $derived.by(() => {
     if (repo.midOp || repo.detached)
-      return { key: 'manual', plain: t('forks.recManualPlain'), label: t('forks.recManualLabel'), tip: t('forks.recManualTip'), run: () => onOpenSession?.(repo.Path), disabled: false };
+      return { key: 'manual', plain: t('forks.recManualPlain'), label: copied ? t('forks.recCopyCopied') : t('forks.recCopyLabel'), tip: t('forks.recManualTip'), run: copyPrompt, disabled: false };
     if (conflictBranches.length)
-      return { key: 'conflict', plain: t('forks.recConflictPlain', { n: conflictBranches.length }), label: copied ? t('forks.recConflictCopied') : t('forks.recConflictLabel'), tip: t('forks.recConflictTip'), run: copyPrompt, disabled: false };
+      return { key: 'conflict', plain: t('forks.recConflictPlain', { n: conflictBranches.length }), label: copied ? t('forks.recCopyCopied') : t('forks.recCopyLabel'), tip: t('forks.recConflictTip'), run: copyPrompt, disabled: false };
     if (!repo.isOwn && canFf)
       return { key: 'ff', plain: t('forks.recFfPlain', { n: repo.behindBy ?? 0, commits: pCommit(repo.behindBy ?? 0) }), label: t('forks.recFfLabel'), tip: ffTip(), run: () => onAction('ff', repo.Path, t('forks.labelFf', { name: repo.Name, branch: repo.defaultBranch ?? '' })), disabled: anyRunning || busy };
     if (!repo.isOwn && canDelete)
@@ -156,12 +178,12 @@
     if (canSyncWip)
       return { key: 'syncwip', plain: t('forks.recSyncWipPlain', { n: wipBehind }), label: t('forks.recSyncWipLabel'), tip: t('forks.recSyncWipTip'), run: () => onAction('sync-wip', repo.Path, t('forks.labelSyncWip', { name: repo.Name })), disabled: anyRunning || busy };
     // Default branch diverged from upstream (behind but NOT ff-able) — no safe automated action;
-    // point at a terminal for a manual rebase.
+    // hand it to an AI agent via a tailored prompt (terminal stays as the secondary button).
     if (!repo.isOwn && (repo.behindBy ?? 0) > 0 && !repo.ffSafe && safeTree && !repo.dirty)
-      return { key: 'diverged', plain: t('forks.recDivergedPlain'), label: t('forks.recDivergedLabel'), tip: t('forks.recDivergedTip'), run: () => onOpenSession?.(repo.Path), disabled: false };
+      return { key: 'diverged', plain: t('forks.recDivergedPlain'), label: copied ? t('forks.recCopyCopied') : t('forks.recCopyLabel'), tip: t('forks.recDivergedTip'), run: copyPrompt, disabled: false };
     // Fallback for repos with local work but no sync action: uncommitted/untracked changes.
     if (isDirty)
-      return { key: 'dirty', plain: t('forks.recDirtyPlain'), label: copied ? t('forks.recDirtyCopied') : t('forks.recDirtyLabel'), tip: t('forks.recDirtyTip'), run: copyDirtyPrompt, disabled: false };
+      return { key: 'dirty', plain: t('forks.recDirtyPlain'), label: copied ? t('forks.recCopyCopied') : t('forks.recCopyLabel'), tip: t('forks.recDirtyTip'), run: copyPrompt, disabled: false };
     return null;
   });
 
@@ -324,15 +346,14 @@
             {rec.label}
           </button>
         {/if}
-        {#if rec?.key !== 'manual' && rec?.key !== 'diverged'}
-          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenSession?.(repo.Path)}
-            title={t('forks.terminalTip')}>
-            {t('forks.terminal')}
-          </button>
-        {/if}
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenSession?.(repo.Path)}
+          title={t('forks.terminalTip')}>
+          {t('forks.terminal')}
+        </button>
         <DropdownMenu
           title={t('forks.moreActionsTip')}
           items={[
+            { label: t('forks.recCopyLabel'), title: t('forks.actionCopyPromptTip'), onClick: copyPrompt },
             { label: t('forks.externalTerminal'), title: t('forks.externalTerminalTip'), onClick: () => openTerminal(repo.Path) },
             ...(repo.isOwn
               ? []
