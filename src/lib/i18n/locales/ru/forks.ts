@@ -209,7 +209,7 @@ export default {
   recommended: 'Рекомендуется:',
   terminal: 'Терминал',
   terminalTip:
-    'Открыть сессию в папке репозитория: выбор инструмента (Claude / opencode / shell) и профиля (= провайдера)',
+    'Открыть сессию в папке репозитория: выбор инструмента (Claude / opencode / codex / shell) и профиля (= провайдера)',
   externalTerminal: 'Внешний терминал (cmd)',
   externalTerminalTip: 'Открыть обычный системный cmd в папке репозитория (для ручных git-операций)',
   moreActionsTip: 'Ещё действия',

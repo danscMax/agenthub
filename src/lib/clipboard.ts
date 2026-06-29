@@ -1,4 +1,4 @@
-import { writeText as tauriWriteText } from '@tauri-apps/plugin-clipboard-manager';
+import { writeText as tauriWriteText, readText as tauriReadText } from '@tauri-apps/plugin-clipboard-manager';
 
 // Copy text to the clipboard. Returns true on success so callers can flash feedback.
 // In the Tauri WebView2 shell the WEB clipboard is silently non-functional — both
@@ -21,6 +21,25 @@ export async function copyText(text: string): Promise<boolean> {
     /* clipboard API present but blocked — fall through to the legacy path */
   }
   return legacyCopy(text);
+}
+
+// Read text from the clipboard. Mirrors copyText: the WebView2 web clipboard (`navigator.clipboard
+// .readText`) is the unreliable path, so prefer the native Tauri plugin (OS clipboard via Rust).
+// Returns null when nothing readable is available (so callers can flash a "clipboard empty/blocked"
+// hint instead of silently no-op'ing).
+export async function pasteText(): Promise<string | null> {
+  try {
+    const t = await tauriReadText();
+    if (t != null) return t;
+  } catch {
+    /* not under Tauri (browser/dev) or plugin error — try the web clipboard */
+  }
+  try {
+    if (navigator.clipboard?.readText) return await navigator.clipboard.readText();
+  } catch {
+    /* clipboard API present but blocked */
+  }
+  return null;
 }
 
 // execCommand('copy') is deprecated but still works in Chromium/WebView2 and needs no permission;

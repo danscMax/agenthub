@@ -23,6 +23,54 @@ use i18n::{tr, trv, Lang};
 /// a black console window in front of the GUI.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// Assign a spawned PTY child to a process-global Job Object created with KILL_ON_JOB_CLOSE, so the
+/// whole tree (pwsh → claude/node, or ssh.exe) is terminated when the app process exits — including a
+/// hard crash, where `session_kill` never runs and ConPTY cleanup of grandchildren is only best-effort.
+/// The job handle is intentionally never closed: it lives for the app's lifetime and its closure on
+/// process death is what triggers the kill. No-op on non-Windows (the app ships Windows-only).
+#[cfg(windows)]
+fn assign_to_kill_job(pid: u32) {
+    use std::sync::OnceLock;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+        JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    // Lazily create the single kill-on-close job; store its handle as isize (HANDLE isn't Send/Sync).
+    static KILL_JOB: OnceLock<isize> = OnceLock::new();
+    let jobval = *KILL_JOB.get_or_init(|| unsafe {
+        let job = match CreateJobObjectW(None, windows::core::PCWSTR::null()) {
+            Ok(h) => h,
+            Err(_) => return 0,
+        };
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let _ = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        job.0 as isize
+    });
+    if jobval == 0 {
+        return;
+    }
+    unsafe {
+        let job = HANDLE(jobval as *mut core::ffi::c_void);
+        if let Ok(hproc) = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid) {
+            let _ = AssignProcessToJobObject(job, hproc);
+            let _ = CloseHandle(hproc);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn assign_to_kill_job(_pid: u32) {}
+
 /// Current UI locale, mirrored from the frontend via `set_language` and read by `tr`/`trv`
 /// when the backend produces user-facing text (command errors, run-log, tray).
 // ponytail: one process-global lock; locale changes are rare so contention is a non-issue.
@@ -6158,7 +6206,7 @@ fn session_spawn(
 ) -> Result<String, String> {
     use portable_pty::{CommandBuilder, PtySize};
     let tool = tool.unwrap_or_else(|| "claude".into());
-    if !matches!(tool.as_str(), "claude" | "opencode" | "shell" | "ssh") {
+    if !matches!(tool.as_str(), "claude" | "opencode" | "codex" | "shell" | "ssh") {
         return Err(trv("err.unknown_tool", cur_lang(), &[("tool", &tool)]));
     }
     // Global session ceiling across ALL windows — the main grid's MAX_PANES=12 is per-window, but
@@ -6208,6 +6256,7 @@ fn session_spawn(
         match tool.as_str() {
             "claude" => parts.push(if extra.is_empty() { "claude".into() } else { format!("claude {extra}") }),
             "opencode" => parts.push(if extra.is_empty() { "opencode".into() } else { format!("opencode {extra}") }),
+            "codex" => parts.push(if extra.is_empty() { "codex".into() } else { format!("codex {extra}") }),
             _ => {} // shell: nothing extra — just a remote shell
         }
         Some(if parts.is_empty() {
@@ -6228,7 +6277,7 @@ fn session_spawn(
     } else if tool == "shell" {
         None // local interactive PowerShell — no -Command
     } else {
-        let base = if tool == "opencode" { "opencode" } else { "claude" };
+        let base = match tool.as_str() { "opencode" => "opencode", "codex" => "codex", _ => "claude" };
         Some(if extra.is_empty() { base.to_string() } else { format!("{base} {extra}") })
     };
     if let Some(c) = command {
@@ -6248,6 +6297,11 @@ fn session_spawn(
     use portable_pty::{Child, ChildKiller};
     let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
     drop(pair.slave); // close the slave in the parent so EOF arrives when the child exits
+    // Tie the child's process tree to the kill-on-close Job Object (#4): a crash/forced exit then
+    // can't leave orphaned node/ssh grandchildren running. Best-effort — never fail a spawn over it.
+    if let Some(pid) = child.process_id() {
+        assign_to_kill_job(pid);
+    }
     let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
     let writer: std::sync::Arc<Mutex<Box<dyn std::io::Write + Send>>> =
         std::sync::Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| format!("writer: {e}"))?));
@@ -6291,7 +6345,12 @@ fn session_spawn(
     let id_r = id.clone();
     std::thread::spawn(move || {
         use std::io::Read;
-        let mut buf = [0u8; 8192];
+        // 32 KiB read buffer (#16, partial flow control): under a firehose (`yes`, `cat bigfile`) a
+        // bigger read collapses ~4× the per-chunk syscalls AND Channel IPC messages, cutting the
+        // message-flood cost. read() still returns whatever's available, so interactive output stays
+        // snappy. True backpressure (a frontend→backend credit/ack so a slow xterm can pause the
+        // reader) remains a follow-up — this only thins the flood, it doesn't bound it.
+        let mut buf = [0u8; 32 * 1024];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -6398,6 +6457,60 @@ fn session_detach(state: State<'_, SessionState>, id: String, token: u64) -> Res
     };
     chans.lock().unwrap_or_else(|e| e.into_inner()).retain(|(t, _)| *t != token);
     Ok(())
+}
+
+/// Ids of every currently-live session (across all windows). After a webview reload (F5 / WebView2
+/// crash-recovery) the frontend has lost its channels but the backend sessions keep running and
+/// holding SESSION_LIMIT slots — this lets the UI re-attach its panes instead of orphaning them.
+#[tauri::command]
+fn session_list(state: State<'_, SessionState>) -> Vec<String> {
+    state.0.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
+}
+
+/// Open a source location in the user's editor (#13), triggered by clicking a `path:line` link in a
+/// terminal. The path comes from (untrusted) terminal output, so it is treated as hostile: NEVER
+/// shelled out through `cmd /c` with interpolation. Instead it is (1) canonicalized — which also
+/// rejects any injection payload, since a path with shell metacharacters won't resolve to a real
+/// file — (2) required to be a regular, non-executable file, then (3) handed to the editor / OS via
+/// argv only (no shell string is ever reconstructed).
+#[tauri::command]
+fn open_in_editor(app: AppHandle, path: String, line: Option<u32>) -> Result<(), String> {
+    // Resolve to a real on-disk path; a non-existent or metacharacter-laden string fails here.
+    let canon = std::fs::canonicalize(&path).map_err(|_| "open_in_editor: no such file".to_string())?;
+    if !canon.is_file() {
+        return Err("open_in_editor: not a regular file".into());
+    }
+    // Never auto-open an executable/script — opening it could run it.
+    const BLOCKED_EXT: &[&str] = &[
+        "exe", "bat", "cmd", "com", "ps1", "psm1", "scr", "lnk", "vbs", "vbe", "js", "jse",
+        "wsf", "wsh", "msi", "reg", "hta", "cpl", "jar", "msc", "pif",
+    ];
+    if let Some(ext) = canon.extension().and_then(|e| e.to_str()) {
+        if BLOCKED_EXT.iter().any(|b| b.eq_ignore_ascii_case(ext)) {
+            return Err("open_in_editor: blocked file type".into());
+        }
+    }
+    let canon_str = canon.to_string_lossy().to_string();
+    // Prefer VS Code's --goto (jumps to the line) via argv — no shell. `code` resolves on installs
+    // that expose it; where it doesn't, spawn fails and we fall back.
+    let target = match line {
+        Some(l) => format!("{canon_str}:{l}"),
+        None => canon_str.clone(),
+    };
+    if std::process::Command::new("code")
+        .args(["--goto", &target])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .is_ok()
+    {
+        return Ok(());
+    }
+    // Fallback: open the validated path in its default app via the opener plugin (ShellExecute on the
+    // path as data — not a shell command line). Loses the line jump but stays safe.
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(canon_str, None::<&str>)
+        .map_err(|e| format!("open_in_editor: {e}"))
 }
 
 /// Immediate subdirectories of `path` (full paths, sorted, hidden/dot dirs skipped) — powers the
@@ -6905,6 +7018,8 @@ pub fn run() {
             session_kill,
             session_attach,
             session_detach,
+            session_list,
+            open_in_editor,
             list_subdirs,
             read_ssh_hosts,
             save_ssh_host,

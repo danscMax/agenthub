@@ -271,7 +271,7 @@ export const readStackProcs = () => invoke<StackProc[]>('read_stack_procs');
 // --- Parallel terminal sessions (real PTY running claude/opencode/shell/ssh) ---
 // session_spawn returns a session id; output streams over the binary Channel passed as onData,
 // termination on event `pty:exit:<id>`. Input/resize/kill go back through these commands.
-export type SessionTool = 'claude' | 'opencode' | 'shell' | 'ssh';
+export type SessionTool = 'claude' | 'opencode' | 'codex' | 'shell' | 'ssh';
 // PTY output streams as raw bytes over a binary Channel (no base64) — onData.onmessage gets ArrayBuffers.
 export const sessionSpawn = (
   profile: string,
@@ -311,10 +311,17 @@ export type SshHost = {
   source: 'saved' | 'sshconfig';
 };
 // Build the `ssh` CLI target string from a saved/imported host (user@host -p port -i key).
+// Hardening: host/user are interpolated into `ssh --% -t <target>` on the backend, so a value
+// starting with '-' would be parsed by ssh.exe as an option (e.g. -oProxyCommand=…) and execute on
+// connect. These come from saved/SyncThing-synced config, so treat a leading '-' as hostile and
+// throw (callers fall back to "unknown host"). The key path is quoted so paths with spaces survive.
 export function sshTarget(h: SshHost): string {
-  let s = h.user ? `${h.user}@${h.host}` : h.host;
+  const host = (h.host ?? '').trim();
+  const user = (h.user ?? '').trim();
+  if (/^-/.test(host) || /^-/.test(user)) throw new Error(`unsafe ssh host/user: ${host}`);
+  let s = user ? `${user}@${host}` : host;
   if (h.port) s += ` -p ${h.port}`;
-  if (h.keyPath) s += ` -i ${h.keyPath}`;
+  if (h.keyPath) s += ` -i "${h.keyPath.replace(/"/g, '')}"`;
   return s;
 }
 // Parse a typed ssh target ("user@host -p 22 -i ~/.ssh/key") back into structured host fields.
@@ -380,6 +387,10 @@ export const sessionAttach = (id: string, onData: Channel<ArrayBuffer>) =>
   invoke<number>('session_attach', { id, onData });
 // Drop one window's channel (by token) without killing the session (window closed / pane moved back).
 export const sessionDetach = (id: string, token: number) => invoke('session_detach', { id, token });
+// Live session ids across all windows — used to re-attach panes after a webview reload.
+export const sessionList = () => invoke<string[]>('session_list');
+// Open a source location (clicked path:line link in a terminal) in the user's editor.
+export const openInEditor = (path: string, line?: number) => invoke('open_in_editor', { path, line });
 
 // --- freellmapi analytics (read-only over the gateway's SQLite via a node helper) ---
 export type AnalyticsTotals = {

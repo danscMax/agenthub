@@ -376,10 +376,10 @@
   }
 
   // Deep-link a folder (e.g. a fork repo) into the Sessions launcher: switch tabs, seed the dialog.
-  let sessionFolderReq = $state<string | null>(null);
-  function openSessionFor(path: string) {
+  let sessionFolderReq = $state<{ path: string; tool?: import('$lib/ipc').SessionTool; profile?: string } | null>(null);
+  function openSessionFor(path: string, tool?: import('$lib/ipc').SessionTool, profile?: string) {
     active = 'sessions';
-    sessionFolderReq = path;
+    sessionFolderReq = { path, tool, profile };
   }
 
   function onForkAction(action: ForkAction, path?: string, label?: string) {
@@ -1602,7 +1602,7 @@
       {:else if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} {log} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
       {:else if active === 'profiles'}

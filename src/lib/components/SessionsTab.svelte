@@ -6,6 +6,7 @@
   import { t } from '$lib/i18n';
   import {
     sessionWrite,
+    sessionList,
     type SessionTool,
     type DetachPane,
     type SshHost,
@@ -19,6 +20,7 @@
   } from '$lib/ipc';
   import { getMonitors, invalidateMonitors, openDetached } from '$lib/monitors';
   import Select from './Select.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import { markMoved, peekMoved } from '$lib/sessionMove';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { ARG_PRESETS, toggleFlag } from '$lib/sessionPresets';
@@ -34,8 +36,9 @@
   }: {
     profiles?: string[];
     visible?: boolean;
-    // Deep-link from another tab: when set, open the launch dialog prefilled with this folder.
-    folderReq?: string | null;
+    // Deep-link from another tab (e.g. a fork card's terminal menu): prefill the launcher with this
+    // folder; when `tool` is set the launcher opens it straight away (profile applies to claude).
+    folderReq?: { path: string; tool?: SessionTool; profile?: string } | null;
     onFolderReqConsumed?: () => void;
   } = $props();
 
@@ -101,6 +104,22 @@
       launcherOpen = localStorage.getItem('cmh-sessions-launcher') === '1';
     } catch {
       /* first run / private mode */
+    }
+    // Re-attach sessions that survived a webview reload (#5): the backend keeps them running, so
+    // mirror the still-alive ones back here as owner instead of orphaning them against SESSION_LIMIT.
+    if (savedLive.length) {
+      void (async () => {
+        try {
+          const alive = new Set(await sessionList());
+          for (const s of savedLive) {
+            if (alive.has(s.id)) {
+              addPane({ tool: s.tool, profile: s.profile, cwd: s.cwd, args: s.args, remoteDir: s.remoteDir, sshTarget: s.sshTarget, attachId: s.id, ownsSession: true });
+            }
+          }
+        } catch {
+          /* backend gone / no restore */
+        }
+      })();
     }
     // SSH quick-connect dropdown: load saved + imported ~/.ssh/config hosts (1-click reconnect).
     readSshHosts()
@@ -183,22 +202,57 @@
 
   // Broadcast: mirror keystrokes from any pane to every running session.
   let broadcast = $state(false);
-  const sessionIds: Record<string, string> = {};
+  // $state (not a plain object) so the persist effect below reacts when a pane's id arrives/clears.
+  let sessionIds = $state<Record<string, string>>({});
   function onIdChange(key: string, id: string | null) {
-    if (id) sessionIds[key] = id;
-    else delete sessionIds[key];
+    if (id) sessionIds = { ...sessionIds, [key]: id };
+    else {
+      const { [key]: _drop, ...rest } = sessionIds;
+      sessionIds = rest;
+    }
   }
+  // ── Reload survival (#5): persist spawned-here sessions, re-attach the ones still alive on mount ──
+  const LIVE_KEY = 'cmh-sessions-live';
+  type LivePane = { tool: SessionTool; profile: string; cwd: string; args: string; remoteDir?: string; sshTarget?: string; id: string };
+  // Captured synchronously at init — BEFORE the persist effect first runs and overwrites it with the
+  // (empty) fresh panes — so a webview reload still sees the pre-reload session list.
+  const savedLive: LivePane[] = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(LIVE_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  $effect(() => {
+    try {
+      const live: LivePane[] = panes
+        .filter((p) => !p.attachId && sessionIds[p.key])
+        .map((p) => ({ tool: p.tool, profile: p.profile, cwd: p.cwd, args: p.args, remoteDir: p.remoteDir, sshTarget: p.sshTarget, id: sessionIds[p.key] }));
+      localStorage.setItem(LIVE_KEY, JSON.stringify(live));
+    } catch {
+      /* ignore */
+    }
+  });
   function broadcastInput(data: string) {
     for (const id of Object.values(sessionIds)) sessionWrite(id, data);
   }
   // One-shot: send a typed command (+Enter) to EVERY running session, without enabling
   // continuous broadcast.
   let sendAllText = $state('');
+  // Send-to-all fires a command (+Enter) into EVERY live session at once — including SSH/remote panes.
+  // That's the most destructive surface in the app, so gate it behind the canonical confirm dialog
+  // (project rule: destructive actions confirm first) showing the exact command + how many panes.
+  let confirmSend = $state<{ cmd: string } | null>(null);
   function sendToAll() {
     const cmd = sendAllText.trim();
     if (!cmd) return;
-    for (const id of Object.values(sessionIds)) sessionWrite(id, cmd + '\r');
+    confirmSend = { cmd };
+  }
+  function doSendToAll() {
+    if (!confirmSend) return;
+    for (const id of Object.values(sessionIds)) sessionWrite(id, confirmSend.cmd + '\r');
     sendAllText = '';
+    confirmSend = null;
   }
 
   // "Разнести по мониторам": open a detached window per (non-primary) monitor and spread the running
@@ -330,6 +384,9 @@
     panes = [...panes, { key, profile: v.profile, tool: v.tool, cwd: v.cwd, args: v.args, remoteDir: v.remoteDir, sshTarget: v.sshTarget, attachId: v.attachId, ownsSession: v.ownsSession }];
     if (v.tool === 'claude') rememberFolder(v.profile, v.cwd);
     rememberRecent(v.cwd);
+    // Auto-focus the new pane's terminal so the user can type immediately (the obvious next action
+    // after launch) — one frame later, once the pane has mounted and grabbed its paneRef.
+    requestAnimationFrame(() => paneRefs[key]?.focusTerminal());
   }
   $effect(() => {
     try {
@@ -542,7 +599,7 @@
     );
   }
   // ─── Launcher: environment × location × folder × args, read as a phrase (№20 + №8) ───
-  type Env = 'claude' | 'opencode' | 'shell';
+  type Env = 'claude' | 'opencode' | 'codex' | 'shell';
   const ENVS: { id: Env; label: string; title: string; icon: string }[] = [
     {
       id: 'claude',
@@ -555,6 +612,12 @@
       label: 'opencode',
       title: t('sessions.envOpencodeTip'),
       icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 7L4 12l4.5 5M15.5 7L20 12l-4.5 5"/></svg>'
+    },
+    {
+      id: 'codex',
+      label: 'codex',
+      title: t('sessions.envCodexTip'),
+      icon: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l-2 3 2 3M15 9l2 3-2 3"/></svg>'
     },
     {
       id: 'shell',
@@ -618,7 +681,14 @@
     if (!locId) return { tool: env as SessionTool, profile: prof, cwd: folder.trim(), args: a };
     const h = sshHostList.find((x) => x.id === locId);
     if (!h) return null;
-    return { tool: env as SessionTool, profile: prof, cwd: '', args: a, sshTarget: sshTarget(h), remoteDir: remoteDir.trim() || undefined };
+    let target: string;
+    try {
+      target = sshTarget(h); // throws on an option-injection host/user (leading '-')
+    } catch {
+      pushToast({ kind: 'error', title: t('sessions.sshUnsafeHost', { host: h.host }) });
+      return null;
+    }
+    return { tool: env as SessionTool, profile: prof, cwd: '', args: a, sshTarget: target, remoteDir: remoteDir.trim() || undefined };
   }
   function launchPhrase() {
     const v = paneFrom(lEnv, lProfile, lLoc, lFolder, lRemoteDir, lArgs);
@@ -663,14 +733,19 @@
       /* ignore */
     }
   });
-  // Deep-link (e.g. from a fork card's "Terminal"): prefill the phrase with that repo folder (local).
+  // Deep-link (e.g. from a fork card's "Terminal" menu): prefill the phrase with that repo folder
+  // (local). If the menu also picked a tool, open the session straight away (profile → claude only).
   $effect(() => {
     const f = folderReq;
-    if (f != null) {
-      lLoc = '';
-      lFolder = f;
-      onFolderReqConsumed?.();
+    if (f == null) return;
+    lLoc = '';
+    lFolder = f.path;
+    if (f.tool) {
+      const prof = f.tool === 'claude' ? f.profile || lProfile || profiles[0] || '' : '';
+      if (prof) lProfile = prof;
+      addPane({ tool: f.tool, profile: prof, cwd: f.path, args: '' });
     }
+    onFolderReqConsumed?.();
   });
 
   function duplicate(key: string) {
@@ -734,10 +809,13 @@
   // Focus mode (#61): dim every pane except the hovered one (for screencasts) — pure CSS, no
   // tracking of which terminal holds keyboard focus.
   let focusMode = $state(false);
+  let activeKey = $state(''); // pane whose terminal currently holds keyboard focus (#14)
   function cycleFocus(dir: 1 | -1) {
     const list = maximized ? panes.filter((p) => p.key === maximized) : panes;
     if (!list.length) return;
-    focusIdx = (focusIdx + dir + list.length) % list.length;
+    // Step from the pane that ACTUALLY holds focus, not a stale phantom counter.
+    const cur = list.findIndex((p) => p.key === activeKey);
+    focusIdx = ((cur === -1 ? focusIdx : cur) + dir + list.length) % list.length;
     paneRefs[list[focusIdx].key]?.focusTerminal();
   }
   function onKey(e: KeyboardEvent) {
@@ -789,6 +867,17 @@
 
 <svelte:window onkeydown={onKey} />
 
+<ConfirmDialog
+  open={!!confirmSend}
+  title={t('sessions.sendAllConfirmTitle')}
+  message={t('sessions.sendAllConfirmMsg', { count: Object.keys(sessionIds).length })}
+  details={confirmSend ? [confirmSend.cmd] : []}
+  confirmLabel={t('sessions.sendAllConfirmOk')}
+  danger
+  onConfirm={doSendToAll}
+  onCancel={() => (confirmSend = null)}
+/>
+
 <div class="wrap">
   <header class="mb-sw-3 flex items-center justify-between gap-sw-4">
     <div class="flex items-baseline gap-sw-3 min-w-0">
@@ -808,7 +897,8 @@
         <span class="text-sw-text-muted">·</span>
         <label class="flex cursor-pointer items-center gap-1" title={t('sessions.broadcastTip')}>
           <Toggle bind:checked={broadcast} />
-          <span class="text-sw-xs" class:text-sw-text={broadcast} class:text-sw-text-secondary={!broadcast}>{t('sessions.broadcast')}</span>
+          <span class="text-sw-xs" class:broadcast-armed={broadcast} class:text-sw-text-secondary={!broadcast}
+            >{broadcast ? t('sessions.broadcastArmed', { count: panes.length }) : t('sessions.broadcast')}</span>
         </label>
         <span class="text-sw-text-muted">·</span>
       {/if}
@@ -1004,7 +1094,8 @@
       <!-- Every pane stays MOUNTED (sessions must survive maximize); non-maximized ones are just
            hidden, so the maximized pane fills the single column. -->
       {#each panes as pane (pane.key)}
-        <div class="cell" class:hidden={maximized != null && maximized !== pane.key}>
+        <div class="cell" class:hidden={maximized != null && maximized !== pane.key}
+          class:active={activeKey === pane.key && !maximized && panes.length > 1}>
           <TerminalPane
             bind:this={paneRefs[pane.key]}
             profile={pane.profile}
@@ -1022,6 +1113,7 @@
             onInput={broadcastInput}
             {onIdChange}
             {onActivity}
+            onFocus={(k) => (activeKey = k)}
             displayName={pane.name ?? ''}
             onRename={renamePane}
             onNewSession={launchPhrase}
@@ -1066,6 +1158,11 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
+  }
+  /* Broadcast armed: warn-coloured so "every keystroke goes to all panes" isn't an invisible state. */
+  .broadcast-armed {
+    color: var(--sw-status-warn, #e0b341);
+    font-weight: 600;
   }
   .launcher {
     display: flex;
@@ -1370,6 +1467,13 @@
   }
   .cell.hidden {
     display: none;
+  }
+  /* The pane holding keyboard focus gets an accent ring so "you are here" is visible across panes
+     (esp. for Ctrl+]/[ cycling). border-radius matches the pane's own rounding. */
+  .cell.active {
+    outline: 2px solid var(--sw-accent);
+    outline-offset: -1px;
+    border-radius: var(--sw-radius-md);
   }
   /* Focus mode: dim every pane except the one under the cursor (for screencasts). */
   .grid.focus-dim .cell {

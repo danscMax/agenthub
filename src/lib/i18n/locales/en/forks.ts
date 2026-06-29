@@ -209,7 +209,7 @@ export default {
   recommended: 'Recommended:',
   terminal: 'Terminal',
   terminalTip:
-    'Open a session in the repo folder: pick the tool (Claude / opencode / shell) and profile (= provider)',
+    'Open a session in the repo folder: pick the tool (Claude / opencode / codex / shell) and profile (= provider)',
   externalTerminal: 'External terminal (cmd)',
   externalTerminalTip: 'Open a plain system cmd in the repo folder (for manual git operations)',
   moreActionsTip: 'More actions',

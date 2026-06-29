@@ -10,7 +10,7 @@
     { k: 'Alt + 1 / 2 / 3', d: t('page.hkColumns') },
     { k: 'Ctrl + ] / [', d: t('page.hkFocusPane') },
     { k: 'Ctrl + F', d: t('page.hkFind') },
-    { k: 'Ctrl + Shift + C / V', d: t('page.hkCopyPaste') },
+    { k: 'Ctrl+C / V · Shift+Ins', d: t('page.hkCopyPaste') },
     { k: '?', d: t('page.hkHelp') }
   ]);
 </script>

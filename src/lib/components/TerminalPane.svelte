@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Terminal } from '@xterm/xterm';
+  import { Terminal, type ILink } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { SearchAddon } from '@xterm/addon-search';
   import { WebglAddon } from '@xterm/addon-webgl';
+  import { WebLinksAddon } from '@xterm/addon-web-links';
+  import { Unicode11Addon } from '@xterm/addon-unicode11';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { Channel } from '@tauri-apps/api/core';
   import '@xterm/xterm/css/xterm.css';
@@ -14,6 +16,8 @@
     sessionResize,
     sessionKill,
     sessionDetach,
+    openUrl,
+    openInEditor,
     type SessionTool,
     type MonitorInfo
   } from '$lib/ipc';
@@ -23,7 +27,8 @@
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
   import ProfileUsageBadge from './ProfileUsageBadge.svelte';
-  import { copyText } from '$lib/clipboard';
+  import { copyText, pasteText } from '$lib/clipboard';
+  import { pushToast } from '$lib/toast.svelte';
 
   let {
     profile,
@@ -49,6 +54,7 @@
     onIdChange,
     onNewSession,
     onActivity,
+    onFocus,
     displayName = '',
     onRename
   }: {
@@ -77,6 +83,7 @@
     onIdChange?: (key: string, id: string | null) => void;
     onNewSession?: () => void;
     onActivity?: (key: string) => void;
+    onFocus?: (key: string) => void;
   } = $props();
 
   // Inline pane rename (double-click the title). Empty name → falls back to the derived label.
@@ -156,6 +163,32 @@
   let error = $state('');
   let unlisteners: UnlistenFn[] = [];
   let ro: ResizeObserver | undefined;
+  let themeObs: MutationObserver | undefined; // re-themes the terminal when the app flips dark/light
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined; // trailing-debounce the PTY resize
+
+  // Full 16-colour ANSI palette tied to the app theme (#15). Two real fixes over the old 2-colour
+  // literal: a light-mode terminal instead of a permanent near-black one, and a tuned bright-black so
+  // the dim `\x1b[90m` we print (e.g. "[session ended]") clears the 4.5:1 contrast bar.
+  const isLight = () => document.documentElement.classList.contains('light');
+  function xtermTheme(light: boolean) {
+    return light
+      ? {
+          background: '#eff1f5', foreground: '#4c4f69', cursor: '#dc8a78',
+          selectionBackground: 'rgba(30,102,245,0.25)',
+          black: '#5c5f77', red: '#d20f39', green: '#40a02b', yellow: '#df8e1d',
+          blue: '#1e66f5', magenta: '#ea76cb', cyan: '#179299', white: '#acb0be',
+          brightBlack: '#6c6f85', brightRed: '#d20f39', brightGreen: '#40a02b', brightYellow: '#df8e1d',
+          brightBlue: '#1e66f5', brightMagenta: '#ea76cb', brightCyan: '#179299', brightWhite: '#bcc0cc'
+        }
+      : {
+          background: '#0b0e14', foreground: '#cdd6f4', cursor: '#f5e0dc',
+          selectionBackground: 'rgba(137,180,250,0.30)',
+          black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
+          blue: '#89b4fa', magenta: '#f5c2e7', cyan: '#94e2d5', white: '#bac2de',
+          brightBlack: '#7f849c', brightRed: '#f38ba8', brightGreen: '#a6e3a1', brightYellow: '#f9e2af',
+          brightBlue: '#89b4fa', brightMagenta: '#f5c2e7', brightCyan: '#94e2d5', brightWhite: '#a6adc8'
+        };
+  }
 
   // In-terminal find (Ctrl+F).
   let searchOpen = $state(false);
@@ -188,15 +221,21 @@
 
   async function copySelection() {
     const sel = term?.getSelection();
-    if (sel) await copyText(sel);
+    if (!sel) return;
+    const ok = await copyText(sel);
+    if (ok) pushToast({ kind: 'success', title: t('sessions.copied') }, 1500);
   }
   async function paste() {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text && id && !exited) sessionWrite(id, text);
-    } catch {
-      /* clipboard blocked */
+    if (!id || exited) return;
+    const text = await pasteText(); // native OS clipboard (WebView2 web clipboard is unreliable)
+    if (text == null || text === '') {
+      pushToast({ kind: 'error', title: t('sessions.pasteEmpty') }, 2500);
+      return;
     }
+    // Route through xterm.paste — it honours bracketed-paste mode (wraps in \e[200~…201~ when the
+    // PTY app requested DECSET 2004, so multiline text doesn't auto-execute) and sanitizes control
+    // bytes. onData then forwards to the PTY (and to broadcast, if armed).
+    term?.paste(text);
   }
   function openSearch() {
     searchOpen = true;
@@ -242,9 +281,19 @@
       if (!term || !fit) return;
       try {
         fit.fit();
-        if (id) sessionResize(id, term.cols, term.rows);
       } catch {
-        /* layout not settled yet — the next observation retries */
+        return; /* layout not settled yet — the next observation retries */
+      }
+      // Visual fit runs every frame, but the PTY resize is trailing-debounced: a window/layout drag
+      // fires the observer on every pane each frame, and SIGWINCH-storming 12 children + their TUIs
+      // is wasteful. Send a single resize once the gesture settles.
+      if (id) {
+        const c = term.cols;
+        const r = term.rows;
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (id) sessionResize(id, c, r);
+        }, 120);
       }
     });
   }
@@ -255,7 +304,7 @@
   // then sends. Default templates live in sessionPresets; rendered via the shared DropdownMenu (so it
   // escapes the toolbar overflow, gets roving focus + Esc, instead of a hand-rolled clipped popover).
   function insertSnippet(text: string) {
-    if (id && !exited) sessionWrite(id, text);
+    if (id && !exited) term?.paste(text); // bracketed-paste aware; routes via onData (broadcast too)
     term?.focus();
   }
   const snipItems = $derived(MSG_SNIPPETS.map((s) => ({ label: s, onClick: () => insertSnippet(s) })));
@@ -353,7 +402,7 @@
       fontSize,
       cursorBlink: true,
       scrollback: sb,
-      theme: { background: '#0b0e14', foreground: '#cdd6f4' }
+      theme: xtermTheme(isLight())
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -376,6 +425,34 @@
     }
     search = new SearchAddon();
     term.loadAddon(search);
+    // Unicode 11 widths (#19): xterm defaults to v6, mismeasuring modern emoji / CJK and drifting the
+    // cursor inside hosted TUIs (Claude's UI, ru/zh output).
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
+    // Clickable URLs in output (#12) — git/build/Claude logs are full of them. Open via the OS opener,
+    // not the webview, so a click never navigates the app away.
+    term.loadAddon(new WebLinksAddon((_e, uri) => openUrl(uri)));
+    // Clickable source locations (#13): absolute Windows paths with a :line suffix → open in editor.
+    // Conservative (absolute paths only) to avoid false positives and broken relative-path opens.
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const text = term?.buffer.active.getLine(y - 1)?.translateToString(true) ?? '';
+        const re = /([A-Za-z]:\\[^\s:*?"<>|%&^()`]+):(\d+)(?::\d+)?/g;
+        const links: ILink[] = [];
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text))) {
+          const path = m[1];
+          const line = Number(m[2]);
+          const x = m.index + 1;
+          links.push({
+            range: { start: { x, y }, end: { x: x + m[0].length, y } },
+            text: m[0],
+            activate: () => openInEditor(path, line)
+          });
+        }
+        callback(links.length ? links : undefined);
+      }
+    });
     // Keystrokes read `id`/`exited` live, so this single handler survives a relaunch. With broadcast
     // on, route input up to the tab so it's mirrored to every pane.
     term.onData((d) => {
@@ -385,10 +462,24 @@
       }
       if (id && !exited) sessionWrite(id, d);
     });
-    // Copy (Ctrl+Shift+C), paste (Ctrl+Shift+V), find (Ctrl+F) — return false so xterm/PTY don't
-    // also receive the chord (plain Ctrl+C stays SIGINT).
+    // Windows-Terminal-style copy/paste so plain Ctrl+C/V behave as users expect (and so apps that
+    // inject text via a simulated Ctrl+V, e.g. Sweet Whisper, land in the PTY): Ctrl+C copies when
+    // there's a selection else falls through as SIGINT; Ctrl+V always pastes. Ctrl+Shift+C/V kept
+    // for muscle memory. find = Ctrl+F. return false → xterm/PTY don't also receive the chord.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+      if (e.ctrlKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        if (term?.hasSelection()) {
+          copySelection();
+          term.clearSelection(); // so a 2nd Ctrl+C interrupts instead of re-copying a stale selection
+          return false;
+        }
+        return true; // no selection → let Ctrl+C through as SIGINT (interrupt)
+      }
+      if (e.ctrlKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        paste();
+        return false;
+      }
       if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
         copySelection();
         return false;
@@ -409,11 +500,21 @@
     });
     ro = new ResizeObserver(() => refit());
     ro.observe(host);
+    // Live-retheme when the app toggles dark/light (theme.ts flips the `light` class on <html>).
+    themeObs = new MutationObserver(() => {
+      if (term) term.options.theme = xtermTheme(isLight());
+    });
+    themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    // Report keyboard focus up so the tab can mark the active pane (#14). xterm's hidden textarea
+    // is inside host, so focusin bubbles here.
+    host.addEventListener('focusin', () => onFocus?.(paneKey));
     await start();
   });
 
   onDestroy(() => {
     ro?.disconnect();
+    themeObs?.disconnect();
+    clearTimeout(resizeTimer);
     unlisteners.forEach((u) => u());
     if (id) {
       if (consumeMoved(id)) {
@@ -485,7 +586,7 @@
     {#if args}<span class="argbadge" title={args}>⚑</span>{/if}
     {#if tool === 'claude' && profile}<ProfileUsageBadge {profile} compact />{/if}
     <span class="spacer"></span>
-    {#if exited}
+    {#if exited || error}
       <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
     <DropdownMenu glyph="❡" title={t('sessions.snippets')} items={snipItems} />
@@ -526,7 +627,7 @@
       />
       <button class="x" onclick={() => runSearch(false)} title={t('sessions.findPrev')} aria-label={t('sessions.findPrev')}>↑</button>
       <button class="x" onclick={() => runSearch(true)} title={t('sessions.findNext')} aria-label={t('sessions.findNext')}>↓</button>
-      <button class="x" onclick={() => (searchOpen = false)} aria-label={t('sessions.closePane')}>✕</button>
+      <button class="x" onclick={() => (searchOpen = false)} aria-label={t('sessions.closeFind')}>✕</button>
     </div>
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->

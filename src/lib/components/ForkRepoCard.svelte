@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ForkRepo, ForkAction } from '$lib/ipc';
+  import type { ForkRepo, ForkAction, SessionTool } from '$lib/ipc';
   import { openTerminal, openUrl } from '$lib/ipc';
   import { pConflict, pBranch, pCommit, outcomeLabel, t } from '$lib/i18n';
   import DropdownMenu from './DropdownMenu.svelte';
@@ -14,6 +14,7 @@
     onAction,
     onCancel,
     onOpenSession,
+    profiles = [],
     refreshing = false
   }: {
     repo: ForkRepo;
@@ -21,7 +22,8 @@
     run?: { line: string; running: boolean; code: number | null };
     onAction: (action: ForkAction, path: string, label: string) => void;
     onCancel?: () => void;
-    onOpenSession?: (path: string) => void;
+    onOpenSession?: (path: string, tool?: SessionTool, profile?: string) => void;
+    profiles?: string[];
     // A whole-stack forks "check" is in flight: this card's status is being refreshed.
     refreshing?: boolean;
   } = $props();
@@ -346,10 +348,16 @@
             {rec.label}
           </button>
         {/if}
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenSession?.(repo.Path)}
-          title={t('forks.terminalTip')}>
-          {t('forks.terminal')}
-        </button>
+        <DropdownMenu
+          label={t('forks.terminal')}
+          title={t('forks.terminalTip')}
+          items={[
+            ...profiles.map((p) => ({ label: `claude · ${p}`, onClick: () => onOpenSession?.(repo.Path, 'claude', p) })),
+            { label: 'opencode', onClick: () => onOpenSession?.(repo.Path, 'opencode') },
+            { label: 'codex', onClick: () => onOpenSession?.(repo.Path, 'codex') },
+            { label: 'shell', onClick: () => onOpenSession?.(repo.Path, 'shell') }
+          ]}
+        />
         <DropdownMenu
           title={t('forks.moreActionsTip')}
           items={[

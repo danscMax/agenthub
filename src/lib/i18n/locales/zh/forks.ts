@@ -195,7 +195,7 @@ export default {
   // ── ForkRepoCard: action row ──
   recommended: '建议：',
   terminal: '终端',
-  terminalTip: '在仓库目录中打开会话：选择工具（Claude / opencode / shell）和配置（= 提供商）',
+  terminalTip: '在仓库目录中打开会话：选择工具（Claude / opencode / codex / shell）和配置（= 提供商）',
   externalTerminal: '外部终端 (cmd)',
   externalTerminalTip: '在仓库目录中打开普通系统 cmd（用于手动 git 操作）',
   moreActionsTip: '更多操作',

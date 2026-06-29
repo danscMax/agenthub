@@ -16,7 +16,8 @@
     onCancelCheck,
     onBatchFf,
     onOpenUrl,
-    onOpenSession
+    onOpenSession,
+    profiles = []
   }: {
     status: ForkStatus | null | undefined;
     githubRepos?: GithubRepo[];
@@ -27,7 +28,8 @@
     onCancelCheck?: () => void;
     onBatchFf: (names: string[]) => void;
     onOpenUrl?: (url: string) => void;
-    onOpenSession?: (path: string) => void;
+    onOpenSession?: (path: string, tool?: import('$lib/ipc').SessionTool, profile?: string) => void;
+    profiles?: string[];
   } = $props();
 
   const anyRunning = $derived(!!running);
@@ -238,6 +240,7 @@
           onAction={(a, p, l) => onAction(a, p, l)}
           onCancel={() => onCancelFork?.(repo.Path)}
           {onOpenSession}
+          {profiles}
           refreshing={running === 'forks'}
         />
       {/each}
