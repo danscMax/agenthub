@@ -51,3 +51,23 @@ A non-empty placeholder `ANTHROPIC_AUTH_TOKEN` written when the gateway needs no
 key. Its only job is to get the harness past the "Not logged in" screen; a keyless
 local gateway ignores its value. Must never be left empty for a custom base URL.
 _Avoid_: fake key, API key (the gateway path uses AUTH_TOKEN, not API_KEY).
+
+## Cross-harness coverage (the «Среды» tab)
+
+**Harness coverage**:
+What each harness can *see* — skills, MCP servers, providers, RTK — surfaced read-only per harness
+(`read_environments`), plus one-way actions to close gaps. Distinct from **Binding**, which only writes
+a provider into one harness's config; coverage is the wider "is this artifact reachable here?" view.
+_Avoid_: "sync" — that's Syncthing between *machines*, a different axis.
+
+**Shared skills folder**:
+`~/.agents/skills` — the one directory both OpenCode and Codex scan at the user level (Claude's profiles
+already share via `~/.claude/skills`). "Share skills" (`share_skills`) junctions every skill here so all
+harnesses see one set; re-running self-heals junctions left dangling by a plugin update.
+_Avoid_: copying skills per-harness — the junction is the single source of truth.
+
+**Shareable gap**:
+Per harness, the count of skills that *sharing would still add* (`shareableGap`). It gates the "share"
+button (hidden at 0) and the amber/green skills badge — so the permanent residual (skills that live only
+in OpenCode/Codex and can't be pushed into Claude) never reads as an unclosed gap.
+_Avoid_: "missing skills" (the n/total residual is not all closable).

@@ -59,6 +59,10 @@ block at the bottom of `lib.rs` (~80 commands; frontend calls them via typed wra
 - **providers / engines / router / opencode** — `read_providers`, `run_provider`, `read_engines`,
   `run_engine`, `run_router`, `run_connect_router`, `read_stack`, `run_stack`, my-provider CRUD, key rotation
 - **MCP / plugins / skills** — `read_mcp`, `run_mcp`, `list_plugins`, `run_plugin`, `list_skills`, `delete_skill`
+- **environments** (cross-harness coverage) — `read_environments` (per-harness skills/providers/MCP/RTK
+  overview), `read_skill_matrix` (per-skill × harness diff), `share_skills` (junction every skill into
+  `~/.agents/skills`, the folder OpenCode + Codex both scan), `run_opencode_rtk` (write/remove the
+  Windows-safe OpenCode RTK plugin)
 - **schedules** — `read_schedules`, `run_schedule`
 - **sessions** (PTY) — `session_spawn`, `session_write`, `session_resize`, `session_kill`
 - **config / shell** — `read_config`, `write_config`, `export_config`, `import_config`, `app_paths`,
@@ -72,7 +76,8 @@ block at the bottom of `lib.rs` (~80 commands; frontend calls them via typed wra
   **run lifecycle** (`run-log` appends to the console log; `run-done` reloads the relevant
   tab's data and surfaces a toast via `lib/outcome.ts`).
 - **Components** (`lib/components/`, ~42 files): one per tab — `HomeTab` (USE-1 health overview),
-  `UpdatesTab`, `ForksTab`, `BackupTab`, `ProfilesTab`, `McpTab`, `SyncTab`, `ProvidersTab`,
+  `UpdatesTab`, `ForksTab`, `BackupTab`, `ProfilesTab`, `McpTab`, `EnvironmentsTab` (the «Среды»
+  cross-harness tab), `SyncTab`, `ProvidersTab`,
   `PluginsTab`, `ScheduleTab`, `SessionsTab`, `AnalyticsTab`, `SettingsTab` — plus dialogs (all
   built on `ModalShell`: `ConfirmDialog`, `RestoreDialog`, `ProfileEditDialog`, `LaunchConfigDialog`,
   `SessionLaunchDialog`, `ProviderEditDialog`, `MyProviderEditDialog`, `RouterConnectDialog`,

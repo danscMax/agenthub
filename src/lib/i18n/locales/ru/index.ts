@@ -21,6 +21,7 @@ import plugins from './plugins';
 import updates from './updates';
 import glossary from './glossary';
 import schedule from './schedule';
+import environments from './environments';
 
 const ru = {
   common,
@@ -43,7 +44,8 @@ const ru = {
   plugins,
   updates,
   glossary,
-  schedule
+  schedule,
+  environments
 };
 
 export default ru;

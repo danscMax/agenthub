@@ -14,6 +14,7 @@ export default {
   analytics: '分析',
   extensions: '插件与技能',
   schedule: '计划任务',
+  envs: '环境',
   settings: '设置',
   soon: '即将推出',
   collapseSidebar: '收起侧栏',
@@ -34,5 +35,6 @@ export default {
   analyticsTip: 'freellmapi 网关用量分析（请求、令牌、节省）',
   extensionsTip: 'Claude Code 插件与技能：更新、启用和禁用',
   scheduleTip: '按计划自动运行维护（Windows 计划任务程序）',
+  envsTip: '各编码工具：在所有工具中统一技能、提供商和 RTK',
   settingsTip: '应用设置：主题、语言、路径、开机自启'
 };

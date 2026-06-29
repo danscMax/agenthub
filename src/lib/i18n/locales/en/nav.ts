@@ -14,6 +14,7 @@ export default {
   analytics: 'Analytics',
   extensions: 'Plugins & skills',
   schedule: 'Schedule',
+  envs: 'Environments',
   settings: 'Settings',
   soon: 'soon',
   collapseSidebar: 'Collapse sidebar',
@@ -34,5 +35,6 @@ export default {
   analyticsTip: 'freellmapi gateway usage analytics (requests, tokens, savings)',
   extensionsTip: 'Claude Code plugins & skills: update, enable and disable',
   scheduleTip: 'Run maintenance automatically on a schedule (Windows Task Scheduler)',
+  envsTip: 'Coding harnesses: skills, providers and RTK across all of them',
   settingsTip: 'App settings: theme, language, paths, autostart'
 };

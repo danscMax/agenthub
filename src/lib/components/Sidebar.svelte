@@ -27,6 +27,7 @@
     { id: 'profiles', labelKey: 'nav.profiles', tipKey: 'nav.profilesTip', icon: '☰', enabled: true },
     { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: '⚡', enabled: true },
     { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: '⧉', enabled: true },
+    { id: 'envs', labelKey: 'nav.envs', tipKey: 'nav.envsTip', icon: '◫', enabled: true },
     { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: '🧩', enabled: true },
     { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },
     { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: '📊', enabled: true },
@@ -43,7 +44,7 @@
   const ORD_VER_KEY = 'cmh-sidebar-order-ver';
   // Bump whenever the default `items` order above changes — re-seeds everyone to the new default
   // once (overriding a stale saved order), while still letting later manual reorders persist.
-  const ORD_VER = '3';
+  const ORD_VER = '4';
   let collapsed = $state(false);
   let order = $state<string[]>(items.map((i) => i.id));
   const orderedItems = $derived(

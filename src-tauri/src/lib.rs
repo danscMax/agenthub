@@ -4543,6 +4543,545 @@ fn list_skills() -> Vec<SkillInfo> {
     out
 }
 
+// ---- Environments overview (read-only) -----------------------------------------------------
+// Coverage matrix across the coding harnesses installed on this machine: how many skills each
+// can see, whether plugin-bundled skills reach it, provider count, and RTK wiring. Pure reads —
+// the "share skills" write is a separate command. Skill discovery follows each harness's own
+// docs: Claude reads ~/.claude/skills (+ its plugin system); OpenCode reads ~/.claude/skills,
+// ~/.agents/skills and ~/.config/opencode/skills; Codex reads ~/.agents/skills (user-level) and
+// its own ~/.codex/skills. So ~/.agents/skills is the one folder both OpenCode and Codex honor.
+
+/// Names of immediate sub-directories that contain a SKILL.md (case-insensitive on Windows).
+/// `is_dir()`/`is_file()` follow symlinks/junctions, so linked "own" skills are counted.
+fn skill_names_in(dir: &str) -> std::collections::BTreeSet<String> {
+    let mut set = std::collections::BTreeSet::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() && p.join("SKILL.md").is_file() {
+                if let Some(n) = p.file_name().and_then(|s| s.to_str()) {
+                    set.insert(n.to_string());
+                }
+            }
+        }
+    }
+    set
+}
+
+/// Owned skill-name sets per harness — computed once, shared by read_environments + read_skill_matrix.
+struct SkillSets {
+    claude_visible: std::collections::BTreeSet<String>,
+    opencode_visible: std::collections::BTreeSet<String>,
+    codex_visible: std::collections::BTreeSet<String>,
+    source_names: std::collections::BTreeSet<String>, // names `share_skills` links (real claude + plugins)
+    plugin_names: std::collections::BTreeSet<String>,
+    universe: std::collections::BTreeSet<String>,
+}
+
+/// OpenCode's skills dir, derived from the (env-aware) config path so `$OPENCODE_CONFIG` /
+/// `$XDG_CONFIG_HOME` are honored instead of a hardcoded `~/.config/opencode`.
+fn opencode_skills_dir(home: &str) -> String {
+    let cfg = opencode_config_path();
+    std::path::Path::new(&cfg)
+        .parent()
+        .map(|p| p.join("skills").to_string_lossy().to_string())
+        .unwrap_or_else(|| format!("{home}\\.config\\opencode\\skills"))
+}
+
+/// Real (non-symlink) skill dirs in `~/.claude/skills` + every plugin-bundled skill → (name, src_dir).
+/// Single source of what `share_skills` links; also drives `source_names` in read_environments.
+fn shareable_skill_sources(home: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(format!("{home}\\.claude\\skills")) {
+        for e in entries.flatten() {
+            let p = e.path();
+            let is_link = std::fs::symlink_metadata(&p)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_link || !p.is_dir() || !p.join("SKILL.md").is_file() {
+                continue;
+            }
+            if let Some(n) = p.file_name().and_then(|s| s.to_str()) {
+                out.push((n.to_string(), p.to_string_lossy().to_string()));
+            }
+        }
+    }
+    for s in plugin_bundled_skills() {
+        if !s.dir.is_empty() {
+            out.push((s.name, s.dir));
+        }
+    }
+    out
+}
+
+/// Every harness's reachable skill-name set, per each tool's documented discovery paths.
+fn skill_sets(home: &str) -> SkillSets {
+    use std::collections::BTreeSet;
+    // Scan ~/.claude/skills once → all names (visibility) + real, non-symlink names. `source_names`
+    // (= real claude skills + plugins) is exactly what `share_skills` links, so the gap closes after
+    // a share; symlinked entries already live in ~/.agents/skills and don't need re-linking.
+    let (mut claude_all, mut claude_real) = (BTreeSet::new(), BTreeSet::new());
+    if let Ok(entries) = std::fs::read_dir(format!("{home}\\.claude\\skills")) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !p.is_dir() || !p.join("SKILL.md").is_file() {
+                continue;
+            }
+            if let Some(n) = p.file_name().and_then(|s| s.to_str()) {
+                claude_all.insert(n.to_string());
+                let is_link = std::fs::symlink_metadata(&p)
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false);
+                if !is_link {
+                    claude_real.insert(n.to_string());
+                }
+            }
+        }
+    }
+    let agents = skill_names_in(&format!("{home}\\.agents\\skills"));
+    let opencode_skills = skill_names_in(&opencode_skills_dir(home));
+    let codex_skills = skill_names_in(&format!("{home}\\.codex\\skills"));
+    let plugin_names: BTreeSet<String> =
+        plugin_bundled_skills().into_iter().map(|s| s.name).collect();
+
+    let union = |parts: &[&BTreeSet<String>]| -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for p in parts {
+            out.extend(p.iter().cloned());
+        }
+        out
+    };
+    SkillSets {
+        claude_visible: union(&[&claude_all, &plugin_names]),
+        opencode_visible: union(&[&claude_all, &agents, &opencode_skills]),
+        codex_visible: union(&[&agents, &codex_skills]),
+        universe: union(&[&claude_all, &agents, &opencode_skills, &codex_skills, &plugin_names]),
+        source_names: union(&[&claude_real, &plugin_names]),
+        plugin_names,
+    }
+}
+
+/// True if the managed OpenCode RTK plugin's pinned rtk path still resolves — so "RTK on" can't lie
+/// when the binary moved and the plugin self-disabled at runtime. Handles the JSON-string and the
+/// legacy `String.raw` forms of `const RTK = …`.
+fn rtk_plugin_path_ok(content: &str) -> bool {
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("const RTK = ") {
+            let rest = rest.trim().trim_end_matches(';').trim();
+            if let Ok(p) = serde_json::from_str::<String>(rest) {
+                return std::path::Path::new(&p).is_file();
+            }
+            if let Some(inner) = rest.strip_prefix("String.raw`").and_then(|s| s.strip_suffix('`')) {
+                return std::path::Path::new(inner).is_file();
+            }
+        }
+    }
+    true
+}
+
+/// Count distinct TOML table keys under `[prefix` (e.g. "[model_providers.") — skips comments and
+/// dedups dotted sub-tables, replacing the fragile `.matches().count()` heuristic.
+fn count_toml_tables(text: &str, prefix: &str) -> usize {
+    let mut set = std::collections::BTreeSet::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix(prefix) {
+            let key: String = rest.chars().take_while(|c| *c != '.' && *c != ']').collect();
+            let key = key.trim().trim_matches('"').to_string();
+            if !key.is_empty() {
+                set.insert(key);
+            }
+        }
+    }
+    set.len()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnvInfo {
+    id: String,
+    name: String,
+    installed: bool,
+    config_path: String,
+    skills_visible: usize,
+    total_skills: usize,
+    plugin_skills_visible: bool,
+    shareable_gap: usize,
+    providers: usize,
+    mcp_servers: usize,
+    rtk: bool,
+    rtk_available: bool,
+    config_ok: bool,
+}
+
+/// Read-only coverage of every supported coding harness. Composes the existing native readers;
+/// no script spawn. zcode is reported as a not-installed placeholder (no Windows config dir yet).
+#[tauri::command]
+fn read_environments() -> Vec<EnvInfo> {
+    let home = match std::env::var("USERPROFILE") {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+
+    let sets = skill_sets(&home);
+    let total = sets.universe.len();
+    let plugins_in = |vis: &std::collections::BTreeSet<String>| -> bool {
+        !sets.plugin_names.is_empty() && sets.plugin_names.iter().all(|n| vis.contains(n))
+    };
+    // Skills `share_skills` would newly make visible to each harness (0 ⇒ nothing left to share).
+    let oc_gap = sets.source_names.difference(&sets.opencode_visible).count();
+    let cx_gap = sets.source_names.difference(&sets.codex_visible).count();
+
+    let rtk_present = resolve_rtk_path(&home).is_some();
+
+    // Claude — RTK detected by the real hook command token, not a loose "rtk" substring.
+    let claude_rtk = std::fs::read_to_string(format!("{home}\\.claude\\settings.json"))
+        .map(|s| s.contains("rtk hook"))
+        .unwrap_or(false);
+    let claude_mcp = read_mcp().map(|m| m.source.len()).unwrap_or(0);
+
+    // OpenCode — read & parse the config exactly once; derive providers + MCP + parse-health from it.
+    let opencode_cfg = opencode_config_path();
+    let opencode_txt = std::fs::read_to_string(&opencode_cfg).ok();
+    let opencode_installed = opencode_txt.is_some();
+    let opencode_json = opencode_txt.as_ref().and_then(|s| parse_json_bom(s).ok());
+    let opencode_config_ok = !opencode_installed || opencode_json.is_some();
+    let opencode_providers = opencode_json
+        .as_ref()
+        .and_then(|v| v.get("provider"))
+        .and_then(|p| p.as_object())
+        .map(|o| o.len())
+        .unwrap_or(0);
+    let opencode_mcp = opencode_json
+        .as_ref()
+        .and_then(|v| v.get("mcp").or_else(|| v.get("mcpServers")))
+        .and_then(|m| m.as_object())
+        .map(|o| o.len())
+        .unwrap_or(0);
+    // RTK "on" only when the managed plugin's pinned path still resolves (else it self-disabled).
+    let opencode_rtk = std::fs::read_to_string(format!("{home}\\.config\\opencode\\plugins\\rtk.ts"))
+        .map(|c| {
+            if c.contains("Managed by Castellyn") {
+                rtk_plugin_path_ok(&c)
+            } else {
+                true
+            }
+        })
+        .unwrap_or(false);
+
+    // Codex — TOML config; distinct-key tallies instead of a raw substring count.
+    let codex_cfg = format!("{home}\\.codex\\config.toml");
+    let codex_txt = std::fs::read_to_string(&codex_cfg).ok();
+    let codex_installed = codex_txt.is_some();
+    let codex_providers = codex_txt
+        .as_deref()
+        .map(|t| count_toml_tables(t, "[model_providers."))
+        .unwrap_or(0);
+    let codex_mcp = codex_txt
+        .as_deref()
+        .map(|t| count_toml_tables(t, "[mcp_servers."))
+        .unwrap_or(0);
+
+    let zcode_installed = std::path::Path::new(&format!("{home}\\.zcode")).is_dir()
+        || std::path::Path::new(&format!("{home}\\.config\\zcode")).is_dir();
+
+    vec![
+        EnvInfo {
+            id: "claude".into(),
+            name: "Claude Code".into(),
+            installed: std::path::Path::new(&format!("{home}\\.claude")).is_dir(),
+            config_path: format!("{home}\\.claude"),
+            skills_visible: sets.claude_visible.len(),
+            total_skills: total,
+            plugin_skills_visible: plugins_in(&sets.claude_visible),
+            shareable_gap: 0, // sharing targets ~/.agents/skills, which Claude does not read
+            providers: read_providers().len(),
+            mcp_servers: claude_mcp,
+            rtk: claude_rtk,
+            rtk_available: rtk_present,
+            config_ok: true,
+        },
+        EnvInfo {
+            id: "opencode".into(),
+            name: "OpenCode".into(),
+            installed: opencode_installed,
+            config_path: opencode_cfg,
+            skills_visible: sets.opencode_visible.len(),
+            total_skills: total,
+            plugin_skills_visible: plugins_in(&sets.opencode_visible),
+            shareable_gap: oc_gap,
+            providers: opencode_providers,
+            mcp_servers: opencode_mcp,
+            rtk: opencode_rtk,
+            rtk_available: rtk_present,
+            config_ok: opencode_config_ok,
+        },
+        EnvInfo {
+            id: "codex".into(),
+            name: "Codex".into(),
+            installed: codex_installed,
+            config_path: codex_cfg,
+            skills_visible: sets.codex_visible.len(),
+            total_skills: total,
+            plugin_skills_visible: plugins_in(&sets.codex_visible),
+            shareable_gap: cx_gap,
+            providers: codex_providers,
+            mcp_servers: codex_mcp,
+            rtk: false,
+            rtk_available: false,
+            config_ok: codex_installed,
+        },
+        EnvInfo {
+            id: "zcode".into(),
+            name: "ZCode".into(),
+            installed: zcode_installed,
+            config_path: String::new(),
+            skills_visible: 0,
+            total_skills: total,
+            plugin_skills_visible: false,
+            shareable_gap: 0,
+            providers: 0,
+            mcp_servers: 0,
+            rtk: false,
+            rtk_available: false,
+            config_ok: true,
+        },
+    ]
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillRow {
+    name: String,
+    claude: bool,
+    opencode: bool,
+    codex: bool,
+    shareable: bool, // present in a shareable source but missing from OpenCode or Codex
+}
+
+/// Per-skill visibility matrix across harnesses (#20) — turns the n/total gauge into a diff.
+/// Reuses the same sets as read_environments via `skill_sets`; pure reads.
+#[tauri::command]
+fn read_skill_matrix() -> Vec<SkillRow> {
+    let home = match std::env::var("USERPROFILE") {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+    let sets = skill_sets(&home);
+    let mut rows: Vec<SkillRow> = sets
+        .universe
+        .iter()
+        .map(|name| {
+            let opencode = sets.opencode_visible.contains(name);
+            let codex = sets.codex_visible.contains(name);
+            SkillRow {
+                name: name.clone(),
+                claude: sets.claude_visible.contains(name),
+                opencode,
+                codex,
+                shareable: sets.source_names.contains(name) && (!opencode || !codex),
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        // Skills that still need sharing first, then alphabetical.
+        b.shareable
+            .cmp(&a.shareable)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    rows
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShareResult {
+    created: usize,
+    skipped: usize,
+    failed: usize,
+    target: String,
+    details: Vec<String>, // names that failed to link
+}
+
+/// Make every skill (regular + plugin-bundled) reachable from ~/.agents/skills — the one folder both
+/// OpenCode and Codex scan at user level (per their docs). Idempotent "ensure": create missing
+/// junctions, repair dangling ones (stale plugin-cache targets after an update), skip correct ones.
+/// Never deletes a real directory or a still-valid link; mklink /J needs no admin. Claude is untouched.
+#[tauri::command]
+fn share_skills() -> Result<ShareResult, String> {
+    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    let target_dir = format!("{home}\\.agents\\skills");
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("create {target_dir}: {e}"))?;
+
+    let mut res = ShareResult {
+        created: 0,
+        skipped: 0,
+        failed: 0,
+        target: target_dir.clone(),
+        details: Vec::new(),
+    };
+    for (name, src) in shareable_skill_sources(&home) {
+        // Reject names that could break out of the mklink argv (cmd re-parses its arguments).
+        if name.is_empty()
+            || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        {
+            res.failed += 1;
+            res.details.push(format!("{name}: unsafe skill name, skipped"));
+            continue;
+        }
+        let link = format!("{target_dir}\\{name}");
+        let lp = std::path::Path::new(&link);
+        // symlink_metadata (lstat) sees the junction node even when its target is gone; `exists()`
+        // follows the link and would report `false` for a dangling junction, defeating the repair.
+        if std::fs::symlink_metadata(lp).is_ok() {
+            if std::fs::metadata(lp).is_ok() {
+                res.skipped += 1; // target alive → already shared
+                continue;
+            }
+            let _ = std::fs::remove_dir(lp); // dangling (e.g. old plugin-cache target) → drop & re-link
+        }
+        match std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J", &link, &src])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            Ok(o) if o.status.success() => res.created += 1,
+            // A racing pass may have created it between our check and mklink — a skip, not a failure.
+            Ok(_) if std::fs::symlink_metadata(lp).is_ok() => res.skipped += 1,
+            Ok(o) => {
+                res.failed += 1;
+                res.details.push(format!("{name}: {}", String::from_utf8_lossy(&o.stderr).trim()));
+            }
+            Err(e) => {
+                res.failed += 1;
+                res.details.push(format!("{name}: {e}"));
+            }
+        }
+    }
+    Ok(res)
+}
+
+// Windows-safe OpenCode RTK plugin. Thin delegating shell — all rewrite logic lives in
+// `rtk rewrite` (RTK's Rust registry, the single source of truth), so this file rarely changes.
+// The absolute rtk path ({{RTK_JSON}} = a serde_json-escaped string literal substituted at write
+// time) avoids the upstream `which rtk` probe that is broken on Windows (rtk-ai/rtk#1993) and
+// silently self-disables the plugin. JSON-escaping also neutralizes `${`/backtick/quote in the path.
+const OPENCODE_RTK_PLUGIN: &str = r#"import type { Plugin } from "@opencode-ai/plugin"
+
+// Managed by Castellyn — RTK command rewriting for OpenCode, pinned to the absolute rtk path
+// so binary detection works on Windows (upstream `which rtk` fails there; rtk-ai/rtk#1993).
+const RTK = {{RTK_JSON}}
+
+export const RtkOpenCodePlugin: Plugin = async ({ $ }) => {
+  try {
+    await $`${RTK} --version`.quiet()
+  } catch {
+    console.warn("[rtk] rtk binary not found — plugin disabled")
+    return {}
+  }
+
+  return {
+    "tool.execute.before": async (input, output) => {
+      const tool = String(input?.tool ?? "").toLowerCase()
+      if (tool !== "bash" && tool !== "shell") return
+      const args = output?.args
+      if (!args || typeof args !== "object") return
+
+      const command = (args as Record<string, unknown>).command
+      if (typeof command !== "string" || !command) return
+
+      try {
+        const result = await $`${RTK} rewrite ${command}`.quiet().nothrow()
+        const rewritten = String(result.stdout).trim()
+        if (rewritten && rewritten !== command) {
+          ;(args as Record<string, unknown>).command = rewritten
+        }
+      } catch {
+        // rtk rewrite failed — pass the command through unchanged
+      }
+    },
+  }
+}
+"#;
+
+/// Resolve the rtk binary as an absolute path (`where rtk`, then the cargo bin fallback). Pinning
+/// the full path is what makes the OpenCode plugin work on Windows (no reliance on `which`).
+fn resolve_rtk_path(home: &str) -> Option<String> {
+    if let Ok(o) = std::process::Command::new("where")
+        .arg("rtk")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        if o.status.success() {
+            if let Some(first) = String::from_utf8_lossy(&o.stdout).lines().next() {
+                let p = first.trim();
+                if !p.is_empty() {
+                    return Some(p.to_string());
+                }
+            }
+        }
+    }
+    let cargo = format!("{home}\\.cargo\\bin\\rtk.exe");
+    std::path::Path::new(&cargo).is_file().then_some(cargo)
+}
+
+/// Enable/disable RTK command-rewriting for OpenCode by writing/removing a Castellyn-managed,
+/// Windows-safe plugin at ~/.config/opencode/plugins/rtk.ts. Returns the new enabled state.
+/// Reversible (disable just deletes the file); never touches Claude's RTK hook.
+#[tauri::command]
+fn run_opencode_rtk(action: String) -> Result<bool, String> {
+    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    let plugins_dir = format!("{home}\\.config\\opencode\\plugins");
+    let plugin_file = format!("{plugins_dir}\\rtk.ts");
+    match action.as_str() {
+        "enable" => {
+            let rtk = resolve_rtk_path(&home)
+                .ok_or_else(|| "rtk binary not found (install rtk first)".to_string())?;
+            std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("create {plugins_dir}: {e}"))?;
+            // serde_json renders the path as a safe JS string literal (escapes \, ", ${, backtick).
+            let rtk_json = serde_json::to_string(&rtk).map_err(|e| e.to_string())?;
+            let content = OPENCODE_RTK_PLUGIN.replace("{{RTK_JSON}}", &rtk_json);
+            // Atomic temp+rename + .bak of any prior rtk.ts (incl. a hand-authored one) — crash-safe.
+            write_json_atomic(&plugin_file, &content)
+                .map_err(|e| format!("write {plugin_file}: {e}"))?;
+            Ok(true)
+        }
+        "disable" => {
+            // Only remove a plugin we wrote — never delete a user's own hand-authored rtk.ts.
+            match std::fs::read_to_string(&plugin_file) {
+                Ok(c) if c.contains("Managed by Castellyn") => std::fs::remove_file(&plugin_file)
+                    .map_err(|e| format!("remove {plugin_file}: {e}"))?,
+                Ok(_) => return Err("rtk.ts is not Castellyn-managed — left untouched".to_string()),
+                Err(_) => {} // not present → already disabled
+            }
+            Ok(false)
+        }
+        _ => Err(format!("unknown action: {action}")),
+    }
+}
+
+#[cfg(test)]
+mod opencode_rtk_plugin_tests {
+    /// A path containing backtick / `${` / quote must render as a single valid JS string literal,
+    /// not break out of `const RTK = …`. Guards the rtk-path injection fix (#9).
+    #[test]
+    fn rtk_path_renders_as_safe_string_literal() {
+        let evil = r#"C:\a`b${x}"c\rtk.exe"#;
+        let json = serde_json::to_string(evil).unwrap();
+        let content = super::OPENCODE_RTK_PLUGIN.replace("{{RTK_JSON}}", &json);
+        let line = content
+            .lines()
+            .find(|l| l.trim_start().starts_with("const RTK = "))
+            .expect("const RTK line present");
+        let val = line.trim_start().strip_prefix("const RTK = ").unwrap();
+        let parsed: String =
+            serde_json::from_str(val).expect("RTK value must be a valid JSON/JS string literal");
+        assert_eq!(parsed, evil);
+    }
+}
+
 #[derive(Serialize)]
 struct PluginUpdate {
     id: String,
@@ -6340,6 +6879,10 @@ pub fn run() {
             run_mcp,
             list_plugins,
             list_skills,
+            read_environments,
+            read_skill_matrix,
+            share_skills,
+            run_opencode_rtk,
             list_plugin_updates,
             list_plugin_contents,
             run_plugin,

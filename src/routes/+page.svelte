@@ -108,6 +108,7 @@
   import HotkeyHelp from '$lib/components/HotkeyHelp.svelte';
   import ProfilesTab from '$lib/components/ProfilesTab.svelte';
   import McpTab from '$lib/components/McpTab.svelte';
+  import EnvironmentsTab from '$lib/components/EnvironmentsTab.svelte';
   import SyncTab from '$lib/components/SyncTab.svelte';
   import HomeTab from '$lib/components/HomeTab.svelte';
   import ProvidersTab from '$lib/components/ProvidersTab.svelte';
@@ -126,7 +127,7 @@
   import { runningStore, opName } from '$lib/running.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t, locale } from '$lib/i18n';
-  import { setLanguage } from '$lib/ipc';
+  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, type EnvInfo, type SkillRow } from '$lib/ipc';
 
   let components = $state<Component[]>([]);
   let statuses = $state<Record<string, any>>({});
@@ -141,6 +142,9 @@
   let profilesConfig = $state<ProfilesConfig | null>(null);
   let launchConfig = $state<LaunchConfigStatus | null>(null);
   let mcpData = $state<McpStatus | null>(null);
+  let envsData = $state<EnvInfo[] | null>(null);
+  let envsMatrix = $state<SkillRow[] | null>(null);
+  let envsLoaded = $state(false);
   let syncData = $state<SyncStatus | null>(null);
   let driftData = $state<ConfigDriftStatus | null>(null);
   let syncLoaded = $state(false);
@@ -610,6 +614,82 @@
         () => startMcp('deploy')
       );
     }
+  }
+
+  // --- Environments tab (read-only cross-harness overview) ---
+  async function reloadEnvs() {
+    try {
+      envsData = await readEnvironments();
+    } catch {
+      envsData = null;
+    }
+  }
+  // Lazy-load on first open — cheap native reads, no script spawn.
+  $effect(() => {
+    if (active === 'envs' && !envsLoaded) {
+      envsLoaded = true;
+      setLoading('envs', true);
+      reloadEnvs().finally(() => setLoading('envs', false));
+    }
+  });
+  // Enable/disable RTK command-rewriting for OpenCode (writes/removes a Windows-safe plugin).
+  async function doEnvRtk(enable: boolean) {
+    try {
+      await runOpencodeRtk(enable ? 'enable' : 'disable');
+      pushToast({
+        kind: 'success',
+        title: enable ? t('environments.rtkEnabledToast') : t('environments.rtkDisabledToast')
+      });
+      await reloadEnvs();
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('environments.rtkError'), detail: String(e) });
+    }
+  }
+  function onEnvRtk(id: string, enable: boolean) {
+    if (id !== 'opencode') return; // only OpenCode is wired today
+    if (enable) {
+      doEnvRtk(true);
+    } else {
+      // Disabling deletes the plugin file — gate it behind a confirm (#7).
+      askConfirm(
+        t('environments.rtkDisableTitle'),
+        t('environments.rtkDisableConfirm'),
+        t('environments.rtkDisable'),
+        () => doEnvRtk(false),
+        { danger: true }
+      );
+    }
+  }
+
+  async function reloadSkillMatrix() {
+    try {
+      envsMatrix = await readSkillMatrix();
+    } catch {
+      envsMatrix = null;
+    }
+  }
+
+  // Share skills into ~/.agents/skills (additive junctions) so OpenCode + Codex see them all.
+  function onShareSkills() {
+    askConfirm(
+      t('environments.shareConfirmTitle'),
+      t('environments.shareConfirmMsg'),
+      t('environments.shareConfirmBtn'),
+      async () => {
+        try {
+          const r = await shareSkills();
+          pushToast({
+            kind: r.failed ? 'error' : 'success',
+            title: t('environments.shareDone', { created: r.created, skipped: r.skipped, failed: r.failed }),
+            detail: r.failed && r.details.length ? r.details.join('\n') : undefined
+          });
+          await reloadEnvs();
+          if (envsMatrix !== null) await reloadSkillMatrix();
+        } catch (e) {
+          pushToast({ kind: 'error', title: t('environments.shareError'), detail: String(e) });
+        }
+      }
+    );
   }
 
   // --- Sync tab ---
@@ -1199,7 +1279,7 @@
   });
 
   // Command palette (Ctrl+K): jump to any tab + a few quick actions.
-  const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
+  const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'envs', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
   let paletteOpen = $state(false);
   let hotkeyHelpOpen = $state(false);
   const paletteCommands = $derived([
@@ -1535,6 +1615,11 @@
         />
       {:else if active === 'mcp'}
         <McpTab data={mcpData} {running} onRefresh={reloadMcp} onDeploy={onMcpDeploy} />
+      {:else if active === 'envs'}
+        <EnvironmentsTab data={envsData} {running} matrix={envsMatrix} onRefresh={reloadEnvs}
+          onShare={onShareSkills} onRtk={onEnvRtk} onLoadMatrix={reloadSkillMatrix}
+          onOpenConfig={(p) => openPath(p).catch(toastErr)} onOpenProviders={() => (active = 'providers')}
+          onOpenMcp={() => (active = 'mcp')} onOpenUrl={(u) => openUrl(u).catch(toastErr)} />
       {:else if active === 'sync'}
         <SyncTab data={syncData} {running} onRefresh={onSyncRefresh} onApply={onSyncApply}
           driftData={driftData} conflictCount={profilesData?.syncConflicts?.count ?? 0}

@@ -663,6 +663,37 @@ export type PluginContents = {
 
 export const listPlugins = () => invoke<PluginInfo[]>('list_plugins');
 export const listSkills = () => invoke<SkillInfo[]>('list_skills');
+
+// --- Environments tab (cross-harness coverage: skills / providers / RTK) ---
+// Read-only overview of every coding harness (Claude Code, OpenCode, Codex, zcode) — how many
+// skills each can see, whether plugin-bundled skills reach it, provider count, RTK wiring.
+export type EnvInfo = {
+  id: string; // 'claude' | 'opencode' | 'codex' | 'zcode'
+  name: string;
+  installed: boolean;
+  configPath: string;
+  skillsVisible: number;
+  totalSkills: number;
+  pluginSkillsVisible: boolean; // all plugin-bundled skills reachable from this harness
+  shareableGap: number; // skills "share skills" would newly make visible here (0 = nothing left)
+  providers: number;
+  mcpServers: number;
+  rtk: boolean;
+  rtkAvailable: boolean; // false → no RTK integration path for this harness yet
+  configOk: boolean; // false → config file exists but failed to parse
+};
+export const readEnvironments = () => invoke<EnvInfo[]>('read_environments');
+// Per-skill visibility matrix across harnesses (diff view). `shareable` = present in a source but
+// missing from OpenCode or Codex.
+export type SkillRow = { name: string; claude: boolean; opencode: boolean; codex: boolean; shareable: boolean };
+export const readSkillMatrix = () => invoke<SkillRow[]>('read_skill_matrix');
+// Share all skills (regular + plugin-bundled) into ~/.agents/skills so OpenCode and Codex see them.
+// Additive & idempotent (directory junctions, no admin); never deletes. Claude is untouched.
+export type ShareResult = { created: number; skipped: number; failed: number; target: string; details: string[] };
+export const shareSkills = () => invoke<ShareResult>('share_skills');
+// Enable/disable RTK command-rewriting for OpenCode (writes a Windows-safe plugin). Returns new state.
+export const runOpencodeRtk = (action: 'enable' | 'disable') =>
+  invoke<boolean>('run_opencode_rtk', { action });
 // Delete a skill directory (guarded server-side to ~/.claude/skills).
 export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
 export const listPluginUpdates = () => invoke<PluginUpdate[]>('list_plugin_updates');

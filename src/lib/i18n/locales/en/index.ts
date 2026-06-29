@@ -22,6 +22,7 @@ import plugins from './plugins';
 import updates from './updates';
 import glossary from './glossary';
 import schedule from './schedule';
+import environments from './environments';
 
 const en: TranslationDict = {
   common,
@@ -44,7 +45,8 @@ const en: TranslationDict = {
   plugins,
   updates,
   glossary,
-  schedule
+  schedule,
+  environments
 };
 
 export default en;
