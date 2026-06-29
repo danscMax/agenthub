@@ -683,12 +683,22 @@
     if (!h) return null;
     let target: string;
     try {
-      target = sshTarget(h); // throws on an option-injection host/user (leading '-')
+      target = sshTarget(h); // throws on an arg-injection host/user (bad charset / whitespace / '-')
     } catch {
       pushToast({ kind: 'error', title: t('sessions.sshUnsafeHost', { host: h.host }) });
       return null;
     }
     return { tool: env as SessionTool, profile: prof, cwd: '', args: a, sshTarget: target, remoteDir: remoteDir.trim() || undefined };
+  }
+  // Display-safe target: sshTarget throws on an unsafe (arg-injection) host so the launch path can
+  // refuse it — but the host LIST renders it too, and a throw there would crash the render. Show the
+  // raw value with a ⚠ marker instead.
+  function sshTargetLabel(h: SshHost): string {
+    try {
+      return sshTarget(h);
+    } catch {
+      return `${h.user ? h.user + '@' : ''}${h.host} ⚠`;
+    }
   }
   function launchPhrase() {
     const v = paneFrom(lEnv, lProfile, lLoc, lFolder, lRemoteDir, lArgs);
@@ -1027,7 +1037,7 @@
               <span class="srv-chip">
                 <span>{sshReach[h.id] === 'ok' ? '🟢' : sshReach[h.id] === 'fail' ? '🔴' : '⚪'}</span>
                 <span class="srv-n">{h.name}</span>
-                <span class="srv-t font-mono">{sshTarget(h)}</span>
+                <span class="srv-t font-mono">{sshTargetLabel(h)}</span>
                 {#if h.source === 'saved'}
                   <button class="srv-x" onclick={() => deleteServer(h.id)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
                 {:else}

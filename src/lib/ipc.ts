@@ -311,17 +311,22 @@ export type SshHost = {
   source: 'saved' | 'sshconfig';
 };
 // Build the `ssh` CLI target string from a saved/imported host (user@host -p port -i key).
-// Hardening: host/user are interpolated into `ssh --% -t <target>` on the backend, so a value
-// starting with '-' would be parsed by ssh.exe as an option (e.g. -oProxyCommand=…) and execute on
-// connect. These come from saved/SyncThing-synced config, so treat a leading '-' as hostile and
-// throw (callers fall back to "unknown host"). The key path is quoted so paths with spaces survive.
+// Hardening (argv flag-smuggling): host/user are interpolated into `ssh --% -t <target>` and
+// RE-TOKENISED by ssh.exe on whitespace, so each must be a single safe token — not just free of a
+// leading '-'. A host like `realhost -oProxyCommand=calc` doesn't start with '-' yet smuggles an
+// option after the space. So we require a strict charset AND no whitespace, rejecting (throwing on)
+// anything else. Values come from saved/SyncThing-synced config, hence treated as untrusted. Port is
+// bounds-checked; the key path is quoted (one argv token) with quotes/newlines stripped.
+const SSH_HOST_RE = /^[A-Za-z0-9._:[\]-]+$/; // hostname / IPv4 / [IPv6]
+const SSH_USER_RE = /^[A-Za-z0-9._-]+$/;
 export function sshTarget(h: SshHost): string {
   const host = (h.host ?? '').trim();
   const user = (h.user ?? '').trim();
-  if (/^-/.test(host) || /^-/.test(user)) throw new Error(`unsafe ssh host/user: ${host}`);
+  if (!host || host.startsWith('-') || !SSH_HOST_RE.test(host)) throw new Error(`unsafe ssh host: ${host}`);
+  if (user && (user.startsWith('-') || !SSH_USER_RE.test(user))) throw new Error(`unsafe ssh user: ${user}`);
   let s = user ? `${user}@${host}` : host;
-  if (h.port) s += ` -p ${h.port}`;
-  if (h.keyPath) s += ` -i "${h.keyPath.replace(/"/g, '')}"`;
+  if (h.port != null && Number.isInteger(h.port) && h.port > 0 && h.port < 65536) s += ` -p ${h.port}`;
+  if (h.keyPath) s += ` -i "${h.keyPath.replace(/["\r\n]/g, '')}"`;
   return s;
 }
 // Parse a typed ssh target ("user@host -p 22 -i ~/.ssh/key") back into structured host fields.
