@@ -1078,6 +1078,9 @@
       pluginUpdates = [];
     }
   }
+  // list_plugin_updates spawns the claude CLI — throttle the on-focus refresh so alt-tabbing
+  // doesn't fire a spawn every time the window regains focus (explicit calls stay unthrottled).
+  let lastFocusPluginCheck = 0;
 
   async function reloadExtensions() {
     try {
@@ -1561,8 +1564,13 @@
       if (active === 'backup') reloadBackup();
       if (active === 'profiles' || active === 'home' || active === 'sync') reloadProfiles();
       if (active === 'mcp') reloadMcp();
-      // pluginUpdates also feeds the sidebar "extensions" badge, so keep it fresh app-wide.
-      reloadPluginUpdates();
+      // pluginUpdates also feeds the sidebar "extensions" badge, so keep it fresh app-wide — but
+      // at most once every 5 min on focus (the CLI spawn isn't worth firing on every alt-tab).
+      const now = Date.now();
+      if (now - lastFocusPluginCheck > 5 * 60_000) {
+        lastFocusPluginCheck = now;
+        reloadPluginUpdates();
+      }
     };
     window.addEventListener('focus', onFocus);
     unlisten.push(() => window.removeEventListener('focus', onFocus));

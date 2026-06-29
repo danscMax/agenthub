@@ -491,7 +491,12 @@
       {/each}
     </div>
   {:else}
-    <div class="sw-card text-sw-sm text-sw-text-muted">{t('providers.noEngines')}</div>
+    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
+      <div>
+        <div class="mb-sw-2 text-2xl">🔌</div>
+        <div class="text-sw-sm">{t('providers.noEngines')}</div>
+      </div>
+    </div>
   {/if}
   {/if}
 
@@ -652,7 +657,12 @@
       {/each}
     </div>
   {:else}
-    <div class="sw-card text-sw-sm text-sw-text-muted">{t('myProviders.empty')}</div>
+    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
+      <div>
+        <div class="mb-sw-2 text-2xl">🧩</div>
+        <div class="text-sw-sm">{t('myProviders.empty')}</div>
+      </div>
+    </div>
   {/if}
 
   <p class="mt-sw-4 text-sw-xs text-sw-text-muted">

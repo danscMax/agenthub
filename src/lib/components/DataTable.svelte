@@ -184,13 +184,14 @@
     });
   });
   const visibleKeys = $derived(sorted.map(rowKey));
+  const visibleKeySet = $derived(new Set(visibleKeys));
   const allSelected = $derived(visibleKeys.length > 0 && visibleKeys.every((k) => selected.has(k)));
   // Bulk actions operate on EVERY selected row, not just the visible ones — so selecting rows and
   // then narrowing the search/filter does not silently drop them from the batch. Preserve order:
   // visible (sorted) keys first, then any selected-but-hidden keys appended.
   const selectedList = $derived([
     ...visibleKeys.filter((k) => selected.has(k)),
-    ...[...selected].filter((k) => !visibleKeys.includes(k))
+    ...[...selected].filter((k) => !visibleKeySet.has(k))
   ]);
   function toggleAll() {
     if (allSelected) {
