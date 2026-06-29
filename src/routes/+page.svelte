@@ -517,7 +517,8 @@
         t('page.confirm_prof_remove_title', { name: args.name }),
         t('page.confirm_prof_remove_msg', { name: args.name }),
         t('page.confirm_prof_remove_btn'),
-        run
+        run,
+        { danger: true }
       );
     } else {
       run();
@@ -1153,14 +1154,9 @@
   }
 
   function onPluginAction(action: PluginAction, id: string) {
-    if (action === 'disable') {
-      askConfirm(
-        t('page.confirm_plugin_disable_title'),
-        t('page.confirm_plugin_disable_msg', { id }),
-        t('page.confirm_plugin_disable_btn'),
-        () => startPlugin('disable', id)
-      );
-    } else if (action === 'remove') {
+    // 'disable' is reversible (re-enable any time) → no confirm, matching bulk-disable. Only the
+    // irreversible 'remove' gates behind a danger confirm.
+    if (action === 'remove') {
       askConfirm(
         t('page.confirm_plugin_remove_title'),
         t('page.confirm_plugin_remove_msg', { id }),

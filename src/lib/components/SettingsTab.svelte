@@ -142,23 +142,35 @@
     flash(t('settings.saved'));
   }
 
-  async function persist(patch: Partial<HubConfig>) {
+  // Returns false (and surfaces errMsg + reverts the optimistic cfg) if the write fails, so callers
+  // don't flash "saved" or leave a toggle showing a value that never persisted.
+  async function persist(patch: Partial<HubConfig>): Promise<boolean> {
+    const prev = cfg;
     cfg = { ...cfg, ...patch };
-    await writeConfig(cfg);
+    try {
+      await writeConfig(cfg);
+      errMsg = '';
+      return true;
+    } catch (e) {
+      cfg = prev;
+      errMsg = `${t('common.error')}: ${e}`;
+      return false;
+    }
   }
 
   async function saveRoot() {
-    await persist({ scriptsRoot: scriptsRoot.trim() || null });
+    if (!(await persist({ scriptsRoot: scriptsRoot.trim() || null }))) return;
     paths = await appPaths();
     flash(t('settings.savedPath'));
   }
   // Enforce the inputs' min=5 on save too (the browser only enforces it on validated submit).
   const clampTimeout = (v: number | '') => (v === '' ? null : Math.max(5, Number(v)));
   async function saveTimeouts() {
-    await persist({
+    const ok = await persist({
       fetchTimeoutSec: clampTimeout(fetchTimeout),
       ghTimeoutSec: clampTimeout(ghTimeout)
     });
+    if (!ok) return;
     flash(t('settings.savedTimeouts'));
   }
   async function toggleAutostart(v: boolean) {
@@ -168,12 +180,18 @@
   }
   async function toggleStartHidden(v: boolean) {
     startHidden = v;
-    await persist({ startHidden: v });
+    if (!(await persist({ startHidden: v }))) {
+      startHidden = !v; // revert the toggle to match what actually persisted
+      return;
+    }
     flash(t('settings.saved'));
   }
   async function toggleCloseToTray(v: boolean) {
     closeToTray = v;
-    await persist({ closeToTray: v });
+    if (!(await persist({ closeToTray: v }))) {
+      closeToTray = !v;
+      return;
+    }
     flash(t('settings.saved'));
   }
   // #123: register the combo first (it throws on a bad/taken accelerator) and only persist if it took.

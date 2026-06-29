@@ -133,8 +133,10 @@ fn legacy_config_path() -> Option<String> {
 
 fn read_config_at(path: Option<String>) -> Option<HubConfig> {
     let p = path?;
-    let c = std::fs::read_to_string(p).ok()?;
-    serde_json::from_str(c.trim_start_matches('\u{feff}')).ok()
+    // Recover from <path>.bak if the live config is corrupt, so a damaged config.json silently
+    // restores instead of resetting every setting to defaults (and the next save overwriting them).
+    let v = read_json_or_recover(&p, "config.json").ok().flatten()?;
+    serde_json::from_value(v).ok()
 }
 
 /// Cached parse of config.json, invalidated by write_config_file (the single writer) so a settings
@@ -293,6 +295,24 @@ fn read_json_opt(
             .map_err(|e| format!("parse {label}: {e}")),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("read {label}: {e}")),
+    }
+}
+
+/// Like read_json_opt but, when the file is present yet corrupt/unreadable, transparently falls back
+/// to the `<path>.bak` durable backup that write_json_atomic leaves behind. Returns Err ONLY when the
+/// main file is bad AND no usable .bak exists — the signal for a mutating caller to ABORT instead of
+/// overwriting (which would turn a corrupt file into a permanent wipe). NotFound -> Ok(None).
+fn read_json_or_recover(
+    path: impl AsRef<std::path::Path>,
+    label: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let path = path.as_ref();
+    match read_json_opt(path, label) {
+        Ok(v) => Ok(v),
+        Err(main_err) => match read_json_opt(format!("{}.bak", path.display()), label) {
+            Ok(Some(v)) => Ok(Some(v)),
+            _ => Err(main_err),
+        },
     }
 }
 
@@ -3042,11 +3062,20 @@ struct MyProviderInput {
 static MYPROVIDERS_LOCK: Mutex<()> = Mutex::new(());
 
 fn read_myproviders_raw() -> Vec<serde_json::Value> {
-    std::fs::read_to_string(abs(MYPROVIDERS_CONFIG_REL))
+    // Lenient read for read-only/display callers: recover from .bak, else empty.
+    read_json_or_recover(abs(MYPROVIDERS_CONFIG_REL), "myproviders.json")
         .ok()
-        .and_then(|c| parse_json_bom(&c).ok())
+        .flatten()
         .and_then(|v| v.get("providers").and_then(|p| p.as_array()).cloned())
         .unwrap_or_default()
+}
+
+/// myproviders list for MUTATING callers: Err (abort, don't overwrite) when the file is corrupt and
+/// unrecoverable, instead of silently returning an empty list that the next write persists as a wipe.
+fn read_myproviders_checked() -> Result<Vec<serde_json::Value>, String> {
+    Ok(read_json_or_recover(abs(MYPROVIDERS_CONFIG_REL), "myproviders.json")?
+        .and_then(|v| v.get("providers").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default())
 }
 
 fn write_myproviders_raw(list: &[serde_json::Value]) -> Result<(), String> {
@@ -3119,7 +3148,7 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
     } else {
         "bearer".to_string()
     };
-    let mut list = read_myproviders_raw();
+    let mut list = read_myproviders_checked()?;
     let prev = find_provider(&list, &id);
     let created = prev
         .and_then(|e| e.get("createdAt").and_then(|x| x.as_str()))
@@ -3174,7 +3203,7 @@ fn find_provider_idx(list: &[serde_json::Value], id: &str) -> Option<usize> {
 #[tauri::command]
 fn delete_my_provider(id: String) -> Result<(), String> {
     let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut list = read_myproviders_raw();
+    let mut list = read_myproviders_checked()?;
     let (key_count, _) = find_provider(&list, &id).map(key_pool_meta).unwrap_or((0, 0));
     let before = list.len();
     list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
@@ -3199,7 +3228,7 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
     if key.is_empty() {
         return Err(tr("err.empty_key", cur_lang()).into());
     }
-    let mut list = read_myproviders_raw();
+    let mut list = read_myproviders_checked()?;
     let idx = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (mut count, active) = key_pool_meta(&list[idx]);
     // First add: fold the legacy single key (if any) into slot 0 so nothing is orphaned.
@@ -3214,7 +3243,12 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
     count += 1;
     list[idx]["keyCount"] = serde_json::json!(count);
     list[idx]["activeKey"] = serde_json::json!(active.min(count - 1));
-    write_myproviders_raw(&list)?;
+    // Transactional: if the JSON write fails, roll back the slot we just wrote so a crash here
+    // doesn't strand an orphan secret with a keyCount that never counted it.
+    if let Err(e) = write_myproviders_raw(&list) {
+        kr_delete(KR_PROVIDERS, &format!("provider:{id}:{}", count - 1));
+        return Err(e);
+    }
     Ok(myprovider_from_entry(&list[idx]))
 }
 
@@ -3224,7 +3258,7 @@ fn add_provider_key(id: String, api_key: String) -> Result<MyProvider, String> {
 #[tauri::command]
 fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
     let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut list = read_myproviders_raw();
+    let mut list = read_myproviders_checked()?;
     let pos = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count == 0 || index >= count {
@@ -3240,13 +3274,17 @@ fn remove_provider_key(id: String, index: u64) -> Result<MyProvider, String> {
             survivors.push(k);
         }
     }
-    for i in 0..count {
-        kr_delete(KR_PROVIDERS, &format!("provider:{id}:{i}"));
-    }
+    // Rewrite compactly WITHOUT deleting first: write each survivor to its new slot, and only after
+    // every write succeeds delete the now-stale trailing slots. A mid-write failure then leaves every
+    // survivor key still present (old or new slot) instead of destroying the pool (the old order
+    // deleted all slots up front, so a failed re-write lost the survivors permanently).
+    let new_count = survivors.len() as u64;
     for (i, k) in survivors.iter().enumerate() {
         kr_set(KR_PROVIDERS, &format!("provider:{id}:{i}"), k)?;
     }
-    let new_count = survivors.len() as u64;
+    for i in new_count..count {
+        kr_delete(KR_PROVIDERS, &format!("provider:{id}:{i}"));
+    }
     // Keep the active key pointing at a valid slot: shift down if we removed at/below it.
     let new_active = if new_count == 0 {
         0
@@ -3536,7 +3574,7 @@ async fn next_provider_key(
     state: State<'_, RunState>,
     id: String,
 ) -> Result<i32, String> {
-    let mut list = read_myproviders_raw();
+    let mut list = read_myproviders_checked()?;
     let pos = find_provider_idx(&list, &id).ok_or(tr("err.provider_not_found", cur_lang()))?;
     let (count, active) = key_pool_meta(&list[pos]);
     if count < 2 {
@@ -7187,6 +7225,29 @@ mod tests {
         std::fs::write(&bad, "{ not json").unwrap();
         assert!(read_config_at(Some(bad.display().to_string())).is_none());
         let _ = std::fs::remove_file(&bad);
+    }
+
+    #[test]
+    fn read_json_or_recover_falls_back_to_bak() {
+        let pid = std::process::id();
+        let dir = std::env::temp_dir();
+        // Missing → Ok(None).
+        let missing = dir.join(format!("castellyn_rec_none_{pid}.json"));
+        assert!(read_json_or_recover(&missing, "t").unwrap().is_none());
+        // Present + valid → Ok(Some), no .bak needed.
+        let good = dir.join(format!("castellyn_rec_ok_{pid}.json"));
+        std::fs::write(&good, "{\"a\":1}").unwrap();
+        assert_eq!(read_json_or_recover(&good, "t").unwrap().unwrap()["a"], 1);
+        // Corrupt main + valid .bak → recovers from .bak silently.
+        let corrupt = dir.join(format!("castellyn_rec_bad_{pid}.json"));
+        std::fs::write(&corrupt, "{ not json").unwrap();
+        std::fs::write(format!("{}.bak", corrupt.display()), "{\"a\":2}").unwrap();
+        assert_eq!(read_json_or_recover(&corrupt, "t").unwrap().unwrap()["a"], 2);
+        // Corrupt main + no usable .bak → Err (caller must abort, not overwrite).
+        let _ = std::fs::remove_file(format!("{}.bak", corrupt.display()));
+        assert!(read_json_or_recover(&corrupt, "t").is_err());
+        let _ = std::fs::remove_file(&good);
+        let _ = std::fs::remove_file(&corrupt);
     }
 
     #[test]
