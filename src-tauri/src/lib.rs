@@ -4655,6 +4655,7 @@ fn skill_names_in(dir: &str) -> std::collections::BTreeSet<String> {
 }
 
 /// Owned skill-name sets per harness — computed once, shared by read_environments + read_skill_matrix.
+#[derive(Clone)]
 struct SkillSets {
     claude_visible: std::collections::BTreeSet<String>,
     opencode_visible: std::collections::BTreeSet<String>,
@@ -4747,6 +4748,25 @@ fn skill_sets(home: &str) -> SkillSets {
     }
 }
 
+/// Short-TTL memo over skill_sets: opening the Environments tab fires read_environments AND
+/// read_skill_matrix back-to-back, each doing the full multi-dir skill walk. A 2 s window lets the
+/// second reuse the first's result. ponytail: a tiny self-expiring TTL (worst case 2 s stale, then
+/// self-heals) instead of a global cache that every plugin/skill mutation would have to invalidate.
+fn skill_sets_cached(home: &str) -> SkillSets {
+    use std::time::{Duration, Instant};
+    static CACHE: std::sync::Mutex<Option<(Instant, SkillSets)>> = std::sync::Mutex::new(None);
+    const TTL: Duration = Duration::from_secs(2);
+    let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((t, v)) = guard.as_ref() {
+        if t.elapsed() < TTL {
+            return v.clone();
+        }
+    }
+    let fresh = skill_sets(home);
+    *guard = Some((Instant::now(), fresh.clone()));
+    fresh
+}
+
 /// True if the managed OpenCode RTK plugin's pinned rtk path still resolves — so "RTK on" can't lie
 /// when the binary moved and the plugin self-disabled at runtime. Handles the JSON-string and the
 /// legacy `String.raw` forms of `const RTK = …`.
@@ -4812,7 +4832,7 @@ fn read_environments() -> Vec<EnvInfo> {
         Err(_) => return Vec::new(),
     };
 
-    let sets = skill_sets(&home);
+    let sets = skill_sets_cached(&home);
     let total = sets.universe.len();
     let plugins_in = |vis: &std::collections::BTreeSet<String>| -> bool {
         !sets.plugin_names.is_empty() && sets.plugin_names.iter().all(|n| vis.contains(n))
@@ -4956,7 +4976,7 @@ fn read_skill_matrix() -> Vec<SkillRow> {
         Ok(h) => h,
         Err(_) => return Vec::new(),
     };
-    let sets = skill_sets(&home);
+    let sets = skill_sets_cached(&home);
     let mut rows: Vec<SkillRow> = sets
         .universe
         .iter()
