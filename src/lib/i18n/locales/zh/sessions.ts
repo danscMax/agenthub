@@ -36,7 +36,7 @@ export default {
   zoomOut: '缩小（Ctrl+滚轮）',
   duplicate: '复制会话',
   relaunch: '重新启动',
-  find: '在终端中查找 (Ctrl+F)',
+  find: '在终端中查找 (Ctrl+Shift+F)',
   clearOutput: '清除输出',
   exportLog: '导出输出到文件',
   renameHint: '双击重命名面板',

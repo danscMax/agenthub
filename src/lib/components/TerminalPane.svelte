@@ -190,7 +190,7 @@
         };
   }
 
-  // In-terminal find (Ctrl+F).
+  // In-terminal find (Ctrl+Shift+F).
   let searchOpen = $state(false);
   let searchInput: HTMLInputElement | undefined = $state();
   let query = $state('');
@@ -465,7 +465,9 @@
     // Windows-Terminal-style copy/paste so plain Ctrl+C/V behave as users expect (and so apps that
     // inject text via a simulated Ctrl+V, e.g. Sweet Whisper, land in the PTY): Ctrl+C copies when
     // there's a selection else falls through as SIGINT; Ctrl+V always pastes. Ctrl+Shift+C/V kept
-    // for muscle memory. find = Ctrl+F. return false → xterm/PTY don't also receive the chord.
+    // for muscle memory. find = Ctrl+Shift+F, new session = Ctrl+Shift+T (Windows-Terminal style) so
+    // plain Ctrl+F/Ctrl+T reach the shell (readline forward-char / transpose-char). return false →
+    // xterm/PTY don't also receive the chord.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.ctrlKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
@@ -488,11 +490,11 @@
         paste();
         return false;
       }
-      if (e.ctrlKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
         openSearch();
         return false;
       }
-      if (e.ctrlKey && !e.shiftKey && (e.key === 't' || e.key === 'T') && onNewSession) {
+      if (e.ctrlKey && e.shiftKey && (e.key === 't' || e.key === 'T') && onNewSession) {
         onNewSession();
         return false;
       }

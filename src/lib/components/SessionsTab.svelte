@@ -772,7 +772,8 @@
     dragKey = null;
   }
 
-  // Tab-scoped shortcuts (only while the Sessions tab is shown): Ctrl+T new session, Alt+1/2/3 cols.
+  // Tab-scoped shortcuts (only while the Sessions tab is shown): Ctrl+Shift+T new session (plain
+  // Ctrl+T is left to the focused shell), Alt+1/2/3 cols, Ctrl+]/[ cycle panes.
   // Pane component refs, so a shortcut can move focus between terminals (and the tab can drive
   // search/zoom across every pane at once).
   type PaneApi = {
@@ -820,7 +821,7 @@
   }
   function onKey(e: KeyboardEvent) {
     if (!visible) return;
-    if (e.ctrlKey && !e.shiftKey && (e.key === 't' || e.key === 'T')) {
+    if (e.ctrlKey && e.shiftKey && (e.key === 't' || e.key === 'T')) {
       e.preventDefault();
       launchPhrase();
     } else if (e.altKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
@@ -972,7 +973,7 @@
         <span class="ssh-hint" title={t('sessions.sshToolHint', { tool: lEnv })}>{t('sessions.sshToolHint', { tool: lEnv })}</span>
       {/if}
       <button type="button" class="sw-btn sw-btn-ghost star" onclick={pinCurrent} title={t('sessions.pin')} aria-label={t('sessions.pin')}>★</button>
-      <button type="button" class="sw-btn sw-btn-primary text-sw-xs" onclick={launchPhrase} title="{t('sessions.phLaunch')} · Ctrl+T">▶ {t('sessions.phLaunch')}</button>
+      <button type="button" class="sw-btn sw-btn-primary text-sw-xs" onclick={launchPhrase} title="{t('sessions.phLaunch')} · Ctrl+Shift+T">▶ {t('sessions.phLaunch')}</button>
     </div>
 
     <!-- Favorites (pinned phrases) + save-workspace -->

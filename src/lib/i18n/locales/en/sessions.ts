@@ -36,7 +36,7 @@ export default {
   zoomOut: 'Smaller (Ctrl+wheel)',
   duplicate: 'Duplicate session',
   relaunch: 'Relaunch',
-  find: 'Find in terminal (Ctrl+F)',
+  find: 'Find in terminal (Ctrl+Shift+F)',
   clearOutput: 'Clear output',
   exportLog: 'Export output to file',
   renameHint: 'Double-click to rename the pane',

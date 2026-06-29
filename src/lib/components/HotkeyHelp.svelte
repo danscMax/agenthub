@@ -6,10 +6,10 @@
     { k: 'Ctrl + K', d: t('page.hkPalette') },
     { k: 'Ctrl + 1 … 9', d: t('page.hkTabJump') },
     { k: 'Esc', d: t('page.hkCancel') },
-    { k: 'Ctrl + T', d: t('page.hkNewSession') },
+    { k: 'Ctrl + Shift + T', d: t('page.hkNewSession') },
     { k: 'Alt + 1 / 2 / 3', d: t('page.hkColumns') },
     { k: 'Ctrl + ] / [', d: t('page.hkFocusPane') },
-    { k: 'Ctrl + F', d: t('page.hkFind') },
+    { k: 'Ctrl + Shift + F', d: t('page.hkFind') },
     { k: 'Ctrl+C / V · Shift+Ins', d: t('page.hkCopyPaste') },
     { k: '?', d: t('page.hkHelp') }
   ]);

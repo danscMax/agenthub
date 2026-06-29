@@ -36,7 +36,7 @@ export default {
   zoomOut: 'Мельче (Ctrl+колесо)',
   duplicate: 'Дублировать сессию',
   relaunch: 'Перезапустить',
-  find: 'Поиск в терминале (Ctrl+F)',
+  find: 'Поиск в терминале (Ctrl+Shift+F)',
   clearOutput: 'Очистить вывод',
   exportLog: 'Экспорт вывода в файл',
   renameHint: 'Двойной клик — переименовать панель',
