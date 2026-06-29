@@ -694,6 +694,8 @@ export const shareSkills = () => invoke<ShareResult>('share_skills');
 // Enable/disable RTK command-rewriting for OpenCode (writes a Windows-safe plugin). Returns new state.
 export const runOpencodeRtk = (action: 'enable' | 'disable') =>
   invoke<boolean>('run_opencode_rtk', { action });
+// Fan out canonical .mcp.json servers into OpenCode's opencode.json `mcp`. Returns count written.
+export const runOpencodeMcp = () => invoke<number>('run_opencode_mcp');
 // Delete a skill directory (guarded server-side to ~/.claude/skills).
 export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
 export const listPluginUpdates = () => invoke<PluginUpdate[]>('list_plugin_updates');

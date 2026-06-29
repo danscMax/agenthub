@@ -14,6 +14,7 @@
     onOpenConfig,
     onOpenProviders,
     onOpenMcp,
+    onDeployMcp,
     onOpenUrl,
     onLoadMatrix
   }: {
@@ -26,6 +27,7 @@
     onOpenConfig: (path: string) => void;
     onOpenProviders: () => void;
     onOpenMcp: () => void;
+    onDeployMcp: (id: string) => void;
     onOpenUrl: (url: string) => void;
     onLoadMatrix: () => void;
   } = $props();
@@ -168,14 +170,20 @@
                 {/if}
               </div>
 
-              <!-- MCP (#19) -->
+              <!-- MCP (#19) + fan-out to OpenCode -->
               <div class="flex flex-col gap-sw-1">
                 <span class="text-sw-xs text-sw-text-muted">{t('environments.mcp')}</span>
-                {#if e.mcpServers > 0}
-                  <button class="badge badge-info w-fit" onclick={onOpenMcp} title={t('environments.openMcpTip')}>{e.mcpServers}</button>
-                {:else}
-                  <button class="badge badge-muted w-fit" onclick={onOpenMcp} title={t('environments.openMcpTip')}>{t('environments.none')}</button>
-                {/if}
+                <div class="flex items-center gap-sw-2">
+                  {#if e.mcpServers > 0}
+                    <button class="badge badge-info" onclick={onOpenMcp} title={t('environments.openMcpTip')}>{e.mcpServers}</button>
+                  {:else}
+                    <button class="badge badge-muted" onclick={onOpenMcp} title={t('environments.openMcpTip')}>{t('environments.none')}</button>
+                  {/if}
+                  {#if e.id === 'opencode'}
+                    <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                      onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitle')}>{t('environments.deployMcp')}</button>
+                  {/if}
+                </div>
               </div>
 
               <!-- RTK (#16): one control vocabulary for every harness -->

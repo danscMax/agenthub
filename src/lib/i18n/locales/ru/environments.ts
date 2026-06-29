@@ -48,5 +48,9 @@ export default {
   installHow: 'Как установить',
   rtkNaTip: 'Нет пути интеграции RTK для этой среды',
   rtkClaudeTip: 'RTK в Claude Code управляется своим хуком (не отсюда)',
-  rtkDisableConfirm: 'Удалить плагин RTK из OpenCode? Команды перестанут переписываться. Обратимо — можно включить снова.'
+  rtkDisableConfirm: 'Удалить плагин RTK из OpenCode? Команды перестанут переписываться. Обратимо — можно включить снова.',
+  deployMcp: 'Развернуть MCP',
+  deployMcpTitle: 'Записать MCP-серверы из канонического .mcp.json в opencode.json (идемпотентно, с бэкапом)',
+  deployMcpDone: 'MCP развёрнуты в OpenCode: {n}',
+  deployMcpError: 'Не удалось развернуть MCP в OpenCode'
 };

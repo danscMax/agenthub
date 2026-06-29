@@ -5062,6 +5062,64 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
     }
 }
 
+/// Fan out the canonical MCP servers (.mcp.json) into OpenCode's `opencode.json` `mcp` block.
+/// Translates each Claude-format server (`command` + `args` [+ `env`]) to OpenCode's local-server
+/// shape (`{type:"local", command:[…], enabled:true, environment}`). Merge-patch: overwrites the
+/// canonical names, preserves any user-added servers. Returns the count written. Atomic write + .bak.
+/// (Codex MCP fan-out is deferred — its config.toml MCP loading is historically flaky, openai/codex#3441.)
+#[tauri::command]
+fn run_opencode_mcp() -> Result<usize, String> {
+    use serde_json::{json, Value};
+    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    // Canonical source, placeholders expanded (same as write_temp_mcp_config).
+    let src = std::fs::read_to_string(abs(MCP_CONFIG_REL))
+        .map_err(|e| format!("read .mcp.json: {e}"))?
+        .replace("{{USERPROFILE_FWD}}", &home.replace('\\', "/"));
+    let canonical = parse_json_bom(&src).map_err(|e| format!("parse .mcp.json: {e}"))?;
+    let servers = canonical
+        .get("mcpServers")
+        .and_then(|m| m.as_object())
+        .ok_or_else(|| "no mcpServers in .mcp.json".to_string())?;
+
+    let cfg_path = opencode_config_path();
+    let mut cfg: Value = match std::fs::read_to_string(&cfg_path) {
+        Ok(ref c) if !c.trim().is_empty() => {
+            parse_json_bom(c).map_err(|e| format!("parse opencode.json: {e}"))?
+        }
+        _ => return Err("opencode.json not found (is OpenCode installed?)".to_string()),
+    };
+    let Some(obj) = cfg.as_object_mut() else {
+        return Err("opencode.json is not a JSON object".to_string());
+    };
+    obj.entry("$schema").or_insert_with(|| json!("https://opencode.ai/config.json"));
+    if !obj.get("mcp").map(|m| m.is_object()).unwrap_or(false) {
+        obj.insert("mcp".into(), json!({}));
+    }
+    let mcp = obj.get_mut("mcp").unwrap().as_object_mut().unwrap();
+
+    let mut count = 0usize;
+    for (name, def) in servers {
+        let command = def.get("command").and_then(|c| c.as_str()).unwrap_or_default();
+        if command.is_empty() {
+            continue;
+        }
+        let mut cmd = vec![json!(command)];
+        if let Some(args) = def.get("args").and_then(|a| a.as_array()) {
+            cmd.extend(args.iter().cloned());
+        }
+        let mut entry = json!({ "type": "local", "command": cmd, "enabled": true });
+        if let Some(env) = def.get("env").and_then(|e| e.as_object()) {
+            entry.as_object_mut().unwrap().insert("environment".into(), json!(env));
+        }
+        mcp.insert(name.clone(), entry);
+        count += 1;
+    }
+
+    let serialized = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    write_json_atomic(&cfg_path, &serialized).map_err(|e| format!("write opencode.json: {e}"))?;
+    Ok(count)
+}
+
 #[cfg(test)]
 mod opencode_rtk_plugin_tests {
     /// A path containing backtick / `${` / quote must render as a single valid JS string literal,
@@ -6883,6 +6941,7 @@ pub fn run() {
             read_skill_matrix,
             share_skills,
             run_opencode_rtk,
+            run_opencode_mcp,
             list_plugin_updates,
             list_plugin_contents,
             run_plugin,

@@ -127,7 +127,7 @@
   import { runningStore, opName } from '$lib/running.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t, locale } from '$lib/i18n';
-  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, type EnvInfo, type SkillRow } from '$lib/ipc';
+  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, type EnvInfo, type SkillRow } from '$lib/ipc';
 
   let components = $state<Component[]>([]);
   let statuses = $state<Record<string, any>>({});
@@ -666,6 +666,18 @@
       envsMatrix = await readSkillMatrix();
     } catch {
       envsMatrix = null;
+    }
+  }
+
+  // Fan out the canonical MCP servers into OpenCode's opencode.json.
+  async function onDeployMcp(id: string) {
+    if (id !== 'opencode') return;
+    try {
+      const n = await runOpencodeMcp();
+      pushToast({ kind: 'success', title: t('environments.deployMcpDone', { n }) });
+      await reloadEnvs();
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('environments.deployMcpError'), detail: String(e) });
     }
   }
 
@@ -1619,7 +1631,7 @@
         <EnvironmentsTab data={envsData} {running} matrix={envsMatrix} onRefresh={reloadEnvs}
           onShare={onShareSkills} onRtk={onEnvRtk} onLoadMatrix={reloadSkillMatrix}
           onOpenConfig={(p) => openPath(p).catch(toastErr)} onOpenProviders={() => (active = 'providers')}
-          onOpenMcp={() => (active = 'mcp')} onOpenUrl={(u) => openUrl(u).catch(toastErr)} />
+          onOpenMcp={() => (active = 'mcp')} onDeployMcp={onDeployMcp} onOpenUrl={(u) => openUrl(u).catch(toastErr)} />
       {:else if active === 'sync'}
         <SyncTab data={syncData} {running} onRefresh={onSyncRefresh} onApply={onSyncApply}
           driftData={driftData} conflictCount={profilesData?.syncConflicts?.count ?? 0}

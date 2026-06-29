@@ -48,5 +48,9 @@ export default {
   installHow: 'How to install',
   rtkNaTip: 'No RTK integration path for this harness',
   rtkClaudeTip: "Claude Code's RTK is managed by its own hook (not from here)",
-  rtkDisableConfirm: 'Remove the RTK plugin from OpenCode? Commands will stop being rewritten. Reversible — you can re-enable.'
+  rtkDisableConfirm: 'Remove the RTK plugin from OpenCode? Commands will stop being rewritten. Reversible — you can re-enable.',
+  deployMcp: 'Deploy MCP',
+  deployMcpTitle: 'Write MCP servers from the canonical .mcp.json into opencode.json (idempotent, with backup)',
+  deployMcpDone: 'MCP deployed to OpenCode: {n}',
+  deployMcpError: 'Failed to deploy MCP to OpenCode'
 };

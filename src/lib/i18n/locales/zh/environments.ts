@@ -48,5 +48,9 @@ export default {
   installHow: '如何安装',
   rtkNaTip: '此工具没有 RTK 集成路径',
   rtkClaudeTip: 'Claude Code 的 RTK 由其自身钩子管理（不在此处）',
-  rtkDisableConfirm: '从 OpenCode 移除 RTK 插件？命令将不再被重写。可逆——可重新启用。'
+  rtkDisableConfirm: '从 OpenCode 移除 RTK 插件？命令将不再被重写。可逆——可重新启用。',
+  deployMcp: '部署 MCP',
+  deployMcpTitle: '将规范 .mcp.json 中的 MCP 服务器写入 opencode.json（幂等，带备份）',
+  deployMcpDone: '已部署 MCP 到 OpenCode：{n}',
+  deployMcpError: '部署 MCP 到 OpenCode 失败'
 };
