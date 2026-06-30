@@ -113,4 +113,7 @@ export default {
   monitorOpenFailed: 'Не удалось открыть окно на мониторе.',
   pinned: 'В избранном: {label}',
   sshToolHint: '{tool} запустится на сервере — он должен быть установлен там.',
+  backgroundPane: 'Свернуть в фон',
+  backgroundSection: 'Фоновые сессии ({n})',
+  restoreBg: 'Вернуть',
 };

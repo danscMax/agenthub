@@ -126,8 +126,10 @@
   import OnboardingWizard from '$lib/components/OnboardingWizard.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import ToastHost from '$lib/components/ToastHost.svelte';
+  import NotificationPanel from '$lib/components/NotificationPanel.svelte';
   import { pushToast } from '$lib/toast.svelte';
   import { runningStore, opName } from '$lib/running.svelte';
+  import { pushRun } from '$lib/runHistory.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t, locale } from '$lib/i18n';
   import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, type EnvInfo, type SkillRow } from '$lib/ipc';
@@ -139,6 +141,8 @@
   /** Cap the console buffer so a chatty/stuck script can't grow it without bound. */
   const MAX_LOG = 5000;
   let active = $state('updates');
+  let notifOpen = $state(false);
+  let pendingUndo = $state<{ snapshot: string; profiles?: string[]; includeCredentials?: boolean } | null>(null);
   let theme = $state<Theme>('dark');
   let backupData = $state<BackupList | null>(null);
   let profilesData = $state<ProfilesStatus | null>(null);
@@ -461,7 +465,10 @@
         t('page.confirm_restore_title'),
         t('page.confirm_restore_msg', { snap }),
         t('page.confirm_restore_btn'),
-        () => startBackup('restore', opts),
+        () => {
+          pendingUndo = opts ? { snapshot: opts.timestamp ?? '', profiles: opts.profiles, includeCredentials: opts.includeCredentials } : null;
+          startBackup('restore', opts);
+        },
         { danger: true, requireText: opts?.timestamp ?? null }
       );
     } else if (action === 'delete-snapshot') {
@@ -1358,6 +1365,23 @@
   const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'envs', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
   let paletteOpen = $state(false);
   let hotkeyHelpOpen = $state(false);
+  // Phase 4.2 — after a palette navigation, briefly scroll to + highlight a specific item in the target tab.
+  let highlightTarget = $state<{ tab: string; id: string } | null>(null);
+  // Consume highlightTarget after it has been applied (re-render cycle + transition completes).
+  $effect(() => {
+    const tgt = highlightTarget;
+    if (!tgt) return;
+    // The target tab's DOM may not be mounted yet if it just switched — wait for the next frame.
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-highlight-id="${CSS.escape(tgt.id)}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('highlight-flash');
+        setTimeout(() => el.classList.remove('highlight-flash'), 2000);
+      }
+      highlightTarget = null;
+    });
+  });
   const paletteCommands = $derived([
     // Mirror the Ctrl+1..9 jumps (first 9 tabs) as visible hints so the shortcuts are discoverable.
     ...NAV_IDS.map((id, i) => ({
@@ -1393,7 +1417,38 @@
         verbs.push({ id: `apply:${c.id}`, label: `${t('common.apply')}: ${c.name}`, run: () => startRun(c.id, 'apply') });
       }
       return verbs;
-    })
+    }),
+    // Phase 4.2 — data-driven deep links (profiles, MCP servers, repos, plugins, settings).
+    // Each result switches to the corresponding tab and briefly highlights the item.
+    ...(profilesData?.profiles ?? []).map((p) => ({
+      id: `pf:${p.name}`,
+      label: `${t('nav.profiles')} · ${p.name}`,
+      run: () => { active = 'profiles'; highlightTarget = { tab: 'profiles', id: `profile:${p.name}` }; }
+    })),
+    ...(mcpData?.source ?? []).map((s) => ({
+      id: `mcp:${s.name}`,
+      label: `${t('nav.mcp')} · ${s.name}`,
+      run: () => { active = 'mcp'; highlightTarget = { tab: 'mcp', id: `mcp:${s.name}` }; }
+    })),
+    ...(pluginsData ?? []).map((pl) => ({
+      id: `pl:${pl.id}`,
+      label: `${t('nav.extensions')} · ${pl.id}`,
+      run: () => { active = 'extensions'; highlightTarget = { tab: 'extensions', id: `plugin:${pl.id}` }; }
+    })),
+    ...githubRepos.map((r) => ({
+      id: `gh:${r.nameWithOwner}`,
+      label: `${t('nav.forks')} · ${r.nameWithOwner}`,
+      run: () => { active = 'forks'; highlightTarget = { tab: 'forks', id: `repo:${r.nameWithOwner}` }; }
+    })),
+    // Settings section deep links (statics).
+    { id: 'set:view', label: `${t('nav.settings')} · ${t('settings.view')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:view' }; } },
+    { id: 'set:theme', label: `${t('nav.settings')} · ${t('settings.theme')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:theme' }; } },
+    { id: 'set:lang', label: `${t('nav.settings')} · ${t('settings.language')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:language' }; } },
+    { id: 'set:root', label: `${t('nav.settings')} · ${t('settings.scriptsRoot')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:root' }; } },
+    { id: 'set:launch', label: `${t('nav.settings')} · ${t('settings.launch')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:launch' }; } },
+    { id: 'set:timeouts', label: `${t('nav.settings')} · ${t('settings.timeouts')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:timeouts' }; } },
+    { id: 'set:backup', label: `${t('nav.settings')} · ${t('settings.backupSection')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:backup' }; } },
+    { id: 'set:about', label: `${t('nav.settings')} · ${t('settings.about')}`, run: () => { active = 'settings'; highlightTarget = { tab: 'settings', id: 'settings:about' }; } }
   ]);
   function onGlobalKey(e: KeyboardEvent) {
     if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
@@ -1484,7 +1539,14 @@
         const forkAct = lastForkAction;
         lastForkAction = null;
         const c = components.find((x) => x.id === id);
-        if (c) await loadStatus(c);
+        if (c) {
+          await loadStatus(c);
+          const s = statuses[id];
+          const dur = s?.durationSec;
+          if (typeof dur === 'number') {
+            pushRun({ component: id, durationSec: dur, timestamp: Date.now(), status: s?.status ?? '' });
+          }
+        }
         // Component-specific data reloads (keep fresh before surfacing the outcome).
         if (id === 'backup') await reloadBackup();
         if (id === 'profiles') await reloadProfiles();
@@ -1541,15 +1603,27 @@
           } else {
             // Operational actions (provider/mcp/sync/backup/profiles/schedule/plugins): simple result.
             const name = opName(id);
-            if (code === 0) {
+            if (id === 'backup' && pendingUndo) {
+              const undo = pendingUndo;
+              pendingUndo = null;
+              if (code === 0) {
+                pushToast({ kind: 'success', title: t('page.toast_op_done', { name }) });
+                pushToast({
+                  kind: 'info',
+                  title: t('page.backup_restore_undo_title'),
+                  detail: t('page.backup_restore_undo_detail', { snap: undo.snapshot }),
+                  action: {
+                    label: t('page.backup_restore_undo_btn'),
+                    onClick: () => startBackup('restore', { timestamp: undo.snapshot, profiles: undo.profiles, includeCredentials: undo.includeCredentials })
+                  }
+                }, 15000);
+              } else {
+                pushToast({ kind: 'error', title: t('page.toast_op_error', { name, code }), detail: t('page.toast_op_error_detail'), action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ } });
+              }
+            } else if (code === 0) {
               pushToast({ kind: 'success', title: t('page.toast_op_done', { name }) });
             } else {
-              pushToast({
-                kind: 'error',
-                title: t('page.toast_op_error', { name, code }),
-                detail: t('page.toast_op_error_detail'),
-                action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ }
-              });
+              pushToast({ kind: 'error', title: t('page.toast_op_error', { name, code }), detail: t('page.toast_op_error_detail'), action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ } });
             }
           }
         } catch {
@@ -1642,7 +1716,10 @@
 <CommandPalette open={paletteOpen} commands={paletteCommands} placeholder={t('common.paletteSearch')} onClose={() => (paletteOpen = false)} />
 
 <div class="flex h-full overflow-hidden" class:dense={density === 'compact'}>
-  <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading} />
+  <Sidebar {active} onSelect={(id) => (active = id)} {attention} loading={tabLoading}
+    notifOpen={notifOpen} onToggleNotif={() => (notifOpen = !notifOpen)} />
+
+  <NotificationPanel open={notifOpen} onClose={() => (notifOpen = false)} />
 
   <div class="flex min-w-0 flex-1 flex-col">
     <main class="relative min-h-0 flex-1 overflow-auto">
@@ -1660,8 +1737,9 @@
         </div>
       {/if}
 
+      {#key active}
       <div
-        class="transition-opacity duration-200"
+        class="transition-opacity duration-200 animate-[sw-fade-in_0.2s_ease-out]"
         class:opacity-40={blockingRefresh}
         class:pointer-events-none={blockingRefresh}
       >
@@ -1764,6 +1842,7 @@
         </div>
       {/if}
       </div>
+      {/key}
       </div>
 
       <!-- Sessions tab is full-bleed and, once first opened, stays MOUNTED (display-toggled) so

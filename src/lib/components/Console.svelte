@@ -19,7 +19,7 @@
     onCancel: () => void;
   } = $props();
 
-  let pre: HTMLPreElement | undefined = $state();
+  let logEl: HTMLDivElement | undefined = $state();
   let height = $state(220);
   let collapsed = $state(true);
   let resizing = $state(false);
@@ -56,7 +56,7 @@
   // Autoscroll to bottom on new lines (when visible).
   $effect(() => {
     log.length;
-    if (pre && !collapsed) pre.scrollTop = pre.scrollHeight;
+    if (logEl && !collapsed) logEl.scrollTop = logEl.scrollHeight;
   });
 
   function toggle() {
@@ -131,9 +131,20 @@
   </header>
 
   {#if !collapsed}
-    <pre bind:this={pre} style="height:{height}px">{log.length
-        ? log.join('\n')
-        : t('console.empty')}</pre>
+    {#if log.length}
+      <div bind:this={logEl} class="log" style="height:{height}px">
+        {#each log as line}
+          <div
+            class="log-line"
+            class:log-warn={line.startsWith('⚠')}
+            class:log-diag={line.startsWith('[diag]')}
+            class:log-ok={line.startsWith('✓')}
+          >{line}</div>
+        {/each}
+      </div>
+    {:else}
+      <pre class="empty-log" style="height:{height}px">{t('console.empty')}</pre>
+    {/if}
   {/if}
 </section>
 
@@ -146,13 +157,14 @@
     background: color-mix(in srgb, var(--sw-bg-secondary) 50%, transparent);
   }
   .resizer {
-    height: 6px;
-    margin-top: -3px;
+    height: 10px;
+    margin-top: -5px;
     cursor: ns-resize;
     flex-shrink: 0;
+    transition: background 0.15s ease;
   }
   .resizer:hover {
-    background: var(--sw-accent-glow);
+    background: var(--sw-accent);
   }
   header {
     display: flex;
@@ -193,16 +205,28 @@
     padding: 3px 10px;
     font-size: var(--sw-text-xs);
   }
+  .log,
   pre {
     overflow: auto;
     margin: 0;
     padding: var(--sw-space-4);
-    white-space: pre-wrap;
-    word-break: break-word;
     font-family: 'Cascadia Code', 'Consolas', monospace;
     font-size: var(--sw-text-xs);
-    color: var(--sw-text-secondary);
     line-height: 1.5;
+  }
+  .log-line {
+    color: var(--sw-text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .log-warn {
+    color: var(--sw-warn);
+  }
+  .log-diag {
+    color: var(--sw-text-dimmed);
+  }
+  .log-ok {
+    color: var(--sw-success);
   }
   @keyframes pulse {
     0%,

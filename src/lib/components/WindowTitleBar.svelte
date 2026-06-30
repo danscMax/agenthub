@@ -48,6 +48,10 @@
     {/if}
   </div>
 
+  {#if runningStore.op}
+    <div class="tb-progress"></div>
+  {/if}
+
   <div class="controls">
     <button class="tb-btn" onclick={minimize} aria-label={t('titlebar.minimize')} title={t('titlebar.minimize')}>
       <svg viewBox="0 0 12 12" width="11" height="11"><line x1="2" y1="6.5" x2="10" y2="6.5" /></svg>
@@ -75,6 +79,7 @@
 
 <style>
   .titlebar {
+    position: relative;
     height: 36px;
     flex-shrink: 0;
     display: flex;
@@ -176,5 +181,26 @@
   .tb-btn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 2px var(--sw-accent);
+  }
+  .tb-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--sw-accent-glow, rgba(59,130,246,0.3));
+    overflow: hidden;
+  }
+  .tb-progress::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    background: var(--sw-accent);
+    animation: tb-progress-indeterminate 1.4s ease-in-out infinite;
+  }
+  @keyframes tb-progress-indeterminate {
+    0%   { left: -40%; }
+    100% { left: 100%; }
   }
 </style>

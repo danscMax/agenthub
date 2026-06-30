@@ -4,17 +4,44 @@
   import { t } from '$lib/i18n';
   import Spinner from './Spinner.svelte';
 
+  import { toastStore } from '$lib/toast.svelte';
+
   let {
     active,
     onSelect,
     attention = {},
-    loading = {}
+    loading = {},
+    notifOpen = false,
+    onToggleNotif
   }: {
     active: string;
     onSelect: (id: string) => void;
     attention?: Record<string, Attention | null>;
     loading?: Record<string, boolean>;
+    notifOpen?: boolean;
+    onToggleNotif?: () => void;
   } = $props();
+
+  let notifCount = $derived(toastStore.history.unread);
+
+  // Heroicons 20x20 solid — inline SVG strings inheriting currentColor via fill.
+  const I = (d: string) => `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="${d}"/></svg>`;
+  const ICONS = {
+    home: I('M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z'),
+    sessions: I('M3.25 3A2.25 2.25 0 001 5.25v9.5A2.25 2.25 0 003.25 17h13.5A2.25 2.25 0 0019 14.75v-9.5A2.25 2.25 0 0016.75 3H3.25zm.943 8.752a.75.75 0 01.055-1.06L6.167 9.5l-1.92-1.192a.75.75 0 01.944-1.166l2.5 1.55a.75.75 0 010 1.216l-2.5 1.55a.75.75 0 01-1.058-.106zM9.25 12.25a.75.75 0 000 1.5h3a.75.75 0 000-1.5h-3z'),
+    profiles: I('M10 8a3 3 0 100-6 3 3 0 000 6zM3.465 14.493a1.23 1.23 0 00.41 1.412A9.957 9.957 0 0010 18c2.31 0 4.438-.784 6.131-2.1.43-.333.604-.903.408-1.41a7.002 7.002 0 00-13.074.003z'),
+    providers: I('M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z'),
+    mcp: I('M10.362 1.093a.75.75 0 00-.724 0L2.523 5.018a.75.75 0 000 1.342l5.115 2.883a.75.75 0 00.724 0l5.115-2.883a.75.75 0 000-1.342L10.362 1.093zM3.606 7.976l-.888 2.158a.75.75 0 00.362.96l5.115 2.882a.75.75 0 00.724 0l5.115-2.882a.75.75 0 00.362-.96l-.888-2.158-4.589 2.585a.75.75 0 01-.724 0L3.606 7.976zM3.606 12.726l-.888 2.158a.75.75 0 00.362.96l5.115 2.882a.75.75 0 00.724 0l5.115-2.882a.75.75 0 00.362-.96l-.888-2.158-4.589 2.585a.75.75 0 01-.724 0L3.606 12.726z'),
+    envs: I('M4.25 2A2.25 2.25 0 002 4.25v2.5A2.25 2.25 0 004.25 9h2.5A2.25 2.25 0 009 6.75v-2.5A2.25 2.25 0 006.75 2h-2.5zm0 9A2.25 2.25 0 002 13.25v2.5A2.25 2.25 0 004.25 18h2.5A2.25 2.25 0 009 15.75v-2.5A2.25 2.25 0 006.75 11h-2.5zm9-9A2.25 2.25 0 0011 4.25v2.5A2.25 2.25 0 0013.25 9h2.5A2.25 2.25 0 0018 6.75v-2.5A2.25 2.25 0 0015.75 2h-2.5zm0 9A2.25 2.25 0 0011 13.25v2.5A2.25 2.25 0 0013.25 18h2.5A2.25 2.25 0 0018 15.75v-2.5A2.25 2.25 0 0015.75 11h-2.5z'),
+    extensions: I('M11.25 1.5A2.75 2.75 0 008.5 4.25v.25H5a2 2 0 00-2 2v3a2 2 0 002 2h.25v.25A2.75 2.75 0 008 14.5a2.75 2.75 0 002.75-2.75V11.5H11a2 2 0 002-2v-3a2 2 0 00-2-2h-.25v-.25A2.75 2.75 0 0010 1.5h1.25z'),
+    schedule: I('M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5.25a.75.75 0 00.428.679l3.75 2a.75.75 0 10.644-1.357l-3.322-1.77V5z'),
+    analytics: I('M15.5 2A1.5 1.5 0 0014 3.5v13a1.5 1.5 0 001.5 1.5h1a1.5 1.5 0 001.5-1.5v-13A1.5 1.5 0 0016.5 2h-1zM9.5 6A1.5 1.5 0 008 7.5v9A1.5 1.5 0 009.5 18h1a1.5 1.5 0 001.5-1.5v-9A1.5 1.5 0 0010.5 6h-1zM3.5 10A1.5 1.5 0 002 11.5v5A1.5 1.5 0 003.5 18h1A1.5 1.5 0 006 16.5v-5A1.5 1.5 0 004.5 10h-1z'),
+    sync: I('M13.78 2.72a.75.75 0 010 1.06l-2.47 2.47H16.5a.75.75 0 010 1.5h-5.19l2.47 2.47a.75.75 0 11-1.06 1.06l-3.75-3.75a.75.75 0 010-1.06l3.75-3.75a.75.75 0 011.06 0zm-7.5 8a.75.75 0 010 1.06L3.81 14.25H9a.75.75 0 010 1.5H3.81l2.47 2.47a.75.75 0 11-1.06 1.06l-3.75-3.75a.75.75 0 010-1.06l3.75-3.75a.75.75 0 011.06 0z'),
+    updates: I('M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.45-.382zm1.442-5.532a.75.75 0 00-1.45.382 5.5 5.5 0 01-9.202 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-.348-.557z'),
+    forks: I('M6.28 5.22a.75.75 0 010 1.06L2.56 10l3.72 3.72a.75.75 0 01-1.06 1.06L.97 10.53a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0zm7.44 0a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L17.44 10l-3.72-3.72a.75.75 0 010-1.06z'),
+    backup: I('M2 3a1 1 0 00-1 1v1a1 1 0 001 1h16a1 1 0 001-1V4a1 1 0 00-1-1H2zM2 7.5h16l-.811 7.71a2 2 0 01-1.99 1.79H4.802a2 2 0 01-1.99-1.79L2 7.5zM7 11a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1z'),
+    settings: I('M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.205 1.25l-1.18 2.045a1 1 0 01-1.186.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652A1 1 0 0111.18 19H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.113a7.05 7.05 0 010-2.228L1.82 7.593a1 1 0 01-.205-1.25l1.18-2.045a1 1 0 011.186-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z')
+  };
 
   // Labels are resolved reactively in markup via t(it.labelKey) so they follow the UI language.
   // Default order, grouped by intent: run agents (sessions/profiles/providers) → extend them
@@ -22,20 +49,20 @@
   // backup) → settings last. Users can drag to reorder; that custom order is persisted and
   // re-seeded from this default whenever ORD_VER below is bumped.
   const items = [
-    { id: 'home', labelKey: 'nav.home', tipKey: 'nav.homeTip', icon: '⌂', enabled: true },
-    { id: 'sessions', labelKey: 'nav.sessions', tipKey: 'nav.sessionsTip', icon: '▦', enabled: true },
-    { id: 'profiles', labelKey: 'nav.profiles', tipKey: 'nav.profilesTip', icon: '☰', enabled: true },
-    { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: '⚡', enabled: true },
-    { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: '⧉', enabled: true },
-    { id: 'envs', labelKey: 'nav.envs', tipKey: 'nav.envsTip', icon: '◫', enabled: true },
-    { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: '🧩', enabled: true },
-    { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: '🕒', enabled: true },
-    { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: '📊', enabled: true },
-    { id: 'sync', labelKey: 'nav.sync', tipKey: 'nav.syncTip', icon: '⇄', enabled: true },
-    { id: 'updates', labelKey: 'nav.updates', tipKey: 'nav.updatesTip', icon: '⟳', enabled: true },
-    { id: 'forks', labelKey: 'nav.forks', tipKey: 'nav.forksTip', icon: '⑂', enabled: true },
-    { id: 'backup', labelKey: 'nav.backup', tipKey: 'nav.backupTip', icon: '⛁', enabled: true },
-    { id: 'settings', labelKey: 'nav.settings', tipKey: 'nav.settingsTip', icon: '⚙', enabled: true }
+    { id: 'home', labelKey: 'nav.home', tipKey: 'nav.homeTip', icon: ICONS.home, enabled: true },
+    { id: 'sessions', labelKey: 'nav.sessions', tipKey: 'nav.sessionsTip', icon: ICONS.sessions, enabled: true },
+    { id: 'profiles', labelKey: 'nav.profiles', tipKey: 'nav.profilesTip', icon: ICONS.profiles, enabled: true },
+    { id: 'providers', labelKey: 'nav.providers', tipKey: 'nav.providersTip', icon: ICONS.providers, enabled: true },
+    { id: 'mcp', labelKey: 'nav.mcp', tipKey: 'nav.mcpTip', icon: ICONS.mcp, enabled: true },
+    { id: 'envs', labelKey: 'nav.envs', tipKey: 'nav.envsTip', icon: ICONS.envs, enabled: true },
+    { id: 'extensions', labelKey: 'nav.extensions', tipKey: 'nav.extensionsTip', icon: ICONS.extensions, enabled: true },
+    { id: 'schedule', labelKey: 'nav.schedule', tipKey: 'nav.scheduleTip', icon: ICONS.schedule, enabled: true },
+    { id: 'analytics', labelKey: 'nav.analytics', tipKey: 'nav.analyticsTip', icon: ICONS.analytics, enabled: true },
+    { id: 'sync', labelKey: 'nav.sync', tipKey: 'nav.syncTip', icon: ICONS.sync, enabled: true },
+    { id: 'updates', labelKey: 'nav.updates', tipKey: 'nav.updatesTip', icon: ICONS.updates, enabled: true },
+    { id: 'forks', labelKey: 'nav.forks', tipKey: 'nav.forksTip', icon: ICONS.forks, enabled: true },
+    { id: 'backup', labelKey: 'nav.backup', tipKey: 'nav.backupTip', icon: ICONS.backup, enabled: true },
+    { id: 'settings', labelKey: 'nav.settings', tipKey: 'nav.settingsTip', icon: ICONS.settings, enabled: true }
   ];
 
   // Collapsed rail + user tab order, both persisted.
@@ -151,7 +178,7 @@
       onkeydown={(e) => moveItem(e, it.id)}
       onclick={() => it.enabled && onSelect(it.id)}
     >
-      <span class="nav-icon">{it.icon}</span>
+      <span class="nav-icon">{@html it.icon}</span>
       <span class="nav-label">{t(it.labelKey)}</span>
       {#if !it.enabled}<span class="soon">{t('nav.soon')}</span>{/if}
       {#if loading[it.id]}
@@ -166,7 +193,20 @@
       {/if}
     </button>
   {/each}
+  <div class="notif-area">
+    <button class="notif-btn" onclick={onToggleNotif} title={t('common.notifications')} aria-label={t('common.notifications')}>
+      <span class="nav-icon">{@html NOTIF_ICON}</span>
+      <span class="nav-label">{t('common.notifications')}</span>
+      {#if notifCount}
+        <span class="att att-info">{notifCount > 99 ? '99+' : notifCount}</span>
+      {/if}
+    </button>
+  </div>
 </nav>
+
+<script module>
+  const NOTIF_ICON = `<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>`;
+</script>
 
 <style>
   .sidebar {
@@ -323,5 +363,38 @@
     border-radius: 999px;
     background: var(--sw-bg-hover);
     color: var(--sw-text-muted);
+  }
+  .notif-area {
+    margin-top: auto;
+    border-top: 1px solid var(--sw-border);
+    padding-top: 4px;
+  }
+  .notif-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 14px;
+    border: none;
+    border-radius: var(--sw-radius-md);
+    background: transparent;
+    color: var(--sw-text-secondary);
+    font-size: 0.92rem;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s ease;
+  }
+  .notif-btn:hover {
+    background: var(--sw-sidebar-item-hover);
+    color: var(--sw-text-primary);
+  }
+  .collapsed .notif-btn {
+    justify-content: center;
+    padding: 11px 0;
+  }
+  .collapsed .notif-area {
+    /* same padding as .collapsed .brand for alignment */
+    padding: var(--sw-space-2) 0;
   }
 </style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EnvInfo, SkillRow } from '$lib/ipc';
+  import EmptyState from './EmptyState.svelte';
   import { t } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
@@ -230,12 +231,6 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">🧭</div>
-        <div class="font-medium text-sw-text">{t('environments.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('environments.emptyHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="🧭" title={t('environments.emptyTitle')} description={t('environments.emptyHint')} />
   {/if}
 </div>

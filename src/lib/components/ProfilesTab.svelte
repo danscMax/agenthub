@@ -13,6 +13,7 @@
   } from '$lib/ipc';
   import { pProfile, t } from '$lib/i18n';
   import { readProfileFile } from '$lib/ipc';
+  import EmptyState from './EmptyState.svelte';
   import { copyText } from '$lib/clipboard';
   import { relTime } from '$lib/relativeTime';
   import { profileDotColor } from '$lib/statusColor';
@@ -443,7 +444,13 @@
     {/if}
   {/if}
 
-  {#if profiles.length}
+  {#if data === null}
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(4) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem"></div>
+      {/each}
+    </div>
+  {:else if profiles.length}
     <DataTable
       columns={COLS}
       rows={profiles}
@@ -456,6 +463,9 @@
       storageKey="profiles"
       canExpand={(p) => p.exists}
       rowMuted={(p) => !p.exists}
+      rowAccent={(p) => p.exists}
+      highlightAttr={(p) => `profile:${p.name}`}
+      rowStyle={(p) => p.exists ? `--row-accent:${dot(p.color)}` : undefined}
     >
       {#snippet cell(p, col)}
         {@const links = Object.entries(p.sharedLinks)}
@@ -557,13 +567,7 @@
       {/snippet}
     </DataTable>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">☰</div>
-        <div class="font-medium text-sw-text">{t('profiles.noData')}</div>
-        <div class="text-sw-sm">{t('profiles.noDataHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="☰" title={t('profiles.noData')} description={t('profiles.noDataHint')} />
   {/if}
 </div>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SchedulesStatus, ScheduleAction } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import EmptyState from './EmptyState.svelte';
   import { formatAbsTime } from '$lib/relativeTime';
 
   let {
@@ -120,12 +121,6 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">🕒</div>
-        <div class="font-medium text-sw-text">{t('schedule.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('schedule.emptyHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="🕒" title={t('schedule.emptyTitle')} description={t('schedule.emptyHint')} />
   {/if}
 </div>

@@ -63,6 +63,13 @@ export default {
   toggleHotkeyTip: '例如：CommandOrControl+Shift+H',
   toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
   toggleHotkeyError: '无法注册热键',
+  shortcutsSection: '快捷键',
+  shortcutsSectionDesc: '常用操作的全局快捷键。留空以禁用。',
+  shortcutsAction: '操作',
+  shortcutsShortcut: '快捷键',
+  shortcutsApply: '应用快捷键',
+  shortcutsSaved: '快捷键已保存',
+  shortcutsToggleWindow: '显示/隐藏窗口',
 
   // Timeouts
   timeouts: '超时（分叉）',

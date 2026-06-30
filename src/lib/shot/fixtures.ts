@@ -156,7 +156,9 @@ const handlers: Record<string, (args: any) => any> = {
   },
   session_attach: () => 1,
   // --- init / settings ---
-  read_config: () => ({ scriptsRoot: 'E:\\Scripts', startHidden: false, closeToTray: true, fetchTimeoutSec: 30, ghTimeoutSec: 20, toggleHotkey: 'Ctrl+Shift+H', language: 'en' }),
+  read_config: () => ({ scriptsRoot: 'E:\\Scripts', startHidden: false, closeToTray: true, fetchTimeoutSec: 30, ghTimeoutSec: 20, toggleHotkey: 'Ctrl+Shift+H', shortcuts: { toggle_window: 'Ctrl+Shift+H' }, language: 'en' }),
+  read_shortcuts: () => ({ toggle_window: 'Ctrl+Shift+H' }),
+  set_shortcuts: () => 0,
   app_paths: () => ({ scriptsRoot: 'E:\\Scripts', configPath: '%APPDATA%\\castellyn\\config.json', exe: 'castellyn.exe', stackPath: 'E:\\Scripts\\llm-stack\\stack.json' }),
   get_autostart: () => true,
   set_language: () => 0,

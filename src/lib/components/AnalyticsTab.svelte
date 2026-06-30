@@ -1,9 +1,11 @@
 <script lang="ts">
   import { readFreellmapiAnalytics, type FreellmapiAnalytics, type AnalyticsModel } from '$lib/ipc';
   import { t, locale } from '$lib/i18n';
+  import EmptyState from './EmptyState.svelte';
   import { pushToast } from '$lib/toast.svelte';
   import { chartSeriesColor } from '$lib/statusColor';
   import Sparkline from './Sparkline.svelte';
+  import { runHistory, clearRunHistory, type RunRecord } from '$lib/runHistory.svelte';
 
   let { onOpenProviders }: { onOpenProviders?: () => void } = $props();
 
@@ -72,6 +74,16 @@
   const fmt = (n: number) => nf.format(n ?? 0);
   const money = (n: number) => cf.format(n ?? 0);
   const pct = (n: number) => `${(n ?? 0).toFixed(1)}%`;
+  function fmtRel(ts: number): string {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 2) return 'now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  }
 
   // Export the per-model table to a CSV file (client-side blob download; no backend).
   function exportCsv() {
@@ -212,6 +224,51 @@
       : []
   );
 
+  // --- Script-run histogram (Phase 3.6): group runs by day, show duration/count bars ---
+  type HistDay = {
+    label: string;
+    dateKey: string;
+    durationSec: number;
+    count: number;
+    durPct: number;
+    countPct: number;
+    items: RunRecord[];
+  };
+  let histMode = $state<'duration' | 'runs'>('duration');
+  let expandedDay = $state<string | null>(null);
+  const dayLabelFmt = $derived(new Intl.DateTimeFormat(fmtLocale, { month: 'short', day: 'numeric' }));
+  const histDays = $derived.by<HistDay[]>(() => {
+    const items = runHistory.items;
+    if (!items.length) return [];
+    const groups = new Map<string, RunRecord[]>();
+    for (const r of items) {
+      const key = new Date(r.timestamp).toDateString();
+      let g = groups.get(key);
+      if (!g) groups.set(key, (g = []));
+      g.push(r);
+    }
+    const days: HistDay[] = [];
+    for (const [dateKey, runs] of groups) {
+      days.push({
+        label: dayLabelFmt.format(new Date(runs[0].timestamp)),
+        dateKey,
+        durationSec: runs.reduce((s, r) => s + r.durationSec, 0),
+        count: runs.length,
+        durPct: 0,
+        countPct: 0,
+        items: runs
+      });
+    }
+    days.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+    const maxDur = Math.max(...days.map((d) => d.durationSec), 0);
+    const maxCount = Math.max(...days.map((d) => d.count), 0);
+    for (const d of days) {
+      d.durPct = maxDur > 0 ? (d.durationSec / maxDur) * 100 : 0;
+      d.countPct = maxCount > 0 ? (d.count / maxCount) * 100 : 0;
+    }
+    return days;
+  });
+
   const grainLabel = $derived.by(() => {
     const step = data?.stepSec ?? 0;
     const k =
@@ -259,6 +316,84 @@
     </div>
   </header>
 
+  <!-- Script run metrics — Phase 3.6 histogram by day -->
+  <section class="sw-card mb-sw-6">
+    <div class="mb-sw-2 flex items-center justify-between gap-sw-2">
+      <div>
+        <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.scriptMetrics')}</p>
+        <p class="text-sw-xs text-sw-text-muted">{t('analytics.scriptMetricsDesc')}</p>
+      </div>
+      <div class="flex shrink-0 items-center gap-sw-2">
+        <div class="flex gap-1" role="tablist">
+          <button
+            class="sw-btn sw-btn-ghost text-sw-xs {histMode === 'duration' ? 'is-active' : ''}"
+            onclick={() => (histMode = 'duration')}>
+            {t('analytics.scriptHistDuration')}
+          </button>
+          <button
+            class="sw-btn sw-btn-ghost text-sw-xs {histMode === 'runs' ? 'is-active' : ''}"
+            onclick={() => (histMode = 'runs')}>
+            {t('analytics.scriptHistRuns')}
+          </button>
+        </div>
+        {#if runHistory.items.length}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={clearRunHistory}>{t('analytics.scriptClear')}</button>
+        {/if}
+      </div>
+    </div>
+
+    {#if !histDays.length}
+      <p class="text-sw-sm text-sw-text-muted">{t('analytics.scriptNoData')}</p>
+    {:else}
+      <div class="flex flex-col gap-1">
+        {#each histDays as day (day.dateKey)}
+          <button
+            class="hist-bar-row"
+            class:expanded={expandedDay === day.dateKey}
+            onclick={() => (expandedDay = expandedDay === day.dateKey ? null : day.dateKey)}
+            title={day.items.length > 1 ? 'Click to expand' : ''}>
+            <span class="hist-day-label">{day.label}</span>
+            <span class="hist-bar-track">
+              <span class="hist-bar" style="width: {histMode === 'duration' ? day.durPct : day.countPct}%"></span>
+            </span>
+            <span class="hist-value">
+              {histMode === 'duration'
+                ? `${day.durationSec.toFixed(0)}s`
+                : `${day.count}`}
+              {#if histMode === 'duration' && day.count > 1}
+                <span class="text-sw-text-muted">· {day.count}</span>
+              {/if}
+            </span>
+          </button>
+          {#if expandedDay === day.dateKey}
+            <div class="hist-detail">
+              <table class="w-full text-sw-sm">
+                <thead>
+                  <tr class="border-b border-sw-border text-left text-sw-xs text-sw-text-muted">
+                    <th class="px-sw-2 py-sw-1 font-medium">{t('analytics.scriptColComponent')}</th>
+                    <th class="px-sw-2 py-sw-1 text-right font-medium">{t('analytics.scriptColDuration')}</th>
+                    <th class="px-sw-2 py-sw-1 text-right font-medium">{t('analytics.scriptColStatus')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each day.items as run (run.timestamp)}
+                    <tr class="border-b border-sw-border last:border-0">
+                      <td class="px-sw-2 py-sw-1 font-medium">{run.component}</td>
+                      <td class="px-sw-2 py-sw-1 text-right tabular-nums">{run.durationSec.toFixed(1)}s</td>
+                      <td class="px-sw-2 py-sw-1 text-right">
+                        <span class="badge badge-{run.status === 'ok' ? 'ok' : run.status === 'changes' ? 'warn' : run.status === 'error' ? 'err' : 'muted'}">{run.status}</span>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/if}
+  </section>
+
   {#if !available}
     {#if loading}
       <!-- First load: skeleton totals instead of a bare "loading…" line (#147). -->
@@ -271,19 +406,13 @@
         {/each}
       </div>
     {:else}
-      <!-- Empty state with a CTA pointing at the gateway/providers (#47). -->
-      <div class="grid place-items-center py-sw-8 text-center text-sw-text-muted">
-        <div class="flex flex-col items-center gap-sw-2">
-          <div class="text-2xl opacity-50">📊</div>
-          <div class="font-medium text-sw-text">{t('analytics.emptyTitle')}</div>
-          <div class="text-sw-sm">{t('analytics.emptyHint')}</div>
-          {#if onOpenProviders}
-            <button class="sw-btn sw-btn-primary text-sw-xs mt-sw-2" onclick={onOpenProviders}>
-              {t('analytics.emptyCta')}
-            </button>
-          {/if}
-        </div>
-      </div>
+      <EmptyState
+        icon="📊"
+        title={t('analytics.emptyTitle')}
+        description={t('analytics.emptyHint')}
+        action={onOpenProviders}
+        actionLabel={t('analytics.emptyCta')}
+      />
     {/if}
   {:else}
     {#if selectedModel}
@@ -489,5 +618,55 @@
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+  }
+  .hist-bar-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sw-space-3);
+    width: 100%;
+    padding: var(--sw-space-1) var(--sw-space-2);
+    border-radius: var(--sw-radius-sm);
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: background 0.1s;
+  }
+  .hist-bar-row:hover { background: var(--sw-bg-secondary); }
+  .hist-bar-row.expanded { background: var(--sw-bg-secondary); }
+  .hist-day-label {
+    width: 5rem;
+    flex-shrink: 0;
+    font-size: var(--sw-text-xs);
+    font-weight: 500;
+    color: var(--sw-text-muted);
+  }
+  .hist-bar-track {
+    flex: 1;
+    height: 10px;
+    border-radius: 5px;
+    background: var(--sw-bg-secondary);
+    overflow: hidden;
+  }
+  .hist-bar {
+    display: block;
+    height: 100%;
+    border-radius: 5px;
+    background: var(--sw-btn-primary-bg, #3b82f6);
+    opacity: 0.55;
+    transition: width 0.2s ease, opacity 0.15s;
+  }
+  .hist-bar-row:hover .hist-bar { opacity: 0.8; }
+  .hist-value {
+    width: 6rem;
+    flex-shrink: 0;
+    text-align: right;
+    font-size: var(--sw-text-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--sw-text-secondary);
+  }
+  .hist-detail {
+    padding: var(--sw-space-2) var(--sw-space-2) var(--sw-space-2) 5rem;
+    border-bottom: 1px solid var(--sw-border);
   }
 </style>

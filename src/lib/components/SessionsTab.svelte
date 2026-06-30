@@ -48,11 +48,12 @@
     tool: SessionTool;
     cwd: string;
     args: string;
-    remoteDir?: string; // ssh: remote start dir (cd into it on connect)
-    sshTarget?: string; // when set, the env runs over SSH on this target (location ≠ this PC)
+    remoteDir?: string;
+    sshTarget?: string;
     name?: string;
-    attachId?: string; // when set, this pane ATTACHES to a live session (e.g. returned from a monitor)
-    ownsSession?: boolean; // an attached pane that owns the session (kills it on close)
+    attachId?: string;
+    ownsSession?: boolean;
+    background?: boolean;
   };
   function renamePane(key: string, name: string) {
     panes = panes.map((p) => (p.key === key ? { ...p, name: name || undefined } : p));
@@ -437,10 +438,12 @@
   let colFr = $state<number[]>([1, 1]);
   let rowFr = $state<number[]>([1]);
   let gridEl: HTMLDivElement | undefined = $state();
+  const activePanes = $derived(panes.filter((p) => !p.background));
+  const bgPanes = $derived(panes.filter((p) => p.background));
   // Never show more columns than there are panes — 1 pane with "3 columns" selected should fill
   // the row, not sit in a third of it.
-  const effCols = $derived(Math.min(columns, Math.max(1, panes.length)));
-  const rowCount = $derived(Math.max(1, Math.ceil(panes.length / effCols)));
+  const effCols = $derived(Math.min(columns, Math.max(1, activePanes.length)));
+  const rowCount = $derived(Math.max(1, Math.ceil(activePanes.length / effCols)));
   // Persisted per-column-count widths (so a manual resize survives restarts).
   const COLFR_KEY = 'cmh-sessions-colfr';
   function loadColFr(n: number): number[] | null {
@@ -517,6 +520,10 @@
 
   function toggleMax(key: string) {
     maximized = maximized === key ? null : key;
+  }
+
+  function toggleBackground(key: string) {
+    panes = panes.map((p) => (p.key === key ? { ...p, background: !p.background } : p));
   }
 
   // Short label for a pane (mirrors TerminalPane's title logic): the profile for Claude, else the
@@ -1095,7 +1102,7 @@
     </div>
   {/if}
 
-  {#if panes.length}
+  {#if activePanes.length}
     <div
       class="grid"
       class:focus-dim={focusMode && !maximized}
@@ -1104,7 +1111,7 @@
     >
       <!-- Every pane stays MOUNTED (sessions must survive maximize); non-maximized ones are just
            hidden, so the maximized pane fills the single column. -->
-      {#each panes as pane (pane.key)}
+      {#each activePanes as pane (pane.key)}
         <div class="cell" class:hidden={maximized != null && maximized !== pane.key}
           class:active={activeKey === pane.key && !maximized && panes.length > 1}>
           <TerminalPane
@@ -1131,6 +1138,7 @@
             onClose={() => closePane(pane.key)}
             onToggleMax={() => toggleMax(pane.key)}
             onDuplicate={() => duplicate(pane.key)}
+            onBackground={() => toggleBackground(pane.key)}
             {onDragStart}
             {onDragEnter}
             {onDrop}
@@ -1150,7 +1158,53 @@
         {/each}
       {/if}
     </div>
-  {:else}
+  {/if}
+
+  <!-- Background sessions section -->
+  {#if bgPanes.length}
+    <div class="bg-section">
+      <span class="text-sw-xs text-sw-text-muted">{t('sessions.backgroundSection', { n: bgPanes.length })}</span>
+      {#each bgPanes as pane (pane.key)}
+        <span class="bg-chip">
+          <span class="bg-label">{paneLabel(pane)}</span>
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => toggleBackground(pane.key)}
+            title={t('sessions.restoreBg')}>{t('sessions.restoreBg')}</button>
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => closePane(pane.key)}
+            title={t('sessions.closePane')} aria-label={t('sessions.closePane')}>{t('sessions.closePane')}</button>
+        </span>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Hidden mount for backgrounded panes (keep PTY alive) -->
+  <div class="bg-hidden" aria-hidden="true">
+    {#each bgPanes as pane (pane.key)}
+      <TerminalPane
+        profile={pane.profile}
+        tool={pane.tool}
+        args={pane.args}
+        cwd={pane.cwd || undefined}
+        remoteDir={pane.remoteDir}
+        sshTarget={pane.sshTarget}
+        attachId={pane.attachId}
+        ownsSession={pane.ownsSession ?? false}
+        paneKey={pane.key}
+        visible={false}
+        maximized={false}
+        {broadcast}
+        onInput={broadcastInput}
+        {onIdChange}
+        {onActivity}
+        onFocus={(k) => (activeKey = k)}
+        displayName={pane.name ?? ''}
+        onRename={renamePane}
+        onNewSession={launchPhrase}
+        onClose={() => closePane(pane.key)}
+      />
+    {/each}
+  </div>
+
+  {#if !activePanes.length && !bgPanes.length}
     <div class="empty">
       <div class="empty-icon">▦</div>
       <div class="font-medium text-sw-text">{t('sessions.emptyTitle')}</div>
@@ -1564,5 +1618,35 @@
   .active {
     background: var(--sw-accent-glow);
     color: var(--sw-text-primary);
+  }
+  .bg-section {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sw-space-2);
+    margin-top: var(--sw-space-2);
+    padding: var(--sw-space-2) var(--sw-space-3);
+    background: var(--sw-bg-secondary);
+    border: 1px dashed var(--sw-border);
+    border-radius: var(--sw-radius-md);
+  }
+  .bg-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 10px;
+    border: 1px solid var(--sw-border);
+    border-radius: 9999px;
+    font-size: var(--sw-text-xs);
+  }
+  .bg-label {
+    color: var(--sw-text-muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bg-hidden {
+    display: none;
   }
 </style>

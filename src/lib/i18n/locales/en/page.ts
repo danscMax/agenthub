@@ -90,6 +90,9 @@ export default {
   confirm_delsnap_title: 'Delete snapshot?',
   confirm_delsnap_msg: 'Snapshot “{snap}” will be permanently removed. Continue?',
   confirm_delsnap_btn: 'Delete',
+  backup_restore_undo_title: 'Restore complete',
+  backup_restore_undo_detail: 'Snapshot “{snap}” was applied. Undo if something went wrong.',
+  backup_restore_undo_btn: 'Undo',
 
   // Profiles
   prof_verb_add: 'adding profile {name}',
@@ -241,5 +244,10 @@ export default {
   cmd_backup_now: 'Backup now',
   cmd_open_log: 'Open the run log',
   cmd_stack_start: 'Start the LLM stack',
-  cmd_stack_stop: 'Stop the LLM stack'
+  cmd_stack_stop: 'Stop the LLM stack',
+
+  // Notification history
+  notifTitle: 'Notification history',
+  notifEmpty: 'No notifications',
+  notifDismissAll: 'Clear history'
 };

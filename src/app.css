@@ -390,6 +390,12 @@
   }
 }
 
+/* Tab content fade-in */
+@keyframes sw-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -401,4 +407,14 @@
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Ctrl+K palette highlight flash — briefly illuminates the matched item */
+@keyframes highlight-flash {
+  0%   { background-color: var(--sw-accent-glow); outline: 2px solid var(--sw-accent); }
+  70%  { background-color: var(--sw-accent-glow); outline: 2px solid var(--sw-accent); }
+  100% { background-color: transparent; outline: 0 solid transparent; }
+}
+.highlight-flash {
+  animation: highlight-flash 2s ease-out forwards;
 }

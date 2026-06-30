@@ -5,6 +5,7 @@
 //   * System tray with minimize-to-tray.
 // Paths resolve from $SCRIPTS_ROOT (fallback E:\Scripts) so the app survives a disk move.
 
+use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -104,6 +105,10 @@ struct HubConfig {
     // OS-level accelerator (e.g. "CommandOrControl+Shift+H") that toggles the window. None/empty = off.
     #[serde(rename = "toggleHotkey", default, skip_serializing_if = "Option::is_none")]
     toggle_hotkey: Option<String>,
+    // Full action → accelerator mapping. Keys: "toggle_window" etc. Empty map = no shortcuts.
+    // Supersedes toggleHotkey (which is kept for backward compat).
+    #[serde(rename = "shortcuts", default, skip_serializing_if = "Option::is_none")]
+    shortcuts: Option<HashMap<String, String>>,
     // UI locale ("ru"/"en"/"zh") mirrored from the frontend so the backend (errors, log, tray) can
     // localize too. Owned by set_language; write_config preserves it (never clobbered by a settings save).
     #[serde(rename = "language", default, skip_serializing_if = "Option::is_none")]
@@ -148,10 +153,18 @@ fn read_config_file() -> HubConfig {
     if let Some(c) = CONFIG_CACHE.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
         return c.clone();
     }
-    let cfg = read_config_at(config_path())
+    let mut cfg = read_config_at(config_path())
         .or_else(|| read_config_at(agenthub_config_path()))
         .or_else(|| read_config_at(legacy_config_path()))
         .unwrap_or_default();
+    // Migrate toggleHotkey → shortcuts map (one-time: first read after upgrade populates the map).
+    if cfg.shortcuts.is_none() {
+        let mut m = HashMap::new();
+        if let Some(hk) = cfg.toggle_hotkey.as_deref().filter(|s| !s.trim().is_empty()) {
+            m.insert("toggle_window".to_string(), hk.to_string());
+        }
+        cfg.shortcuts = if m.is_empty() { None } else { Some(m) };
+    }
     *CONFIG_CACHE.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
     cfg
 }
@@ -1020,6 +1033,101 @@ async fn run_config_drift(
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "sync".to_string(), script, args).await
+}
+
+// --- Config-drift diff (Phase 3.2) ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum DiffLineKind {
+    Add,
+    Del,
+    Same,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiffLine {
+    kind: DiffLineKind,
+    text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DriftDiff {
+    tip_path: String,
+    source_path: String,
+    source_lines: usize,
+    tip_lines: usize,
+    lines: Vec<DiffLine>,
+}
+
+/// LCS-based line diff. `a` is the reference (source), `b` is the changed file (tip).
+/// Returns diff lines with add/del/same markers. O(m*n) time+mem — config files are tiny.
+fn compute_diff(a: &[String], b: &[String]) -> Vec<DiffLine> {
+    let m = a.len();
+    let n = b.len();
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if a[i - 1] == b[j - 1] {
+                dp[i - 1][j - 1] + 1
+            } else {
+                dp[i - 1][j].max(dp[i][j - 1])
+            };
+        }
+    }
+    let mut result = Vec::with_capacity(m + n);
+    let (mut i, mut j) = (m, n);
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && a[i - 1] == b[j - 1] {
+            result.push(DiffLine { kind: DiffLineKind::Same, text: a[i - 1].clone() });
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            result.push(DiffLine { kind: DiffLineKind::Add, text: b[j - 1].clone() });
+            j -= 1;
+        } else {
+            result.push(DiffLine { kind: DiffLineKind::Del, text: a[i - 1].clone() });
+            i -= 1;
+        }
+    }
+    result.reverse();
+    result
+}
+
+const CONFIG_SOURCE_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config";
+
+/// Read a unified diff between a drifted live file and its shared config copy.
+/// `name` is the filename (e.g. "statusline.py").
+/// Returns null if either file is missing.
+#[tauri::command]
+fn read_drift_diff(name: String) -> Result<Option<DriftDiff>, String> {
+    let home = std::env::var("USERPROFILE").map_err(|_| "no USERPROFILE".to_string())?;
+    let tip_path = format!("{}\\.claude\\{}", home, name);
+    let source_path = format!("{}\\{}\\{}", scripts_root(), CONFIG_SOURCE_REL, name);
+
+    let tip_content = match std::fs::read_to_string(&tip_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+    let source_content = match std::fs::read_to_string(&source_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(None),
+    };
+
+    let tip_lines: Vec<String> = tip_content.lines().map(String::from).collect();
+    let source_lines: Vec<String> = source_content.lines().map(String::from).collect();
+
+    let lines = compute_diff(&source_lines, &tip_lines);
+
+    Ok(Some(DriftDiff {
+        tip_path,
+        source_path,
+        source_lines: source_lines.len(),
+        tip_lines: tip_lines.len(),
+        lines,
+    }))
 }
 
 const PROFILES_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\profiles.json";
@@ -5499,6 +5607,104 @@ fn list_plugin_contents() -> Vec<PluginContents> {
     out
 }
 
+/// Parses a plugin id (`owner/repo@marketplace`) into a GitHub owner/repo pair.
+/// Returns None for npm-style scoped names (`@scope/name@...`) or non-GitHub names.
+fn parse_plugin_gh_repo(id: &str) -> Option<(String, String)> {
+    let at = id.rfind('@')?;
+    let part = &id[..at];
+    if part.is_empty() || part.starts_with('@') {
+        return None;
+    }
+    let slash = part.find('/')?;
+    let (owner, repo) = part.split_at(slash);
+    let repo = &repo[1..];
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct PluginRelease {
+    tag_name: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    body: String,
+    published_at: String,
+}
+
+/// In-memory cache keyed by plugin id: (fetch_time, releases). 5 minute TTL.
+static RELEASES_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>>
+> = std::sync::OnceLock::new();
+
+fn get_releases_cache(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>> {
+    RELEASES_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Attempt to fetch an auth token for the GitHub API (GH_TOKEN or gh CLI).
+fn gh_api_token() -> Option<String> {
+    if let Ok(t) = std::env::var("GH_TOKEN") {
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    if let Ok(t) = std::env::var("GITHUB_TOKEN") {
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// Blocking: fetch releases for a GitHub-hosted plugin. Cached for 5 minutes.
+fn fetch_plugin_releases(id: &str) -> Vec<PluginRelease> {
+    let (owner, repo) = match parse_plugin_gh_repo(id) {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    // Check cache (5 min TTL).
+    {
+        if let Ok(guard) = get_releases_cache().lock() {
+            if let Some((ts, cached)) = guard.get(id) {
+                if ts.elapsed() < std::time::Duration::from_secs(300) {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=10");
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into();
+    let mut req = agent.get(&url).header("User-Agent", "Castellyn/1.0");
+    if let Some(t) = gh_api_token() {
+        req = req.header("Authorization", &format!("Bearer {t}"));
+    }
+    let body = match req.call() {
+        Ok(mut resp) => resp.body_mut().read_to_string().unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let releases: Vec<PluginRelease> = serde_json::from_str(&body).unwrap_or_default();
+    // Update cache.
+    if let Ok(mut guard) = get_releases_cache().lock() {
+        guard.insert(id.to_string(), (std::time::Instant::now(), releases.clone()));
+    }
+    releases
+}
+
+/// Fetch GitHub releases for a plugin (community plugins published from a GitHub repo).
+/// Returns empty vec for non-GitHub plugins or on error/rate-limit.
+#[tauri::command]
+async fn list_plugin_releases(id: String) -> Vec<PluginRelease> {
+    tokio::task::spawn_blocking(move || fetch_plugin_releases(&id))
+        .await
+        .unwrap_or_default()
+}
+
 /// Run `claude plugin <action> <id>` once, optionally under a specific CLAUDE_CONFIG_DIR profile.
 /// Streams stdout/stderr to the UI log (indented). Simple args only (no JSON) — the `.cmd` shim
 /// launches cleanly under Rust's escaping (unlike the Deploy-Mcp add-json case).
@@ -6248,18 +6454,20 @@ fn update_tray_tooltip(app: &AppHandle) {
     }
 }
 
-/// Register (replacing any previous) the OS-global show/hide accelerator. Errors on a bad/taken combo.
-fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
+/// Register a single shortcut (no unregister_all). Errors on a bad/taken combo.
+fn register_shortcut(app: &AppHandle, _accel: &str) -> Result<(), String> {
     use std::str::FromStr;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-    let sc = Shortcut::from_str(accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
-    let gs = app.global_shortcut();
-    // Probe-register the new combo BEFORE tearing down the old one: if the OS rejects it (already
-    // taken / invalid), the previously-working hotkey stays registered instead of being lost.
-    gs.register(sc).map_err(|e| format!("{e}"))?;
-    // Accepted → clear everything and keep only the new combo (re-register the one we just proved).
-    let _ = gs.unregister_all();
-    gs.register(sc).map_err(|e| format!("{e}"))
+    let sc = Shortcut::from_str(_accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
+    app.global_shortcut().register(sc).map_err(|e| format!("{e}"))
+}
+
+/// Register (replacing any previous) the OS-global show/hide accelerator. Errors on a bad/taken combo.
+fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    register_shortcut(app, accel)?;
+    let _ = app.global_shortcut().unregister_all();
+    register_shortcut(app, accel)
 }
 
 /// Apply a new toggle hotkey at runtime. Empty/None clears it. Config persistence is the frontend's job.
@@ -6267,12 +6475,49 @@ fn register_toggle_hotkey(app: &AppHandle, accel: &str) -> Result<(), String> {
 fn set_toggle_hotkey(app: AppHandle, accel: Option<String>) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     match accel.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(a) => register_toggle_hotkey(&app, a),
+        Some(a) => {
+            // Also update the shortcuts map for consistency.
+            let mut cfg = read_config_file();
+            let mut m = cfg.shortcuts.clone().unwrap_or_default();
+            m.insert("toggle_window".to_string(), a.to_string());
+            cfg.shortcuts = Some(m);
+            let _ = write_config_file(&cfg);
+            register_toggle_hotkey(&app, a)
+        }
         None => {
             let _ = app.global_shortcut().unregister_all();
             Ok(())
         }
     }
+}
+
+/// Return the current shortcut mapping (action → accelerator). Empty map = none configured.
+#[tauri::command]
+fn read_shortcuts() -> HashMap<String, String> {
+    read_config_file().shortcuts.unwrap_or_default()
+}
+
+/// Replace the entire shortcut mapping and re-register all OS-level accelerators.
+/// Persists to config; fails fast if any combo is invalid / taken.
+#[tauri::command]
+fn set_shortcuts(app: AppHandle, shortcuts: HashMap<String, String>) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    // Validate + probe-register every non-empty accelerator BEFORE touching the old registration.
+    let non_empty: Vec<&str> = shortcuts.values().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    for accel in &non_empty {
+        register_shortcut(&app, accel)?;
+    }
+    // All valid → atomically replace config + re-register.
+    let mut cfg = read_config_file();
+    cfg.shortcuts = Some(shortcuts.clone());
+    cfg.toggle_hotkey = shortcuts.get("toggle_window").cloned();
+    write_config_file(&cfg)?;
+    let gs = app.global_shortcut();
+    let _ = gs.unregister_all();
+    for accel in &non_empty {
+        register_shortcut(&app, accel)?;
+    }
+    Ok(())
 }
 
 // ===================== Parallel terminal sessions (real PTYs) =====================
@@ -7142,6 +7387,7 @@ pub fn run() {
             run_sync,
             read_config_drift,
             run_config_drift,
+            read_drift_diff,
             read_engines,
             update_engine,
             run_engine,
@@ -7203,6 +7449,7 @@ pub fn run() {
             run_opencode_mcp,
             list_plugin_updates,
             list_plugin_contents,
+            list_plugin_releases,
             run_plugin,
             delete_skill,
             read_schedules,
@@ -7218,6 +7465,8 @@ pub fn run() {
             get_autostart,
             set_autostart,
             set_toggle_hotkey,
+            read_shortcuts,
+            set_shortcuts,
             set_language,
             cancel_run
         ])
@@ -7243,10 +7492,29 @@ pub fn run() {
                     let _ = w.hide();
                 }
             }
-            // Register the configured show/hide hotkey, if any. A bad/taken combo must not block startup.
-            if let Some(accel) = cfg.toggle_hotkey.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                if let Err(e) = register_toggle_hotkey(app.handle(), accel) {
-                    eprintln!("toggle hotkey register failed: {e}");
+            // Register all configured shortcuts. A bad/taken combo must not block startup.
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            if let Some(shortcuts) = cfg.shortcuts.as_ref() {
+                let count: usize = shortcuts.values()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|accel| {
+                        if let Err(e) = register_shortcut(app.handle(), accel) {
+                            eprintln!("shortcut register failed ({accel}): {e}");
+                            0
+                        } else {
+                            1
+                        }
+                    })
+                    .sum();
+                if count > 1 {
+                    // If >1 registered, the probe-registers in the loop left them all active but the
+                    // first probe's unregister_all + re-register would orphan the others. The probe-only
+                    // loop above already registered them; we unregister_all and re-register cleanly.
+                    let _ = app.global_shortcut().unregister_all();
+                    for accel in shortcuts.values().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        let _ = register_shortcut(app.handle(), accel);
+                    }
                 }
             }
             Ok(())

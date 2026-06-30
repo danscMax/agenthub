@@ -89,6 +89,9 @@ export default {
   confirm_delsnap_title: '删除快照？',
   confirm_delsnap_msg: '快照「{snap}」将被永久删除。是否继续？',
   confirm_delsnap_btn: '删除',
+  backup_restore_undo_title: '恢复完成',
+  backup_restore_undo_detail: '已应用快照「{snap}」。如有问题可撤销。',
+  backup_restore_undo_btn: '撤销',
 
   // Profiles
   prof_verb_add: '添加配置 {name}',
@@ -236,5 +239,10 @@ export default {
   cmd_backup_now: '立即备份',
   cmd_open_log: '打开运行日志',
   cmd_stack_start: '启动 LLM 堆栈',
-  cmd_stack_stop: '停止 LLM 堆栈'
+  cmd_stack_stop: '停止 LLM 堆栈',
+
+  // Notification history
+  notifTitle: '通知历史',
+  notifEmpty: '没有通知',
+  notifDismissAll: '清空历史'
 };

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { PluginInfo, SkillInfo, PluginAction, PluginUpdate, PluginContents } from '$lib/ipc';
+  import type { PluginInfo, SkillInfo, PluginAction, PluginUpdate, PluginContents, PluginRelease } from '$lib/ipc';
+  import { listPluginReleases } from '$lib/ipc';
   import { t, pSkill, pCommand, pAgent } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
   import Spinner from './Spinner.svelte';
@@ -113,6 +114,28 @@
     return t('plugins.sourceDefault');
   }
   let skillSource = $state<'all' | 'own' | 'plugin' | 'default'>('all');
+  let changelogPlugin = $state<string | null>(null);
+  let changelogReleases = $state<PluginRelease[] | null>(null);
+  let changelogError = $state<string | null>(null);
+  let changelogLoading = $state(false);
+  async function openChangelog(id: string) {
+    changelogPlugin = id;
+    changelogReleases = null;
+    changelogError = null;
+    changelogLoading = true;
+    try {
+      changelogReleases = await listPluginReleases(id);
+    } catch (e) {
+      changelogError = String(e);
+    }
+    changelogLoading = false;
+  }
+  function closeChangelog() {
+    changelogPlugin = null;
+    changelogReleases = null;
+    changelogError = null;
+    changelogLoading = false;
+  }
   const skillRows = $derived(
     skillSource === 'all' ? skillList : skillList.filter((s) => skillKind(s) === skillSource)
   );
@@ -182,6 +205,13 @@
   </svg>
 {/snippet}
 
+{#snippet listIcon()}
+  <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+{/snippet}
+
 <div class="p-sw-6">
   <header class="mb-sw-4 flex items-start justify-between gap-sw-4">
     <div>
@@ -199,6 +229,13 @@
     </div>
   </header>
 
+  {#if plugins === null && skills === null}
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(4) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem"></div>
+      {/each}
+    </div>
+  {:else}
   <!-- Plugins -->
   <div class="dt-summary mb-sw-2">
     {t('plugins.summary', { total: pluginList.length, updates: updateIds.length, off: disabledCount })}
@@ -217,6 +254,7 @@
       canExpand={(p) => hasContents(p.id)}
       rowMuted={(p) => !p.enabled}
       rowAccent={(p) => updateMap.has(p.id)}
+      highlightAttr={(p) => `plugin:${p.id}`}
       selectable
     >
       {#snippet toolbar()}
@@ -271,6 +309,7 @@
           </span>
         {:else if col.key === 'actions'}
           <span class="act">
+            <button class="iconbtn" onclick={() => openChangelog(p.id)} title={t('plugins.changelogBtnTip')} aria-label={t('plugins.changelogBtn')}>{@render listIcon()}</button>
             {#if updateMap.has(p.id)}
               <button class="iconbtn" disabled={busy} onclick={() => act('update', p.id)} title={t('plugins.updateBtnTip', { version: updateMap.get(p.id) ?? '' })} aria-label={t('plugins.updateBtn')}>↑</button>
             {/if}
@@ -357,7 +396,44 @@
   {:else}
     <div class="sw-card text-sw-sm text-sw-text-muted">{t('plugins.noSkills')}</div>
   {/if}
+  {/if}
 </div>
+
+{#if changelogPlugin !== null}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="cl-overlay" role="presentation" onclick={closeChangelog} ontouchstart={closeChangelog}>
+    <div class="cl-modal" role="dialog" aria-label={t('plugins.changelogTitle')} tabindex="-1" onclick={(e) => e.stopPropagation()} ontouchstart={(e) => e.stopPropagation()}>
+      <div class="cl-header">
+        <h2 class="cl-title">{t('plugins.changelogTitle')} — {changelogPlugin}</h2>
+        <button class="iconbtn" onclick={closeChangelog} aria-label="Close">✕</button>
+      </div>
+      <div class="cl-body">
+        {#if changelogLoading}
+          <p class="cl-status">{t('plugins.changelogLoading')}</p>
+        {:else if changelogError}
+          <p class="cl-status cl-error">{t('plugins.changelogError')}<br><span class="cl-errdetail">{changelogError}</span></p>
+        {:else if changelogReleases && changelogReleases.length}
+          {#each changelogReleases as rel (rel.tag_name)}
+            <div class="cl-release">
+              <div class="cl-release-head">
+                <span class="cl-tag">{rel.tag_name}</span>
+                <span class="cl-date">{rel.published_at.slice(0, 10)}</span>
+              </div>
+              {#if rel.name && rel.name !== rel.tag_name}
+                <p class="cl-release-name">{rel.name}</p>
+              {/if}
+              {#if rel.body}
+                <pre class="cl-notes">{rel.body}</pre>
+              {/if}
+            </div>
+          {/each}
+        {:else}
+          <p class="cl-status">{t('plugins.changelogNoReleases')}</p>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .dt-summary {
@@ -526,5 +602,98 @@
     font-family: 'Cascadia Code', 'Consolas', monospace;
     font-size: 11px;
     color: var(--sw-text-secondary);
+  }
+  /* Changelog modal */
+  .cl-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cl-modal {
+    background: var(--sw-bg-primary);
+    border: 1px solid var(--sw-border);
+    border-radius: 12px;
+    width: min(680px, calc(100vw - 40px));
+    max-height: min(80vh, 600px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  .cl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--sw-border);
+  }
+  .cl-title {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cl-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+  }
+  .cl-status {
+    text-align: center;
+    color: var(--sw-text-muted);
+    font-size: 12px;
+    padding: 32px 0;
+  }
+  .cl-error {
+    color: var(--sw-danger);
+  }
+  .cl-errdetail {
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    opacity: 0.7;
+  }
+  .cl-release {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--sw-border);
+  }
+  .cl-release:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  .cl-release-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .cl-tag {
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--sw-accent-text);
+  }
+  .cl-date {
+    font-size: 11px;
+    color: var(--sw-text-muted);
+  }
+  .cl-release-name {
+    font-size: 12px;
+    color: var(--sw-text-secondary);
+    margin-bottom: 4px;
+  }
+  .cl-notes {
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--sw-text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
   }
 </style>

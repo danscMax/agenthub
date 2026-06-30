@@ -14,6 +14,8 @@
     exportConfig,
     importConfig,
     setToggleHotkey,
+    readShortcuts,
+    setShortcuts,
     setLanguage,
     type HubConfig,
     type AppPaths
@@ -60,7 +62,7 @@
       [t('settings.view'), t('settings.density'), t('settings.fullWidth'), t('settings.termScrollback')],
       [t('settings.language'), t('settings.languageDesc')],
       [t('settings.scriptsRoot'), t('settings.scriptsRootDesc')],
-      [t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey')],
+      [t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey'), t('settings.shortcutsSection')],
       [t('settings.timeouts'), t('settings.timeoutsDesc')],
       [t('settings.backupSection'), t('settings.exportConfig'), t('settings.importConfig')],
       [t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config')]
@@ -77,6 +79,16 @@
   let closeToTray = $state(true);
   // #123: OS-global show/hide accelerator (empty = off).
   let toggleHotkey = $state('');
+  // Phase 4.1: full shortcut mapping
+  let shortcuts = $state<Record<string, string>>({});
+  // Known actions with their display labels
+  const shortcutActions = ['toggle_window'] as const;
+  const actionLabel = (a: string): string => {
+    const map: Record<string, string> = {
+      toggle_window: t('settings.shortcutsToggleWindow')
+    };
+    return map[a] ?? a;
+  };
   let paths = $state<AppPaths | null>(null);
   let version = $state('');
   let savedMsg = $state('');
@@ -98,6 +110,10 @@
   onMount(async () => {
     try {
       loadConfigFields(await readConfig());
+      shortcuts = { toggle_window: toggleHotkey || '' };
+      try {
+        shortcuts = await readShortcuts();
+      } catch { /* backend too old — keep default from config */ }
       autostart = await getAutostart();
       paths = await appPaths();
       version = await getVersion();
@@ -211,6 +227,18 @@
     }
     flash(t('settings.saved'));
   }
+  // Phase 4.1: apply the full shortcut mapping (replaces the single toggleHotkey path).
+  async function applyShortcuts() {
+    errMsg = '';
+    try {
+      await setShortcuts({ ...shortcuts });
+      toggleHotkey = shortcuts.toggle_window ?? '';
+      flash(t('settings.shortcutsSaved'));
+    } catch (e) {
+      errMsg = `${t('settings.toggleHotkeyError')}: ${e}`;
+    }
+  }
+
   // #123: register the combo first (it throws on a bad/taken accelerator) and only persist if it took.
   async function applyToggleHotkey() {
     const accel = toggleHotkey.trim() || null;
@@ -238,7 +266,7 @@
   <div class="flex flex-col gap-sw-4 {fullWidth ? '' : 'max-w-2xl'}">
     <!-- Theme -->
     {#if show(t('settings.theme'), t('settings.themeDesc'))}
-    <div class="sw-card flex items-center justify-between">
+    <div class="sw-card flex items-center justify-between" data-highlight-id="settings:theme">
       <div>
         <div class="font-medium">{t('settings.theme')}</div>
         <div class="text-sw-sm text-sw-text-secondary">{t('settings.themeDesc')}</div>
@@ -256,7 +284,7 @@
 
     <!-- View: density + content width -->
     {#if show(t('settings.view'), t('settings.density'), t('settings.fullWidth'), t('settings.termScrollback'))}
-    <div class="sw-card flex flex-col gap-sw-3">
+    <div class="sw-card flex flex-col gap-sw-3" data-highlight-id="settings:view">
       <div class="flex items-center justify-between gap-sw-2">
         <div class="font-medium">{t('settings.view')}</div>
         <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={resetView} title={t('settings.resetViewTip')}>{t('settings.resetView')}</button>
@@ -289,7 +317,7 @@
 
     <!-- Language -->
     {#if show(t('settings.language'), t('settings.languageDesc'))}
-    <div class="sw-card flex items-center justify-between">
+    <div class="sw-card flex items-center justify-between" data-highlight-id="settings:language">
       <div>
         <div class="font-medium">{t('settings.language')}</div>
         <div class="text-sw-sm text-sw-text-secondary">{t('settings.languageDesc')}</div>
@@ -311,7 +339,7 @@
 
     <!-- Scripts root -->
     {#if show(t('settings.scriptsRoot'), t('settings.scriptsRootDesc'))}
-    <div class="sw-card flex flex-col gap-sw-2">
+    <div class="sw-card flex flex-col gap-sw-2" data-highlight-id="settings:root">
       <div class="font-medium">{t('settings.scriptsRoot')}</div>
       <div class="text-sw-sm text-sw-text-secondary">
         {t('settings.scriptsRootDesc')}
@@ -330,8 +358,8 @@
     {/if}
 
     <!-- Launch -->
-    {#if show(t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey'))}
-    <div class="sw-card flex flex-col gap-sw-3">
+    {#if show(t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey'), t('settings.shortcutsSection'))}
+    <div class="sw-card flex flex-col gap-sw-3" data-highlight-id="settings:launch">
       <div class="font-medium">{t('settings.launch')}</div>
       <label class="flex items-center justify-between gap-sw-4">
         <span class="text-sw-sm">{t('settings.startWithWindows')}
@@ -357,18 +385,26 @@
         </span>
         <Toggle checked={confirmDestructive} onCheckedChange={(v) => onSetConfirmDestructive?.(v)} title={t('settings.confirmDestructive')} />
       </label>
-      <div class="flex flex-col gap-1">
-        <span class="text-sw-sm">{t('settings.toggleHotkey')}
-          <span class="block text-sw-xs text-sw-text-muted">{t('settings.toggleHotkeyDesc')}</span>
+      <div class="flex flex-col gap-2">
+        <span class="text-sw-sm">{t('settings.shortcutsSection')}
+          <span class="block text-sw-xs text-sw-text-muted">{t('settings.shortcutsSectionDesc')}</span>
         </span>
-        <div class="flex items-center gap-sw-2">
-          <input
-            class="sw-input flex-1"
-            bind:value={toggleHotkey}
-            placeholder={t('settings.toggleHotkeyPlaceholder')}
-            title={t('settings.toggleHotkeyTip')}
-          />
-          <button class="sw-btn sw-btn-primary" onclick={applyToggleHotkey}>{t('common.apply')}</button>
+        <div class="flex flex-col gap-sw-2">
+          {#each shortcutActions as action}
+            <div class="flex items-center gap-sw-2">
+              <span class="text-sw-xs w-36 shrink-0">{actionLabel(action)}</span>
+              <input
+                class="sw-input flex-1"
+                value={shortcuts[action] ?? ''}
+                oninput={(e) => { shortcuts[action] = e.currentTarget.value; shortcuts = { ...shortcuts }; }}
+                placeholder={t('settings.toggleHotkeyPlaceholder')}
+                title={t('settings.toggleHotkeyTip')}
+              />
+            </div>
+          {/each}
+        </div>
+        <div class="flex items-center gap-sw-2 pt-sw-1">
+          <button class="sw-btn sw-btn-primary" onclick={applyShortcuts} title={t('settings.toggleHotkeyTip')}>{t('settings.shortcutsApply')}</button>
         </div>
       </div>
     </div>
@@ -376,7 +412,7 @@
 
     <!-- Timeouts -->
     {#if show(t('settings.timeouts'), t('settings.timeoutsDesc'))}
-    <div class="sw-card flex flex-col gap-sw-2">
+    <div class="sw-card flex flex-col gap-sw-2" data-highlight-id="settings:timeouts">
       <div class="font-medium">{t('settings.timeouts')}</div>
       <div class="text-sw-sm text-sw-text-secondary">{t('settings.timeoutsDesc')}</div>
       <div class="flex flex-wrap items-end gap-sw-4">
@@ -395,7 +431,7 @@
 
     <!-- Settings backup (export/import config.json) -->
     {#if show(t('settings.backupSection'), t('settings.exportConfig'), t('settings.importConfig'))}
-    <div class="sw-card flex flex-col gap-sw-2">
+    <div class="sw-card flex flex-col gap-sw-2" data-highlight-id="settings:backup">
       <div class="font-medium">{t('settings.backupSection')}</div>
       <div class="text-sw-sm text-sw-text-secondary">{t('settings.backupSectionDesc')}</div>
       <div class="flex flex-wrap gap-sw-2 pt-sw-1">
@@ -407,7 +443,7 @@
 
     <!-- About -->
     {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'))}
-    <div class="sw-card flex flex-col gap-sw-2">
+    <div class="sw-card flex flex-col gap-sw-2" data-highlight-id="settings:about">
       <div class="font-medium">{t('settings.about')}</div>
       <div class="flex items-center gap-sw-3 pb-sw-1">
         <img src="{base}/favicon.png" alt="Castellyn" width="48" height="48" style="border-radius:11px" />

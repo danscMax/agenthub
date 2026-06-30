@@ -113,4 +113,7 @@ export default {
   monitorOpenFailed: '无法在该显示器上打开窗口。',
   pinned: '已收藏：{label}',
   sshToolHint: '{tool} 将在服务器上运行——需先在服务器安装。',
+  backgroundPane: '最小化到后台',
+  backgroundSection: '后台会话（{n}）',
+  restoreBg: '恢复',
 };

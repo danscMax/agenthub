@@ -90,6 +90,9 @@ export default {
   confirm_delsnap_title: 'Удалить снапшот?',
   confirm_delsnap_msg: 'Снапшот «{snap}» будет удалён безвозвратно. Продолжить?',
   confirm_delsnap_btn: 'Удалить',
+  backup_restore_undo_title: 'Восстановление завершено',
+  backup_restore_undo_detail: 'Снапшот «{snap}» применён. Отменить, если что-то пошло не так.',
+  backup_restore_undo_btn: 'Отменить',
 
   // Profiles
   prof_verb_add: 'добавление профиля {name}',
@@ -241,5 +244,10 @@ export default {
   cmd_backup_now: 'Сделать бэкап',
   cmd_open_log: 'Открыть журнал выполнения',
   cmd_stack_start: 'Запустить LLM-стек',
-  cmd_stack_stop: 'Остановить LLM-стек'
+  cmd_stack_stop: 'Остановить LLM-стек',
+
+  // Notification history
+  notifTitle: 'История уведомлений',
+  notifEmpty: 'Нет уведомлений',
+  notifDismissAll: 'Очистить историю'
 };

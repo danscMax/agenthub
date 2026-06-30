@@ -4,6 +4,7 @@
   import { relTime, formatAbsTime } from '$lib/relativeTime';
   import { statusTextClass } from '$lib/statusColor';
   import ForkRepoCard from './ForkRepoCard.svelte';
+  import EmptyState from './EmptyState.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
 
   let {
@@ -233,6 +234,7 @@
     </div>
     <div class="card-grid">
       {#each sortedRepos as repo (repo.Path)}
+        <div data-highlight-id={repo.Name ? `repo:${repo.Name}` : undefined}>
         <ForkRepoCard
           {repo}
           {anyRunning}
@@ -243,6 +245,7 @@
           {profiles}
           refreshing={running === 'forks'}
         />
+        </div>
       {/each}
     </div>
   {:else if running === 'forks'}
@@ -257,13 +260,7 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">⑂</div>
-        <div class="font-medium text-sw-text">{t('forks.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('forks.emptyHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="⑂" title={t('forks.emptyTitle')} description={t('forks.emptyHint')} />
   {/if}
 
   {#if githubOnly.length}

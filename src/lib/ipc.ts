@@ -622,6 +622,19 @@ export const readConfigDrift = () => invoke<ConfigDriftStatus | null>('read_conf
 export const runConfigDrift = (action: ConfigDriftAction) =>
   invoke<number>('run_config_drift', { action });
 
+// --- Config-drift diff (Phase 3.2) ---
+export type DiffLineKind = 'add' | 'del' | 'same';
+export type DiffLine = { kind: DiffLineKind; text: string };
+export type DriftDiff = {
+  tipPath: string;
+  sourcePath: string;
+  sourceLines: number;
+  tipLines: number;
+  lines: DiffLine[];
+};
+
+export const readDriftDiff = (name: string) => invoke<DriftDiff | null>('read_drift_diff', { name });
+
 // --- MCP tab ---
 export type McpServer = {
   name: string;
@@ -725,8 +738,16 @@ export const runOpencodeRtk = (action: 'enable' | 'disable') =>
 export const runOpencodeMcp = () => invoke<number>('run_opencode_mcp');
 // Delete a skill directory (guarded server-side to ~/.claude/skills).
 export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
+export type PluginRelease = {
+  tag_name: string;
+  name: string;
+  body: string;
+  published_at: string;
+};
+
 export const listPluginUpdates = () => invoke<PluginUpdate[]>('list_plugin_updates');
 export const listPluginContents = () => invoke<PluginContents[]>('list_plugin_contents');
+export const listPluginReleases = (id: string) => invoke<PluginRelease[]>('list_plugin_releases', { id });
 export const runPlugin = (action: PluginAction, id: string) =>
   invoke<number>('run_plugin', { action, id });
 
@@ -738,8 +759,12 @@ export type HubConfig = {
   fetchTimeoutSec?: number | null;
   ghTimeoutSec?: number | null;
   toggleHotkey?: string | null;
+  shortcuts?: Record<string, string> | null;
   language?: string | null;
 };
+
+/** A single entry in the global-shortcut mapping. */
+export type ShortcutEntry = { action: string; accelerator: string };
 export type AppPaths = {
   scriptsRoot: string;
   configPath: string | null;
@@ -766,5 +791,7 @@ export const exportConfig = (dest: string) => invoke('export_config', { dest });
 export const importConfig = (src: string) => invoke<HubConfig>('import_config', { src });
 // Register/clear the OS-global show/hide hotkey at runtime (#123). Throws on a bad/taken combo.
 export const setToggleHotkey = (accel: string | null) => invoke('set_toggle_hotkey', { accel });
+export const readShortcuts = () => invoke<Record<string, string>>('read_shortcuts');
+export const setShortcuts = (shortcuts: Record<string, string>) => invoke('set_shortcuts', { shortcuts });
 export const getAutostart = () => invoke<boolean>('get_autostart');
 export const setAutostart = (enabled: boolean) => invoke('set_autostart', { enabled });

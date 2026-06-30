@@ -63,6 +63,13 @@ export default {
   toggleHotkeyTip: 'e.g. CommandOrControl+Shift+H',
   toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
   toggleHotkeyError: 'Could not register the hotkey',
+  shortcutsSection: 'Shortcuts',
+  shortcutsSectionDesc: 'Global keyboard shortcuts for common actions. Leave empty to disable.',
+  shortcutsAction: 'Action',
+  shortcutsShortcut: 'Shortcut',
+  shortcutsApply: 'Apply shortcuts',
+  shortcutsSaved: 'Shortcuts saved',
+  shortcutsToggleWindow: 'Show/hide window',
 
   // Timeouts
   timeouts: 'Timeouts (forks)',

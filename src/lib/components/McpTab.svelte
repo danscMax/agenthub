@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { McpStatus, McpServer } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import EmptyState from './EmptyState.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
   import ModalShell from './ModalShell.svelte';
 
@@ -136,6 +137,7 @@
       rows={sortedSource}
       rowKey={(s) => s.name}
       sortAccessor={sortVal}
+      highlightAttr={(s) => `mcp:${s.name}`}
       search
       searchValue={(s) => `${s.name} ${s.command}`}
       searchPlaceholder={t('mcp.colName')}
@@ -201,13 +203,7 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">⧉</div>
-        <div class="font-medium text-sw-text">{t('mcp.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('mcp.emptyHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="⧉" title={t('mcp.emptyTitle')} description={t('mcp.emptyHint')} />
   {/if}
 
   {#if extras.length}

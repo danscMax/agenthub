@@ -46,6 +46,7 @@
     onClose,
     onReturnToMain,
     onToggleMax,
+    onBackground,
     onDuplicate,
     onDragStart,
     onDragEnter,
@@ -75,6 +76,7 @@
     onClose: () => void;
     onReturnToMain?: () => void;
     onToggleMax?: () => void;
+    onBackground?: () => void;
     onDuplicate?: () => void;
     onDragStart?: (key: string) => void;
     onDragEnter?: (key: string) => void;
@@ -602,6 +604,9 @@
     {/if}
     {#if onDuplicate}
       <button class="x" onclick={onDuplicate} title={t('sessions.duplicate')} aria-label={t('sessions.duplicate')}>⧉</button>
+    {/if}
+    {#if onBackground}
+      <button class="x" onclick={onBackground} title={t('sessions.backgroundPane')} aria-label={t('sessions.backgroundPane')}>🗕</button>
     {/if}
     {#if onToggleMax}
       <button class="x" onclick={onToggleMax}

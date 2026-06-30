@@ -113,4 +113,7 @@ export default {
   monitorOpenFailed: "Couldn't open the window on that monitor.",
   pinned: 'Pinned: {label}',
   sshToolHint: '{tool} runs on the server — it must be installed there.',
+  backgroundPane: 'Minimize to background',
+  backgroundSection: 'Background sessions ({n})',
+  restoreBg: 'Restore',
 };

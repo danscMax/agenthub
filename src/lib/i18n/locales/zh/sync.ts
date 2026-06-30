@@ -81,6 +81,11 @@ export default {
   itemKeybindingsLabel: '快捷键',
   itemKeybindingsDesc: '按键布局',
 
+  // Drift diff (Phase 3.2)
+  showDiff: '显示差异',
+  hideDiff: '隐藏差异',
+  diffTitle: '与共享副本的差异',
+
   // Empty state
   emptyTitle: '无数据',
   emptyHint: '点击「刷新」以收集同步状态。'

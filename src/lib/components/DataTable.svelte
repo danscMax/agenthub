@@ -35,6 +35,8 @@
     selectable = false,
     rowMuted,
     rowAccent,
+    rowStyle,
+    highlightAttr,
     cell,
     expand,
     toolbar,
@@ -55,6 +57,8 @@
     selectable?: boolean;
     rowMuted?: (r: any) => boolean; // dim the row (e.g. disabled item)
     rowAccent?: (r: any) => boolean; // left accent stripe (e.g. update available)
+    rowStyle?: (r: any) => string | undefined; // inline style per row
+    highlightAttr?: (r: any) => string | null | undefined; // data-highlight-id per row
     cell: Snippet<[any, DTColumn]>;
     expand?: Snippet<[any]>;
     toolbar?: Snippet;
@@ -267,7 +271,7 @@
           {@const exp = rowExpandable(row)}
           <tr class="dt-row" class:open={openKeys.has(k)} class:sel={selected.has(k)} class:clickable={exp}
             class:muted={rowMuted?.(row)} class:accent={rowAccent?.(row)}
-            onclick={() => exp && toggleOpen(k)}>
+            style={rowStyle?.(row)} data-highlight-id={highlightAttr?.(row) ?? undefined} onclick={() => exp && toggleOpen(k)}>
             {#if selectable}
               <td class="dt-sel" onclick={(e) => e.stopPropagation()}>
                 <input class="dt-check" type="checkbox" checked={selected.has(k)} onchange={() => toggleSel(k)} aria-label={t('common.selectRow')} />
@@ -476,7 +480,7 @@
     background: rgba(128, 128, 128, 0.06);
   }
   .dt-row.accent td:first-child {
-    box-shadow: inset 3px 0 0 var(--sw-accent-text);
+    box-shadow: inset 3px 0 0 var(--row-accent, var(--sw-accent-text));
   }
   .dt-row.open td {
     background: var(--sw-bg-subtle);

@@ -9,6 +9,7 @@
   } from '$lib/ipc';
   import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, type StackProc, type ProviderBalance } from '$lib/ipc';
   import { t } from '$lib/i18n';
+  import EmptyState from './EmptyState.svelte';
   import { pushToast } from '$lib/toast.svelte';
   import { statusTextClass } from '$lib/statusColor';
   import MyProviderEditDialog from './MyProviderEditDialog.svelte';
@@ -303,6 +304,13 @@
     onCancel={() => (removeKeyTarget = null)}
   />
 
+  {#if stack === null && engines === null}
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(4) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem"></div>
+      {/each}
+    </div>
+  {:else}
   <!-- System health (real /health probes of the stack services) -->
   <StackHealthCard {busy} onStart={(id) => onStack?.('start', id)} />
 
@@ -491,12 +499,8 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">🔌</div>
-        <div class="text-sw-sm">{t('providers.noEngines')}</div>
-      </div>
-    </div>
+    <EmptyState icon="🔌" description={t('providers.noEngines')} />
+  {/if}
   {/if}
   {/if}
 
@@ -657,12 +661,7 @@
       {/each}
     </div>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">🧩</div>
-        <div class="text-sw-sm">{t('myProviders.empty')}</div>
-      </div>
-    </div>
+    <EmptyState icon="🧩" description={t('myProviders.empty')} />
   {/if}
 
   <p class="mt-sw-4 text-sw-xs text-sw-text-muted">

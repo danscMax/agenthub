@@ -10,8 +10,13 @@ export type Toast = {
   action?: ToastAction;
 };
 
+export type ToastWithMeta = Toast & { timestamp: number };
+
 let seq = 0;
-export const toastStore = $state<{ items: Toast[] }>({ items: [] });
+export const toastStore = $state<{ items: Toast[]; history: { items: ToastWithMeta[]; unread: number } }>({
+  items: [],
+  history: { items: [], unread: 0 }
+});
 
 // Live auto-dismiss timers, keyed by toast id, so the stack can pause while the user hovers/reads it
 // (errors are sticky and never armed). The remembered ttl lets resume restart a fresh countdown.
@@ -37,10 +42,17 @@ export function resumeToasts(): void {
   for (const [id, tm] of [...timers]) arm(id, tm.ttl);
 }
 
+function pushToHistory(t: Toast): void {
+  toastStore.history.items = [{ ...t, timestamp: Date.now() }, ...toastStore.history.items].slice(0, 50);
+  toastStore.history.unread++;
+}
+
 export function dismiss(id: number): void {
   const tm = timers.get(id);
   if (tm) clearTimeout(tm.handle);
   timers.delete(id);
+  const item = toastStore.items.find((x) => x.id === id);
+  if (item) pushToHistory(item);
   toastStore.items = toastStore.items.filter((x) => x.id !== id);
 }
 
@@ -48,5 +60,19 @@ export function dismiss(id: number): void {
 export function dismissAll(): void {
   for (const tm of timers.values()) clearTimeout(tm.handle);
   timers.clear();
+  for (const item of toastStore.items) pushToHistory(item);
   toastStore.items = [];
+}
+
+export function markNotifRead(): void {
+  toastStore.history.unread = 0;
+}
+
+export function clearHistory(): void {
+  toastStore.history.items = [];
+  toastStore.history.unread = 0;
+}
+
+export function dismissFromHistory(timestamp: number): void {
+  toastStore.history.items = toastStore.history.items.filter((x) => x.timestamp !== timestamp);
 }

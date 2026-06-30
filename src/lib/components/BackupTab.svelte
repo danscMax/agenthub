@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { BackupList, BackupAction, RestoreOpts } from '$lib/ipc';
   import RestoreDialog from './RestoreDialog.svelte';
+  import EmptyState from './EmptyState.svelte';
   import { t } from '$lib/i18n';
   import { formatAbsTime } from '$lib/relativeTime';
 
@@ -94,6 +95,13 @@
     </div>
   </header>
 
+  {#if data === null}
+    <div class="flex flex-col gap-sw-2">
+      {#each Array(4) as _, i (i)}
+        <div class="skeleton" style="height:2.4rem"></div>
+      {/each}
+    </div>
+  {:else}
   <!-- status -->
   <div class="sw-card mb-sw-4 flex flex-wrap items-center gap-sw-6">
     <div>
@@ -142,13 +150,8 @@
       {/each}
     </ul>
   {:else}
-    <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-      <div>
-        <div class="mb-sw-2 text-2xl">⛁</div>
-        <div class="font-medium text-sw-text">{t('backup.emptyTitle')}</div>
-        <div class="text-sw-sm">{t('backup.emptyHint')}</div>
-      </div>
-    </div>
+    <EmptyState icon="⛁" title={t('backup.emptyTitle')} description={t('backup.emptyHint')} />
+  {/if}
   {/if}
 </div>
 

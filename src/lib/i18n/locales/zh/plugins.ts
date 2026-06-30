@@ -78,6 +78,12 @@ export default {
   sortName: '排序：名称',
   sortStatus: '排序：状态',
   sortUpdate: '排序：更新',
+  changelogBtn: '更新日志',
+  changelogBtnTip: '查看 GitHub 发布历史',
+  changelogTitle: '发布历史',
+  changelogLoading: '加载发布记录中…',
+  changelogNoReleases: '未找到发布记录。',
+  changelogError: '加载发布记录失败。',
 
   // Skills section
   skillsHeading: '技能 ({count})',

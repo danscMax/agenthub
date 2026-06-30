@@ -45,5 +45,14 @@ export default {
   clearFilter: '清除',
   rowTip: '点击按此模型筛选',
   sortTip: '点击按列排序',
-  footnote: '以只读方式读取 freeapi.db；「已节省」为相较付费定价的估算。'
+  footnote: '以只读方式读取 freeapi.db；「已节省」为相较付费定价的估算。',
+  scriptMetrics: '脚本运行历史',
+  scriptMetricsDesc: '维护脚本运行时长的直方图——按天分组。',
+  scriptClear: '清除历史',
+  scriptHistDuration: '时长',
+  scriptHistRuns: '运行次数',
+  scriptColComponent: '组件',
+  scriptColDuration: '时长',
+  scriptColStatus: '状态',
+  scriptNoData: '尚无运行历史——维护操作完成后将显示在此。'
 };

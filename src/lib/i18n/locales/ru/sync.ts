@@ -82,6 +82,11 @@ export default {
   itemKeybindingsLabel: 'Горячие клавиши',
   itemKeybindingsDesc: 'Раскладка клавиш',
 
+  // Drift diff (Phase 3.2)
+  showDiff: 'Показать diff',
+  hideDiff: 'Скрыть diff',
+  diffTitle: 'Отличия от shared-копии',
+
   // Empty state
   emptyTitle: 'Нет данных',
   emptyHint: 'Нажми «Обновить», чтобы собрать статус синхронизации.'

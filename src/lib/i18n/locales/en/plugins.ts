@@ -78,6 +78,12 @@ export default {
   sortName: 'Sort: name',
   sortStatus: 'Sort: status',
   sortUpdate: 'Sort: updates',
+  changelogBtn: 'Changelog',
+  changelogBtnTip: 'View release history on GitHub',
+  changelogTitle: 'Release history',
+  changelogLoading: 'Loading releases…',
+  changelogNoReleases: 'No releases found.',
+  changelogError: 'Failed to load releases.',
 
   // Skills section
   skillsHeading: 'Skills ({count})',

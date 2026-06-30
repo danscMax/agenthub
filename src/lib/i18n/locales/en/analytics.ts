@@ -45,5 +45,15 @@ export default {
   clearFilter: 'Clear',
   rowTip: 'Click to filter by this model',
   sortTip: 'Click to sort by column',
-  footnote: 'Read from freeapi.db read-only; “saved” is an estimate vs paid pricing.'
+  footnote: 'Read from freeapi.db read-only; “saved” is an estimate vs paid pricing.',
+  // Script run metrics (Phase 3.6)
+  scriptMetrics: 'Script run history',
+  scriptMetricsDesc: 'Duration histogram of maintenance script runs — grouped by day.',
+  scriptClear: 'Clear history',
+  scriptHistDuration: 'Duration',
+  scriptHistRuns: 'Runs',
+  scriptColComponent: 'Component',
+  scriptColDuration: 'Duration',
+  scriptColStatus: 'Status',
+  scriptNoData: 'No run history yet — runs appear here after a maintenance operation completes.'
 };

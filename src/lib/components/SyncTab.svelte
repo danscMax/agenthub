@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openPath, type SyncStatus, type SyncItem, type ConfigDriftStatus, type ConfigDriftAction } from '$lib/ipc';
+  import { openPath, readDriftDiff, type SyncStatus, type SyncItem, type ConfigDriftStatus, type ConfigDriftAction, type DriftDiff } from '$lib/ipc';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
   import { relTime } from '$lib/relativeTime';
@@ -74,6 +74,29 @@
     if (s === 'scanning') return t('sync.stateScanning');
     if (s === 'error') return t('sync.stateError');
     return s ?? t('common.dash');
+  }
+
+  // Drift-diff expand state
+  let expanded = $state<string | null>(null);
+  let diffCache = $state<Record<string, DriftDiff>>({});
+  let diffLoading = $state<Record<string, boolean>>({});
+
+  async function toggleDiff(name: string) {
+    if (expanded === name) {
+      expanded = null;
+      return;
+    }
+    expanded = name;
+    if (diffCache[name]) return;
+    diffLoading[name] = true;
+    try {
+      const d = await readDriftDiff(name);
+      if (d) diffCache[name] = d;
+    } catch {
+      // ignore
+    } finally {
+      diffLoading[name] = false;
+    }
   }
 
   function apply() {
@@ -167,11 +190,49 @@
               title={t('sync.relinkTip')}>{t('sync.relinkBtn')}</button>
           {/if}
         </div>
-      </div>
-    {/if}
+      {#if driftData.items && driftData.items.length > 0}
+        <div class="mt-sw-3 space-y-1">
+          {#each driftData.items as item (item.name)}
+            <div class="flex items-center gap-sw-2 rounded bg-sw-surface px-sw-3 py-1.5 text-sw-sm">
+              <code class="font-mono flex-1 truncate">{item.name}</code>
+              <span class="badge badge-{item.state === 'ok' || item.state === 'linked' || item.state === 'master' ? 'ok' : 'warn'}">{item.state}</span>
+              {#if item.state === 'drifted'}
+                <button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" onclick={() => toggleDiff(item.name)}
+                  title={t('sync.diffTitle')}>
+                  {expanded === item.name ? t('sync.hideDiff') : t('sync.showDiff')}
+                </button>
+              {/if}
+            </div>
+            {#if expanded === item.name}
+              <div class="overflow-x-auto rounded bg-sw-surface-alt px-sw-3 py-sw-2 text-sw-xs font-mono leading-relaxed">
+                {#if diffLoading[item.name]}
+                  <span class="text-sw-text-muted">…</span>
+                {:else if diffCache[item.name]}
+                  <table class="w-full border-collapse">
+                    <tbody>
+                      {#each diffCache[item.name].lines as line}
+                        <tr class="diff-{line.kind}">
+                          <td class="w-4 select-none text-center text-sw-text-muted">
+                            {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
+                          </td>
+                          <td class="whitespace-pre">{line.text}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                {:else}
+                  <span class="text-sw-text-muted">{t('common.dash')}</span>
+                {/if}
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
-    <!-- Sync conflicts (USE-8) -->
-    {#if conflictCount > 0}
+  <!-- Sync conflicts (USE-8) -->
+  {#if conflictCount > 0}
       <div class="sw-card mb-sw-4 flex items-center gap-sw-2 border border-amber-500/40 text-sw-sm">
         <span class="badge badge-warn">{t('sync.conflictsBadge', { n: conflictCount })}</span>
         <span class="text-sw-text-secondary">{t('sync.conflictsDesc')}</span>
@@ -227,3 +288,12 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .diff-add td {
+    background-color: rgba(34, 197, 94, 0.1);
+  }
+  .diff-del td {
+    background-color: rgba(239, 68, 68, 0.1);
+  }
+</style>

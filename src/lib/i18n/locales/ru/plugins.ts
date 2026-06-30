@@ -78,6 +78,12 @@ export default {
   sortName: 'Сортировка: имя',
   sortStatus: 'Сортировка: статус',
   sortUpdate: 'Сортировка: обновления',
+  changelogBtn: 'Чейнджлог',
+  changelogBtnTip: 'История релизов на GitHub',
+  changelogTitle: 'История релизов',
+  changelogLoading: 'Загрузка релизов…',
+  changelogNoReleases: 'Релизы не найдены.',
+  changelogError: 'Не удалось загрузить релизы.',
 
   // Skills section
   skillsHeading: 'Скиллы ({count})',

@@ -82,6 +82,11 @@ export default {
   itemKeybindingsLabel: 'Keybindings',
   itemKeybindingsDesc: 'Key layout',
 
+  // Drift diff (Phase 3.2)
+  showDiff: 'Show diff',
+  hideDiff: 'Hide diff',
+  diffTitle: 'Differences from shared copy',
+
   // Empty state
   emptyTitle: 'No data',
   emptyHint: 'Click “Refresh” to collect the sync status.'

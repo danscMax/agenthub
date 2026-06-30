@@ -63,6 +63,13 @@ export default {
   toggleHotkeyTip: 'Например: CommandOrControl+Shift+H',
   toggleHotkeyPlaceholder: 'CommandOrControl+Shift+H',
   toggleHotkeyError: 'Не удалось зарегистрировать хоткей',
+  shortcutsSection: 'Горячие клавиши',
+  shortcutsSectionDesc: 'Глобальные комбинации для основных действий. Пусто = выключено.',
+  shortcutsAction: 'Действие',
+  shortcutsShortcut: 'Комбинация',
+  shortcutsApply: 'Применить',
+  shortcutsSaved: 'Комбинации сохранены',
+  shortcutsToggleWindow: 'Показать/скрыть окно',
 
   // Timeouts
   timeouts: 'Таймауты (форки)',
