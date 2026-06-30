@@ -1306,7 +1306,12 @@ fn write_json_atomic(path: &str, content: &str) -> std::io::Result<()> {
     let is_secret_file = p
         .file_name()
         .and_then(|n| n.to_str())
-        .map(|n| n.eq_ignore_ascii_case("settings.json") || n.eq_ignore_ascii_case("opencode.json"))
+        .map(|n| {
+            // .claude.json carries the ANTHROPIC auth token + per-server MCP env (may hold keys).
+            n.eq_ignore_ascii_case("settings.json")
+                || n.eq_ignore_ascii_case("opencode.json")
+                || n.eq_ignore_ascii_case(".claude.json")
+        })
         .unwrap_or(false);
     if p.exists() && !is_secret_file {
         let _ = std::fs::copy(path, format!("{path}.bak"));
@@ -4216,6 +4221,8 @@ const PROFILE_NAMES: [&str; 6] = ["ccmy", "cc1", "cc2", "cc3", "cc4", "cc5"];
 struct McpServer {
     name: String,
     command: String,
+    /// The server's full canonical definition (so the edit form can prefill the raw JSON).
+    definition: serde_json::Value,
     #[serde(rename = "deployedIn")]
     deployed_in: Vec<String>,
 }
@@ -4250,7 +4257,7 @@ fn profile_mcp_servers(name: &str) -> Option<Vec<String>> {
 #[tauri::command]
 fn read_mcp() -> Result<McpStatus, String> {
     // Source-of-truth servers.
-    let mut source_defs: Vec<(String, String)> = Vec::new(); // (name, command)
+    let mut source_defs: Vec<(String, String, serde_json::Value)> = Vec::new(); // (name, command, def)
     if let Ok(content) = std::fs::read_to_string(abs(MCP_CONFIG_REL)) {
         if let Ok(v) = parse_json_bom(&content) {
             if let Some(obj) = v.get("mcpServers").and_then(|m| m.as_object()) {
@@ -4260,7 +4267,7 @@ fn read_mcp() -> Result<McpStatus, String> {
                         .and_then(|c| c.as_str())
                         .unwrap_or("")
                         .to_string();
-                    source_defs.push((name.clone(), cmd));
+                    source_defs.push((name.clone(), cmd, def.clone()));
                 }
             }
         }
@@ -4278,19 +4285,24 @@ fn read_mcp() -> Result<McpStatus, String> {
 
     let source: Vec<McpServer> = source_defs
         .iter()
-        .map(|(name, cmd)| {
+        .map(|(name, cmd, def)| {
             let deployed_in = per_profile
                 .iter()
                 .filter(|(_, servers)| servers.iter().any(|s| s == name))
                 .map(|(p, _)| p.clone())
                 .collect();
-            McpServer { name: name.clone(), command: cmd.clone(), deployed_in }
+            McpServer {
+                name: name.clone(),
+                command: cmd.clone(),
+                definition: def.clone(),
+                deployed_in,
+            }
         })
         .collect();
 
     // Servers found in a profile but absent from the source-of-truth.
     let source_names: std::collections::HashSet<&str> =
-        source_defs.iter().map(|(n, _)| n.as_str()).collect();
+        source_defs.iter().map(|(n, _, _)| n.as_str()).collect();
     let mut extras_map: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
     for (p, servers) in &per_profile {
@@ -4306,6 +4318,71 @@ fn read_mcp() -> Result<McpStatus, String> {
         .collect();
 
     Ok(McpStatus { source, extras, profiles: existing_profiles })
+}
+
+/// Serialize lock for the canonical .mcp.json: add/edit/remove all read-modify-write it.
+static MCP_LOCK: Mutex<()> = Mutex::new(());
+
+/// Read the canonical .mcp.json doc; defaults to {"mcpServers":{}} when absent. Errs (so a caller
+/// aborts instead of overwriting) when present-but-corrupt, recovering from .bak first.
+fn read_mcp_doc() -> Result<serde_json::Value, String> {
+    Ok(read_json_or_recover(abs(MCP_CONFIG_REL), ".mcp.json")?
+        .unwrap_or_else(|| serde_json::json!({ "mcpServers": {} })))
+}
+
+fn write_mcp_doc(doc: &serde_json::Value) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
+    write_json_atomic(&abs(MCP_CONFIG_REL), &json).map_err(|e| format!("write .mcp.json: {e}"))
+}
+
+/// Add or replace one server in the canonical config\.mcp.json. `definition` is the server's JSON
+/// object (e.g. {"command":"npx","args":[...]}); it is validated to be an object before writing.
+#[tauri::command]
+fn mcp_upsert_server(name: String, definition: String) -> Result<(), String> {
+    let _guard = MCP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("MCP server name is required".to_string());
+    }
+    let def = parse_json_bom(&definition).map_err(|e| format!("invalid server JSON: {e}"))?;
+    if !def.is_object() {
+        return Err("server definition must be a JSON object".to_string());
+    }
+    let mut doc = read_mcp_doc()?;
+    if !doc.get("mcpServers").map(|m| m.is_object()).unwrap_or(false) {
+        doc["mcpServers"] = serde_json::json!({});
+    }
+    doc["mcpServers"][name] = def;
+    write_mcp_doc(&doc)
+}
+
+/// Remove one server from the canonical config\.mcp.json.
+#[tauri::command]
+fn mcp_remove_server(name: String) -> Result<(), String> {
+    let _guard = MCP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut doc = read_mcp_doc()?;
+    if let Some(obj) = doc.get_mut("mcpServers").and_then(|m| m.as_object_mut()) {
+        obj.remove(&name);
+    }
+    write_mcp_doc(&doc)
+}
+
+/// Remove one "extra" server (present in a profile but not in the canonical set) from that profile's
+/// live .claude.json — the action behind the Mcp-tab extras list. Preserves the rest of the file.
+#[tauri::command]
+fn mcp_remove_extra(name: String, profile: String) -> Result<(), String> {
+    if !valid_profile_name(&profile) {
+        return Err(trv("err.invalid_provider_id", cur_lang(), &[("id", &profile)]));
+    }
+    let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
+    let path = format!("{home}\\.claude-{profile}\\.claude.json");
+    let mut doc = read_json_or_recover(&path, ".claude.json")?
+        .ok_or_else(|| format!("profile {profile} has no .claude.json"))?;
+    if let Some(obj) = doc.get_mut("mcpServers").and_then(|m| m.as_object_mut()) {
+        obj.remove(&name);
+    }
+    let json = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    write_json_atomic(&path, &json).map_err(|e| format!("write .claude.json: {e}"))
 }
 
 const SCHEDULE_SCRIPT_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Schedule-Hub.ps1";
@@ -7114,6 +7191,9 @@ pub fn run() {
             run_opencode_provider,
             read_mcp,
             run_mcp,
+            mcp_upsert_server,
+            mcp_remove_server,
+            mcp_remove_extra,
             list_plugins,
             list_skills,
             read_environments,

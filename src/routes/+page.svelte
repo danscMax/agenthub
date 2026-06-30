@@ -24,6 +24,9 @@
     measureContext,
     readMcp,
     runMcp,
+    mcpUpsertServer,
+    mcpRemoveServer,
+    mcpRemoveExtra,
     readSync,
     runSync,
     readConfigDrift,
@@ -628,6 +631,51 @@
     }
     askConfirm(t('page.confirm_mcp_title'), t('page.confirm_mcp_msg'), t('page.confirm_mcp_btn'), () =>
       startMcp('deploy', profiles ?? undefined)
+    );
+  }
+
+  // Canonical .mcp.json CRUD (native invokes; reload + toast, no run-log stream).
+  async function onMcpUpsert(name: string, definition: string) {
+    try {
+      await mcpUpsertServer(name, definition);
+      await reloadMcp();
+      pushToast({ kind: 'success', title: t('mcp.savedServer', { name }) });
+    } catch (e) {
+      toastErr(e);
+    }
+  }
+  function onMcpRemoveServer(name: string) {
+    askConfirm(
+      t('page.confirm_mcp_remove_title'),
+      t('page.confirm_mcp_remove_msg', { name }),
+      t('common.delete'),
+      async () => {
+        try {
+          await mcpRemoveServer(name);
+          await reloadMcp();
+          pushToast({ kind: 'success', title: t('mcp.removedServer', { name }) });
+        } catch (e) {
+          toastErr(e);
+        }
+      },
+      { danger: true }
+    );
+  }
+  function onMcpRemoveExtra(name: string, profile: string) {
+    askConfirm(
+      t('page.confirm_mcp_extra_title'),
+      t('page.confirm_mcp_extra_msg', { name, profile }),
+      t('common.delete'),
+      async () => {
+        try {
+          await mcpRemoveExtra(name, profile);
+          await reloadMcp();
+          pushToast({ kind: 'success', title: t('mcp.removedExtra', { name, profile }) });
+        } catch (e) {
+          toastErr(e);
+        }
+      },
+      { danger: true }
     );
   }
 
@@ -1647,7 +1695,8 @@
           {onRelaunchAdmin}
         />
       {:else if active === 'mcp'}
-        <McpTab data={mcpData} {running} onRefresh={reloadMcp} onDeploy={onMcpDeploy} />
+        <McpTab data={mcpData} {running} onRefresh={reloadMcp} onDeploy={onMcpDeploy}
+          onUpsert={onMcpUpsert} onRemoveServer={onMcpRemoveServer} onRemoveExtra={onMcpRemoveExtra} />
       {:else if active === 'envs'}
         <EnvironmentsTab data={envsData} {running} matrix={envsMatrix} onRefresh={reloadEnvs}
           onShare={onShareSkills} onRtk={onEnvRtk} onLoadMatrix={reloadSkillMatrix}

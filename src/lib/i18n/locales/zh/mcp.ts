@@ -34,5 +34,19 @@ export default {
   // Extras (out of source of truth)
   extrasHeading: '真实来源之外',
   extrasNote: '在配置中找到但不在 config/.mcp.json 中的服务器：',
-  extrasProfileTitle: '存在于此配置中，但不在真实来源中'
+  extrasProfileTitle: '存在于此配置中，但不在真实来源中',
+  removeExtraTitle: '从配置 {p} 中移除此服务器',
+
+  // Add / edit a canonical server
+  addServer: '添加服务器',
+  addServerTitle: '向 config/.mcp.json 添加服务器',
+  editServerTitle: '在 config/.mcp.json 中编辑此服务器',
+  removeServerTitle: '从 config/.mcp.json 中删除此服务器',
+  formName: '服务器名称',
+  formJson: '定义（JSON）',
+  errEmptyName: '需要服务器名称',
+  errBadJson: 'JSON 无效',
+  savedServer: '已保存服务器「{name}」',
+  removedServer: '已删除服务器「{name}」',
+  removedExtra: '已从 {profile} 移除「{name}」'
 };

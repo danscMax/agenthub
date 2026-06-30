@@ -623,13 +623,24 @@ export const runConfigDrift = (action: ConfigDriftAction) =>
   invoke<number>('run_config_drift', { action });
 
 // --- MCP tab ---
-export type McpServer = { name: string; command: string; deployedIn: string[] };
+export type McpServer = {
+  name: string;
+  command: string;
+  definition: unknown; // the server's full canonical JSON object (for the edit form)
+  deployedIn: string[];
+};
 export type McpExtra = { name: string; presentIn: string[] };
 export type McpStatus = { source: McpServer[]; extras: McpExtra[]; profiles: string[] };
 
 export const readMcp = () => invoke<McpStatus>('read_mcp');
 export const runMcp = (action: 'deploy', only?: string[]) =>
   invoke<number>('run_mcp', { action, only: only && only.length ? only : null });
+// Canonical config\.mcp.json CRUD (definition is the server's JSON object, serialized).
+export const mcpUpsertServer = (name: string, definition: string) =>
+  invoke<void>('mcp_upsert_server', { name, definition });
+export const mcpRemoveServer = (name: string) => invoke<void>('mcp_remove_server', { name });
+export const mcpRemoveExtra = (name: string, profile: string) =>
+  invoke<void>('mcp_remove_extra', { name, profile });
 
 // --- Schedule tab ---
 export type ScheduleTask = {

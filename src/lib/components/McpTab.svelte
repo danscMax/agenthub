@@ -1,21 +1,64 @@
 <script lang="ts">
-  import type { McpStatus } from '$lib/ipc';
+  import type { McpStatus, McpServer } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import DataTable, { type DTColumn } from './DataTable.svelte';
+  import ModalShell from './ModalShell.svelte';
 
   let {
     data,
     running,
     onRefresh,
-    onDeploy
+    onDeploy,
+    onUpsert,
+    onRemoveServer,
+    onRemoveExtra
   }: {
     data: McpStatus | null;
     running: string | null;
     onRefresh: () => void;
     onDeploy: (target?: string | string[]) => void;
+    onUpsert: (name: string, definition: string) => void;
+    onRemoveServer: (name: string) => void;
+    onRemoveExtra: (name: string, profile: string) => void;
   } = $props();
 
   const busy = $derived(!!running);
+
+  // --- Add/edit a canonical server (config\.mcp.json) ---
+  const DEFAULT_DEF = '{\n  "command": "npx",\n  "args": []\n}';
+  let formOpen = $state(false);
+  let formName = $state('');
+  let formJson = $state(DEFAULT_DEF);
+  let formEditing = $state(false); // true = name locked (editing an existing server)
+  let formError = $state('');
+  function openAdd() {
+    formName = '';
+    formJson = DEFAULT_DEF;
+    formEditing = false;
+    formError = '';
+    formOpen = true;
+  }
+  function openEdit(srv: McpServer) {
+    formName = srv.name;
+    formJson = JSON.stringify(srv.definition, null, 2);
+    formEditing = true;
+    formError = '';
+    formOpen = true;
+  }
+  function submitForm() {
+    if (!formName.trim()) {
+      formError = t('mcp.errEmptyName');
+      return;
+    }
+    try {
+      JSON.parse(formJson); // validate before sending; backend re-checks
+    } catch (e) {
+      formError = `${t('mcp.errBadJson')}: ${e}`;
+      return;
+    }
+    onUpsert(formName.trim(), formJson);
+    formOpen = false;
+  }
   // Bulk MCP deploy (#76): pick profiles, deploy to all of them in one run.
   let bulkSel = $state<Record<string, boolean>>({});
   const bulkCount = $derived(Object.values(bulkSel).filter(Boolean).length);
@@ -53,7 +96,8 @@
     { key: 'name', label: t('mcp.colName'), grow: true, sortable: true },
     { key: 'command', label: t('mcp.colCommand'), width: '300px' },
     { key: 'deployed', label: t('mcp.colDeployed'), width: '100px', align: 'center', sortable: true },
-    { key: 'profiles', label: t('mcp.colProfiles'), width: '240px', interactive: true }
+    { key: 'profiles', label: t('mcp.colProfiles'), width: '220px', interactive: true },
+    { key: 'actions', label: '', width: '130px', align: 'right', interactive: true }
   ]);
   type Srv = (typeof sortedSource)[number];
   function sortVal(s: Srv, key: string): string | number {
@@ -74,6 +118,10 @@
       <button class="sw-btn sw-btn-ghost" disabled={busy} onclick={onRefresh}
         title={t('mcp.refreshTitle')}>
         {running === 'mcp' ? t('common.busy') : t('common.refresh')}
+      </button>
+      <button class="sw-btn sw-btn-ghost" disabled={busy} onclick={openAdd}
+        title={t('mcp.addServerTitle')}>
+        {t('mcp.addServer')}
       </button>
       <button class="sw-btn sw-btn-primary" disabled={busy} onclick={() => onDeploy()}
         title={t('mcp.deployTitle')}>
@@ -135,6 +183,13 @@
               {/each}
             </div>
           {/if}
+        {:else if col.key === 'actions'}
+          <div class="flex justify-end gap-sw-1">
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => openEdit(srv)}
+              title={t('mcp.editServerTitle')}>{t('common.edit')}</button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onRemoveServer(srv.name)}
+              title={t('mcp.removeServerTitle')}>{t('common.delete')}</button>
+          </div>
         {/if}
       {/snippet}
     </DataTable>
@@ -167,10 +222,29 @@
         <div class="flex items-center justify-between gap-sw-2 text-sw-sm">
           <span class="font-mono text-sw-text">{ex.name}</span>
           <div class="flex flex-wrap gap-sw-2">
-            {#each ex.presentIn as p (p)}<span class="badge badge-warn" title={t('mcp.extrasProfileTitle')}>{p}</span>{/each}
+            {#each ex.presentIn as p (p)}<button class="badge badge-warn" disabled={busy}
+              onclick={() => onRemoveExtra(ex.name, p)} title={t('mcp.removeExtraTitle', { p })}>{p} ✕</button>{/each}
           </div>
         </div>
       {/each}
     </div>
   {/if}
 </div>
+
+<ModalShell open={formOpen} onClose={() => (formOpen = false)} size="md">
+  <h3 class="dlg-h">{formEditing ? t('mcp.editServerTitle') : t('mcp.addServerTitle')}</h3>
+  <label class="dlg-fld">
+    <span>{t('mcp.formName')}</span>
+    <input class="sw-input" bind:value={formName} readonly={formEditing} placeholder="my-server"
+      spellcheck="false" autocomplete="off" />
+  </label>
+  <label class="dlg-fld">
+    <span>{t('mcp.formJson')}</span>
+    <textarea class="sw-input font-mono text-sw-xs" bind:value={formJson} rows="8" spellcheck="false"></textarea>
+  </label>
+  {#if formError}<p class="warn text-sw-xs">{formError}</p>{/if}
+  <div class="dlg-row">
+    <button class="sw-btn sw-btn-ghost" onclick={() => (formOpen = false)}>{t('common.cancel')}</button>
+    <button class="sw-btn sw-btn-primary" onclick={submitForm}>{t('common.save')}</button>
+  </div>
+</ModalShell>

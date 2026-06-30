@@ -122,6 +122,10 @@ export default {
   confirm_mcp_msg:
     'Серверы из config/.mcp.json будут добавлены в каждый профиль (user-scope, идемпотентно). Существующие перезапишутся теми же значениями. Продолжить?',
   confirm_mcp_btn: 'Развернуть',
+  confirm_mcp_remove_title: 'Удалить MCP-сервер?',
+  confirm_mcp_remove_msg: 'Сервер «{name}» будет удалён из config/.mcp.json. Продолжить?',
+  confirm_mcp_extra_title: 'Убрать сервер из профиля?',
+  confirm_mcp_extra_msg: 'Сервер «{name}» будет убран из живого конфига профиля {profile}. Продолжить?',
 
   // Sync
   sync_log_set: '▶ Синхронизация: применение настроек…',

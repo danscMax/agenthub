@@ -121,6 +121,10 @@ export default {
   confirm_mcp_msg:
     'config/.mcp.json 中的服务器将被添加到每个配置（用户范围，幂等）。已存在的将以相同值覆盖。是否继续？',
   confirm_mcp_btn: '部署',
+  confirm_mcp_remove_title: '删除 MCP 服务器？',
+  confirm_mcp_remove_msg: '服务器「{name}」将从 config/.mcp.json 中删除。是否继续？',
+  confirm_mcp_extra_title: '从配置中移除服务器？',
+  confirm_mcp_extra_msg: '服务器「{name}」将从配置 {profile} 的当前文件中移除。是否继续？',
 
   // Sync
   sync_log_set: '▶ 同步：应用设置…',

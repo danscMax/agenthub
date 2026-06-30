@@ -34,5 +34,19 @@ export default {
   // Extras (out of source of truth)
   extrasHeading: 'Outside the source of truth',
   extrasNote: 'Servers found in profiles but missing from config/.mcp.json:',
-  extrasProfileTitle: 'Present in this profile, but not in the source of truth'
+  extrasProfileTitle: 'Present in this profile, but not in the source of truth',
+  removeExtraTitle: 'Remove this server from profile {p}',
+
+  // Add / edit a canonical server
+  addServer: 'Add server',
+  addServerTitle: 'Add a server to config/.mcp.json',
+  editServerTitle: 'Edit this server in config/.mcp.json',
+  removeServerTitle: 'Remove this server from config/.mcp.json',
+  formName: 'Server name',
+  formJson: 'Definition (JSON)',
+  errEmptyName: 'A server name is required',
+  errBadJson: 'Invalid JSON',
+  savedServer: 'Saved server “{name}”',
+  removedServer: 'Removed server “{name}”',
+  removedExtra: 'Removed “{name}” from {profile}'
 };

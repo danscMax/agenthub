@@ -122,6 +122,10 @@ export default {
   confirm_mcp_msg:
     'Servers from config/.mcp.json will be added to each profile (user-scope, idempotent). Existing ones are overwritten with the same values. Continue?',
   confirm_mcp_btn: 'Deploy',
+  confirm_mcp_remove_title: 'Remove MCP server?',
+  confirm_mcp_remove_msg: 'Server “{name}” will be removed from config/.mcp.json. Continue?',
+  confirm_mcp_extra_title: 'Remove server from profile?',
+  confirm_mcp_extra_msg: 'Server “{name}” will be removed from profile {profile}’s live config. Continue?',
 
   // Sync
   sync_log_set: '▶ Sync: applying settings…',
