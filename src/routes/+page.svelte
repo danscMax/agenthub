@@ -444,7 +444,9 @@
         ? t('page.backup_verb_snapshot')
         : action === 'restore-preview'
           ? t('page.backup_verb_restore_preview')
-          : t('page.backup_verb_restore');
+          : action === 'delete-snapshot'
+            ? t('page.backup_verb_delete')
+            : t('page.backup_verb_restore');
     log = [t('page.backup_log', { verb })];
     runBackup(action, opts).catch(onSpawnErr);
   }
@@ -458,6 +460,14 @@
         t('page.confirm_restore_btn'),
         () => startBackup('restore', opts),
         { danger: true, requireText: opts?.timestamp ?? null }
+      );
+    } else if (action === 'delete-snapshot') {
+      askConfirm(
+        t('page.confirm_delsnap_title'),
+        t('page.confirm_delsnap_msg', { snap: opts?.timestamp ?? '' }),
+        t('page.confirm_delsnap_btn'),
+        () => startBackup('delete-snapshot', opts),
+        { danger: true }
       );
     } else {
       startBackup(action, opts);

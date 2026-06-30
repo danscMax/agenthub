@@ -25,6 +25,7 @@ export default {
   snapshotsHeading: '快照 ({n})',
   latest: '最新',
   restoreItemTitle: '从此快照恢复配置（会先显示预览）',
+  deleteItemTitle: '永久删除此快照',
   restore: '恢复',
   emptyTitle: '暂无快照',
   emptyHint: '点击「创建备份」以创建第一个。',

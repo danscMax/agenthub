@@ -80,12 +80,16 @@ export default {
   backup_verb_snapshot: 'creating snapshot',
   backup_verb_restore_preview: 'restore plan (-WhatIf)',
   backup_verb_restore: 'restoring',
+  backup_verb_delete: 'deleting snapshot',
   backup_log: '▶ Backup: {verb}…',
   backup_snap_last: 'latest',
   confirm_restore_title: 'Restore configs?',
   confirm_restore_msg:
     'Snapshot “{snap}” will overwrite the live configs of the selected profiles — irreversible. Continue?',
   confirm_restore_btn: 'Restore',
+  confirm_delsnap_title: 'Delete snapshot?',
+  confirm_delsnap_msg: 'Snapshot “{snap}” will be permanently removed. Continue?',
+  confirm_delsnap_btn: 'Delete',
 
   // Profiles
   prof_verb_add: 'adding profile {name}',

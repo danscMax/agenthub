@@ -876,6 +876,12 @@ fn backup_args(
         }
         "restore-preview" => (RESTORE_SCRIPT_REL, vec!["-WhatIf".to_string()]),
         "restore" => (RESTORE_SCRIPT_REL, Vec::new()),
+        "delete-snapshot" => match timestamp.as_deref().filter(|t| !t.is_empty()) {
+            // Must carry a non-empty id: an empty -DeleteSnapshot would make the script run a normal
+            // backup instead. The PS side additionally pattern-validates the id against traversal.
+            Some(id) => (BACKUP_SCRIPT_REL, vec!["-DeleteSnapshot".to_string(), id.to_string()]),
+            None => return Err("delete-snapshot requires a snapshot id".to_string()),
+        },
         _ => return Err(trv("err.unknown_backup_action", cur_lang(), &[("action", &action)])),
     };
     if action == "restore-preview" || action == "restore" {

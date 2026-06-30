@@ -131,10 +131,13 @@
             <span class="font-mono text-sw-sm text-sw-text">{fmtSnap(snap)}</span>
             {#if i === 0}<span class="badge badge-info">{t('backup.latest')}</span>{/if}
           </div>
-          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => (restoreSnap = snap)}
-            title={t('backup.restoreItemTitle')}>
-            {t('backup.restore')}
-          </button>
+          <div class="flex shrink-0 gap-sw-2">
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => (restoreSnap = snap)}
+              title={t('backup.restoreItemTitle')}>{t('backup.restore')}</button>
+            <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+              onclick={() => onAction('delete-snapshot', { timestamp: snap })}
+              title={t('backup.deleteItemTitle')}>{t('common.delete')}</button>
+          </div>
         </li>
       {/each}
     </ul>

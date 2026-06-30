@@ -80,11 +80,15 @@ export default {
   backup_verb_snapshot: '创建快照',
   backup_verb_restore_preview: '恢复计划（-WhatIf）',
   backup_verb_restore: '恢复中',
+  backup_verb_delete: '删除快照中',
   backup_log: '▶ 备份：{verb}…',
   backup_snap_last: '最新',
   confirm_restore_title: '恢复配置？',
   confirm_restore_msg: '快照「{snap}」将覆盖所选配置的当前文件——不可逆。是否继续？',
   confirm_restore_btn: '恢复',
+  confirm_delsnap_title: '删除快照？',
+  confirm_delsnap_msg: '快照「{snap}」将被永久删除。是否继续？',
+  confirm_delsnap_btn: '删除',
 
   // Profiles
   prof_verb_add: '添加配置 {name}',

@@ -101,7 +101,7 @@ export type GithubRepo = {
 export const listGithubRepos = () => invoke<GithubRepo[]>('list_github_repos');
 
 // --- Backup tab ---
-export type BackupAction = 'backup' | 'restore-preview' | 'restore';
+export type BackupAction = 'backup' | 'restore-preview' | 'restore' | 'delete-snapshot';
 
 export type BackupState = {
   lastRun?: string;

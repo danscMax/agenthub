@@ -25,6 +25,7 @@ export default {
   snapshotsHeading: 'Снапшоты ({n})',
   latest: 'последний',
   restoreItemTitle: 'Восстановить конфиги из этого снапшота (сначала покажет план)',
+  deleteItemTitle: 'Безвозвратно удалить этот снапшот',
   restore: 'Восстановить',
   emptyTitle: 'Снапшотов нет',
   emptyHint: 'Нажми «Сделать бэкап», чтобы создать первый.',

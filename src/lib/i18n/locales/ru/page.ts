@@ -80,12 +80,16 @@ export default {
   backup_verb_snapshot: 'создание снапшота',
   backup_verb_restore_preview: 'план восстановления (-WhatIf)',
   backup_verb_restore: 'восстановление',
+  backup_verb_delete: 'удаление снапшота',
   backup_log: '▶ Бэкап: {verb}…',
   backup_snap_last: 'последний',
   confirm_restore_title: 'Восстановить конфиги?',
   confirm_restore_msg:
     'Снапшот «{snap}» перезапишет живые конфиги выбранных профилей — необратимо. Продолжить?',
   confirm_restore_btn: 'Восстановить',
+  confirm_delsnap_title: 'Удалить снапшот?',
+  confirm_delsnap_msg: 'Снапшот «{snap}» будет удалён безвозвратно. Продолжить?',
+  confirm_delsnap_btn: 'Удалить',
 
   // Profiles
   prof_verb_add: 'добавление профиля {name}',

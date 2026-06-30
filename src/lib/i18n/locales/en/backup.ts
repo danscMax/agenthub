@@ -25,6 +25,7 @@ export default {
   snapshotsHeading: 'Snapshots ({n})',
   latest: 'latest',
   restoreItemTitle: 'Restore configs from this snapshot (shows a preview first)',
+  deleteItemTitle: 'Permanently delete this snapshot',
   restore: 'Restore',
   emptyTitle: 'No snapshots',
   emptyHint: 'Press “Make backup” to create the first one.',
