@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { BackupList, BackupAction, RestoreOpts } from '$lib/ipc';
-  import { revealBackup } from '$lib/ipc';
+  import { revealBackup, deleteBackup, verifyBackup, extractBackup, pickFolder } from '$lib/ipc';
   import RestoreDialog from './RestoreDialog.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import EmptyState from './EmptyState.svelte';
   import { Archive } from '@lucide/svelte';
   import SectionHeader from './SectionHeader.svelte';
@@ -15,14 +16,58 @@
     running,
     log = [],
     profiles = [],
-    onAction
+    onAction,
+    onRefresh
   }: {
     data: BackupList | null;
     running: string | null;
     log?: string[];
     profiles?: string[];
     onAction: (action: BackupAction, opts?: RestoreOpts) => void;
+    onRefresh?: () => void;
   } = $props();
+
+  // F9: weekly-archive ops (zip files, not snapshot folders) — direct IPC, not BackupAction.
+  let wkBusy = $state(false);
+  let confirmDeleteWeekly = $state<string | null>(null);
+  async function verifyWeekly(name: string) {
+    wkBusy = true;
+    try {
+      const n = await verifyBackup(name);
+      pushToast({ kind: 'success', title: t('backup.verifyOk', { n }) });
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('backup.verifyFail'), detail: String(e) });
+    } finally {
+      wkBusy = false;
+    }
+  }
+  async function extractWeekly(name: string) {
+    const dest = await pickFolder().catch(() => null);
+    if (!dest) return;
+    wkBusy = true;
+    try {
+      await extractBackup(name, dest);
+      pushToast({ kind: 'success', title: t('backup.extractOk'), detail: dest });
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('backup.extractFail'), detail: String(e) });
+    } finally {
+      wkBusy = false;
+    }
+  }
+  async function doDeleteWeekly() {
+    const name = confirmDeleteWeekly;
+    confirmDeleteWeekly = null;
+    if (!name) return;
+    wkBusy = true;
+    try {
+      await deleteBackup(name);
+      onRefresh?.();
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('common.error'), detail: String(e) });
+    } finally {
+      wkBusy = false;
+    }
+  }
 
   const busy = $derived(!!running);
   const snapshots = $derived(data?.snapshots ?? []);
@@ -172,9 +217,15 @@
               {#if i === 0}<span class="badge badge-info">{t('backup.latest')}</span>{/if}
             </div>
             <div class="flex shrink-0 gap-sw-2">
+              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={wkBusy}
+                onclick={() => verifyWeekly(wk)} title={t('backup.verifyItemTitle')}>{t('backup.verify')}</button>
+              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={wkBusy}
+                onclick={() => extractWeekly(wk)} title={t('backup.extractItemTitle')}>{t('backup.extract')}</button>
               <button class="sw-btn sw-btn-ghost text-sw-xs"
                 onclick={() => revealBackup(wk).catch((e) => pushToast({ kind: 'error', title: String(e) }))}
                 title={t('backup.revealItemTitle')}>{t('common.open')}</button>
+              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={wkBusy}
+                onclick={() => (confirmDeleteWeekly = wk)} title={t('backup.deleteWeeklyTitle')}>{t('common.delete')}</button>
             </div>
           </li>
         {/each}
@@ -193,4 +244,16 @@
   onPreview={(opts) => onAction('restore-preview', opts)}
   onRestore={(opts) => onAction('restore', opts)}
   onClose={() => (restoreSnap = null)}
+/>
+
+<!-- F9: confirm before deleting a weekly archive. -->
+<ConfirmDialog
+  open={confirmDeleteWeekly !== null}
+  title={t('backup.deleteWeeklyTitle')}
+  message={t('backup.deleteWeeklyMsg')}
+  details={confirmDeleteWeekly ? [confirmDeleteWeekly] : []}
+  confirmLabel={t('common.delete')}
+  danger
+  onConfirm={doDeleteWeekly}
+  onCancel={() => (confirmDeleteWeekly = null)}
 />

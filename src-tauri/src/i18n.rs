@@ -136,6 +136,7 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("err.bad_url_scheme", ["Отклонён небезопасный URL (разрешены только http/https): {url}", "Refused an unsafe URL (only http/https are allowed): {url}", "已拒绝不安全的 URL（仅允许 http/https）：{url}"]),
     ("err.clone_target_exists", ["Папка назначения уже существует: {path}", "Target folder already exists: {path}", "目标文件夹已存在：{path}"]),
     ("err.git_failed", ["Не удалось запустить git: {e}", "Could not run git: {e}", "无法运行 git：{e}"]),
+    ("err.tar_failed", ["Не удалось запустить tar: {e}", "Could not run tar: {e}", "无法运行 tar：{e}"]),
     ("err.bad_hotkey", ["неверная комбинация: {e}", "invalid shortcut: {e}", "快捷键无效: {e}"]),
     ("err.unknown_tool", ["неизвестный инструмент: {tool}", "unknown tool: {tool}", "未知工具: {tool}"]),
     ("err.session_limit", ["достигнут предел сессий ({max})", "session limit reached ({max})", "已达到会话上限 ({max})"]),

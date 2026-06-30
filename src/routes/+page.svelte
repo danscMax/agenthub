@@ -13,6 +13,7 @@
     runBackup,
     readProfiles,
     runProfiles,
+    repairAllProfiles,
     readProfilesConfig,
     runProfileMgmt,
     repairProfileElevated,
@@ -843,6 +844,16 @@
       case 'clean-conflicts':
         onProfileAction('clean-conflicts');
         break;
+      case 'repair-profiles': {
+        // F23: repair every broken profile's links in one run (backend loops the repair script).
+        if (running) break;
+        const broken = (profilesData?.profiles ?? []).filter((p) => !p.linksIntact).map((p) => p.name);
+        if (!broken.length) break;
+        running = 'profiles';
+        log = [t('page.prof_log', { verb: t('page.prof_verb_repair', { name: t('page.home_repairAll') }) })];
+        repairAllProfiles(broken).catch(onSpawnErr);
+        break;
+      }
     }
   }
   $effect(() => {
@@ -1885,7 +1896,7 @@
       {:else if active === 'forks'}
         <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} onClone={onCloneRepo} {cloningRepo} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       {:else if active === 'backup'}
-        <BackupTab data={backupData} {running} {log} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
+        <BackupTab data={backupData} {running} {log} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} onRefresh={reloadBackup} />
       {:else if active === 'profiles'}
         <ProfilesTab
           data={profilesData}

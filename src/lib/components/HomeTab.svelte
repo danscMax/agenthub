@@ -65,7 +65,9 @@
       out.push({
         key: 'profiles', tab: 'profiles', title: t('page.home_profiles'),
         value: broken > 0 ? t('page.home_profilesBroken', { n: broken }) : t('page.home_profilesOk', { n: profiles.profiles.length }),
-        level: broken > 0 ? 'bad' : 'ok'
+        level: broken > 0 ? 'bad' : 'ok',
+        // F23: one-click repair of every broken profile's links (parent loops the repair script).
+        action: broken > 0 ? { id: 'repair-profiles', label: t('page.home_repairAll') } : undefined
       });
     }
 

@@ -1035,10 +1035,9 @@ fn list_backups() -> BackupList {
     }
 }
 
-/// F9: reveal a weekly archive in Explorer (file selected). Name is validated against the weekly-zip
-/// shape and rejected if it contains path separators, so the FE can't smuggle an arbitrary path.
-#[tauri::command]
-fn reveal_backup(name: String) -> Result<(), String> {
+/// Validate a weekly-archive name (no path separators, `weekly-*.zip` shape) and return its absolute
+/// path under Backups. Shared by reveal/verify/extract/delete so the guard can't drift between them.
+fn weekly_archive_path(name: &str) -> Result<String, String> {
     if name.contains('/')
         || name.contains('\\')
         || !(name.starts_with("weekly-") && name.ends_with(".zip"))
@@ -1049,12 +1048,71 @@ fn reveal_backup(name: String) -> Result<(), String> {
     if !std::path::Path::new(&path).exists() {
         return Err(trv("err.dir_not_found", cur_lang(), &[("path", &path)]));
     }
+    Ok(path)
+}
+
+/// The SYSTEM bsdtar — a bare `tar` may resolve to Git-Bash GNU tar, which treats the `E:` in the
+/// archive path as a remote host ("Cannot connect to E:"). Same reason the Backup script uses it.
+fn system_tar() -> String {
+    let windir = std::env::var("windir").unwrap_or_else(|_| "C:\\Windows".into());
+    format!("{windir}\\System32\\tar.exe")
+}
+
+/// F9: reveal a weekly archive in Explorer (file selected).
+#[tauri::command]
+fn reveal_backup(name: String) -> Result<(), String> {
+    let path = weekly_archive_path(&name)?;
     std::process::Command::new("explorer")
         .arg(format!("/select,{path}"))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| trv("err.open_path", cur_lang(), &[("path", &path), ("e", &e)]))?;
     Ok(())
+}
+
+/// F9: delete a weekly archive (zip). The FE gates this behind a confirm.
+#[tauri::command]
+fn delete_backup(name: String) -> Result<(), String> {
+    let path = weekly_archive_path(&name)?;
+    std::fs::remove_file(&path)
+        .map_err(|e| trv("err.open_path", cur_lang(), &[("path", &path), ("e", &e)]))
+}
+
+/// F9: verify a weekly archive by listing it (`tar -tf`). Returns the entry count on success, or the
+/// tar stderr if the zip is corrupt/truncated.
+#[tauri::command]
+fn verify_backup(name: String) -> Result<usize, String> {
+    let path = weekly_archive_path(&name)?;
+    let out = std::process::Command::new(system_tar())
+        .args(["-tf", &path])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| trv("err.tar_failed", cur_lang(), &[("e", &e)]))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).lines().count())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// F9: extract a weekly archive to a user-picked folder. NON-destructive — never writes over the live
+/// ~/.claude (the weekly archives skills/agents/commands, which are Syncthing-synced + junctioned).
+#[tauri::command]
+fn extract_backup(name: String, dest: String) -> Result<(), String> {
+    let path = weekly_archive_path(&name)?;
+    if !std::path::Path::new(&dest).is_dir() {
+        return Err(trv("err.dir_not_found", cur_lang(), &[("path", &dest)]));
+    }
+    let out = std::process::Command::new(system_tar())
+        .args(["-x", "-f", &path, "-C", &dest])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| trv("err.tar_failed", cur_lang(), &[("e", &e)]))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
 }
 
 /// Build the (script, args) for a Backup-tab action. Kept pure so the security-sensitive gating is
@@ -1216,6 +1274,59 @@ async fn run_profiles(
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "profiles".to_string(), script, args).await
+}
+
+/// F23: repair the shared-folder links of the given profiles in one run (Home "Repair All"). Loops
+/// the single-profile repair script under ONE reserved slot (the per-profile script has no -All mode),
+/// streaming a header per profile; the final run-done carries the WORST exit code so a failure in any
+/// profile surfaces. Each name is charset-validated + membership-checked (repair is idempotent + never
+/// deletes real data, so repairing an already-healthy profile is a safe no-op).
+#[tauri::command]
+async fn repair_all_profiles(
+    app: AppHandle,
+    state: State<'_, RunState>,
+    names: Vec<String>,
+) -> Result<i32, String> {
+    let known = profile_names();
+    let targets: Vec<String> = names
+        .into_iter()
+        .filter(|n| valid_profile_name(n) && known.iter().any(|k| k == n))
+        .collect();
+    let _slot = RunSlot::reserve(state.inner())?;
+    let script = abs(REPAIR_SCRIPT_REL);
+    let mut worst = 0;
+    for name in &targets {
+        let _ = app.emit(
+            "run-log",
+            LogLine {
+                component: "profiles".into(),
+                stream: "out".into(),
+                line: format!("── repair {name} ──"),
+            },
+        );
+        // Intermediate phases emit an event the UI ignores; the real run-done is sent below with `worst`.
+        let code = spawn_pwsh_phase(
+            &app,
+            &state,
+            "profiles",
+            script.clone(),
+            vec!["-Name".into(), name.clone()],
+            "run-profiles-phase",
+        )
+        .await;
+        if code != 0 {
+            worst = code;
+        }
+    }
+    drop(_slot);
+    let _ = app.emit(
+        "run-done",
+        RunDone {
+            component: "profiles".into(),
+            code: worst,
+        },
+    );
+    Ok(worst)
 }
 
 /// Read the cached shared-config link-drift snapshot (links.last.json from Check-Integrity.ps1).
@@ -8681,9 +8792,13 @@ pub fn run() {
             read_fork_repo_status,
             list_backups,
             reveal_backup,
+            delete_backup,
+            verify_backup,
+            extract_backup,
             run_backup,
             read_profiles,
             run_profiles,
+            repair_all_profiles,
             read_profiles_config,
             run_profile_mgmt,
             repair_profile_elevated,

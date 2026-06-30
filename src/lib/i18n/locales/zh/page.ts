@@ -34,6 +34,7 @@ export default {
   home_refreshForks: '刷新分叉',
   home_relink: '重新链接',
   home_cleanConflicts: '清理',
+  home_repairAll: '全部修复',
   // Wave-4 config-drift / time keys
   drift_log: '配置漂移：{verb}…',
   drift_verb_check: '检查链接',

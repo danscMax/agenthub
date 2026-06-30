@@ -2,6 +2,7 @@
   "generated": "2026-06-30",
   "product": "Castellyn",
   "triage": "Весь список (волны 1-5) — все 24 пункта",
+  "implementation_status": "DONE 2026-06-30: all items implemented, merged to main, pushed (commit 3072909). Verified by svelte-check (0 errors), 36 unit tests, and a full signed release build. The approval_state flags below are the pre-implementation planning gate and are left as historical record. Deferred follow-ups: F9 weekly Restore/Delete/Verify (only reveal-in-Explorer shipped — weeklies are zips, need new backend cmds); F23 Profiles->Repair All (backend repair requires a name, no repair-all); C3 auto-update needs 2 GitHub secrets + a release to go live (createUpdaterArtifacts still 'v1Compatible' — flip to true once users are on a v2-updater build).",
   "waves": [
     {
       "wave": 1,

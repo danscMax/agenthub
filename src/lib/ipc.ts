@@ -128,6 +128,12 @@ export type RestoreOpts = {
 export const listBackups = () => invoke<BackupList>('list_backups');
 // F9: reveal a weekly archive (weekly-*.zip) selected in Explorer.
 export const revealBackup = (name: string) => invoke('reveal_backup', { name });
+// F9: delete a weekly archive (confirmed in the UI).
+export const deleteBackup = (name: string) => invoke('delete_backup', { name });
+// F9: verify a weekly archive's integrity (tar -tf); resolves to the entry count, rejects on a bad zip.
+export const verifyBackup = (name: string) => invoke<number>('verify_backup', { name });
+// F9: extract a weekly archive to a folder (non-destructive — never over live ~/.claude).
+export const extractBackup = (name: string, dest: string) => invoke('extract_backup', { name, dest });
 
 export const runBackup = (action: BackupAction, opts: RestoreOpts = {}) =>
   invoke<number>('run_backup', {
@@ -164,6 +170,9 @@ export type ProfilesStatus = {
 export const readProfiles = () => invoke<ProfilesStatus | null>('read_profiles');
 export const runProfiles = (action: ProfileAction, name?: string) =>
   invoke<number>('run_profiles', { action, name });
+// F23: repair the links of several profiles in one run (Home "Repair All").
+export const repairAllProfiles = (names: string[]) =>
+  invoke<number>('repair_all_profiles', { names });
 // Finish a half-built profile's folder symlinks with admin rights (one-off UAC).
 export const repairProfileElevated = (name: string) =>
   invoke<number>('repair_profile_elevated', { name });

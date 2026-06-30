@@ -34,6 +34,7 @@ export default {
   home_refreshForks: 'Refresh forks',
   home_relink: 'Relink',
   home_cleanConflicts: 'Clean up',
+  home_repairAll: 'Repair all',
   // Wave-4 config-drift / time keys
   drift_log: 'Config drift: {verb}…',
   drift_verb_check: 'checking links',
