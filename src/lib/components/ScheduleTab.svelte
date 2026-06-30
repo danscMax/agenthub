@@ -3,6 +3,7 @@
   import { t } from '$lib/i18n';
   import EmptyState from './EmptyState.svelte';
   import { formatAbsTime } from '$lib/relativeTime';
+  import { Clock } from '@lucide/svelte';
 
   let {
     data,
@@ -75,8 +76,8 @@
                   <dt class="text-sw-xs text-sw-text-muted">{t('schedule.lastRun')}</dt>
                   <dd class="text-sw-text">
                     {fmtNext(task.lastRun)}
-                    {#if task.lastResult === 0}<span class="text-emerald-400">· {t('schedule.lastResultOk')}</span>
-                    {:else if task.lastResult != null}<span class="text-amber-400">· {t('schedule.lastResultFail', { code: task.lastResult })}</span>{/if}
+                    {#if task.lastResult === 0}<span class="status-ok">· {t('schedule.lastResultOk')}</span>
+                    {:else if task.lastResult != null}<span class="status-warn">· {t('schedule.lastResultFail', { code: task.lastResult })}</span>{/if}
                   </dd>
                 </div>
               {/if}
@@ -121,6 +122,6 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="🕒" title={t('schedule.emptyTitle')} description={t('schedule.emptyHint')} />
+    <EmptyState icon={Clock} title={t('schedule.emptyTitle')} description={t('schedule.emptyHint')} />
   {/if}
 </div>

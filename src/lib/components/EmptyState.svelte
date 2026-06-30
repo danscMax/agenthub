@@ -1,12 +1,13 @@
 <script lang="ts">
+  import type { Component } from 'svelte';
   let {
-    icon = '',
+    icon = null,
     title = '',
     description = '',
     action,
     actionLabel = ''
   }: {
-    icon?: string;
+    icon?: Component | null;
     title?: string;
     description?: string;
     action?: () => void;
@@ -16,7 +17,8 @@
 
 <div class="empty-state">
   {#if icon}
-    <div class="empty-icon">{@html icon}</div>
+    {@const Icon = icon}
+    <div class="empty-icon"><Icon size={32} strokeWidth={1.5} /></div>
   {/if}
   {#if title}
     <div class="empty-title">{title}</div>
@@ -38,15 +40,13 @@
     color: var(--sw-text-muted);
   }
   .empty-icon {
-    font-size: 1.5rem;
     line-height: 1;
     margin-bottom: 0.5rem;
     opacity: 0.5;
+    color: currentColor;
   }
   .empty-icon :global(svg) {
     display: block;
-    width: 2rem;
-    height: 2rem;
   }
   .empty-title {
     font-weight: 500;

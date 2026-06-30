@@ -2,6 +2,7 @@
   // Password-style input with a reveal (eye) toggle + copy button. Used for API keys/tokens (#10).
   import { t } from '$lib/i18n';
   import { copyText } from '$lib/clipboard';
+  import { Eye, EyeOff, Copy, Check } from '@lucide/svelte';
 
   let {
     value = $bindable(''),
@@ -41,10 +42,10 @@
   {#if value}
     <button type="button" class="sbtn" onclick={() => (show = !show)}
       title={show ? t('common.hide') : t('common.show')} aria-label={show ? t('common.hide') : t('common.show')}>
-      {show ? '🙈' : '👁'}
+      {#if show}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
     </button>
     <button type="button" class="sbtn" onclick={copy}
-      title={t('common.copy')} aria-label={t('common.copy')}>{copied ? '✓' : '⧉'}</button>
+      title={t('common.copy')} aria-label={t('common.copy')}>{#if copied}<Check size={14} />{:else}<Copy size={14} />{/if}</button>
   {/if}
 </div>
 

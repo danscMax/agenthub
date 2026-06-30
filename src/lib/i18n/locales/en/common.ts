@@ -43,6 +43,7 @@ export default {
   selectAll: 'Select all',
   deselectAll: 'Deselect all',
   selectRow: 'Select row',
+  sortBy: 'Sort by {label}',
 
   // Generic words / statuses
   yes: 'Yes',

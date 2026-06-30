@@ -255,10 +255,20 @@
               class:sortable={c.sortable}
               class:active={sortKey === c.key}
               class:grow={c.grow}
-              onclick={() => { if (!resizing) toggleSort(c); }}
               aria-sort={sortKey === c.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
             >
-              <span class="dt-thlabel">{c.label}{#if c.sortable}<span class="dt-arrow">{sortKey === c.key ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>{/if}</span>
+              {#if c.sortable}
+                <button
+                  type="button"
+                  class="dt-th-btn"
+                  onclick={() => { if (!resizing) toggleSort(c); }}
+                  aria-label={t('common.sortBy', { label: c.label })}
+                >
+                  <span class="dt-thlabel">{c.label}<span class="dt-arrow">{sortKey === c.key ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span></span>
+                </button>
+              {:else}
+                <span class="dt-thlabel">{c.label}</span>
+              {/if}
               {#if i < columns.length - 1}<span class="dt-resize" onpointerdown={(e) => startResize(e, c.key)} onclick={(e) => e.stopPropagation()} role="separator" aria-hidden="true"></span>{/if}
             </th>
           {/each}
@@ -427,12 +437,34 @@
     user-select: none;
   }
   .dt-th.sortable {
-    cursor: pointer;
+    padding: 0;
   }
-  .dt-th.sortable:hover {
+  /* Native <button> inside <th>: gets keyboard focus, Enter/Space activation, AT semantics
+     ("button, sort by name") for free — no need for tabindex/role/onkeydown on the <th>. */
+  .dt-th-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    height: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    text-transform: inherit;
+    letter-spacing: inherit;
+  }
+  .dt-th-btn:hover {
     color: var(--sw-text-secondary);
   }
-  .dt-th.active {
+  .dt-th-btn:focus-visible {
+    outline: 2px solid var(--sw-accent-text);
+    outline-offset: -2px;
+  }
+  .dt-th.active .dt-th-btn {
     color: var(--sw-text-secondary);
   }
   .dt-thlabel {
@@ -450,7 +482,7 @@
     opacity: 1;
     color: var(--sw-accent-text);
   }
-  .dt-th.sortable:hover .dt-arrow {
+  .dt-th.sortable .dt-th-btn:hover .dt-arrow {
     opacity: 0.5;
   }
   .dt tbody td {
@@ -533,7 +565,7 @@
     color: var(--sw-text-muted);
     padding: 22px;
   }
-  .dt-th.sortable:focus-visible,
+  .dt-th.sortable .dt-th-btn:focus-visible,
   .dt-expbtn:focus-visible {
     outline: 2px solid var(--sw-accent-text);
     outline-offset: -2px;

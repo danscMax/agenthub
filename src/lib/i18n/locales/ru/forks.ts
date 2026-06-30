@@ -61,6 +61,8 @@ export default {
   ghOpen: 'Открыть на GitHub',
   ghOpenShort: 'GitHub ↗',
   ghOpenTip: 'Открыть страницу репозитория на GitHub',
+  ghCloneShort: 'Клонировать',
+  ghCloneTip: 'Клонировать репозиторий в локальную папку',
   ghColName: 'Репозиторий',
   ghColRepo: 'owner/repo',
   ghColKind: 'Тип',

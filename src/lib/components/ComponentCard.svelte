@@ -124,7 +124,7 @@
       {#if forkSummary.needHands > 0}
         <span class="badge badge-warn shrink-0">{forkSummary.needHands} {plural(forkSummary.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many'))}</span>
       {/if}
-      <span class="{forkSummary.needHands > 0 ? 'text-amber-400' : 'text-sw-text-secondary'}">
+      <span class="{forkSummary.needHands > 0 ? 'status-warn' : 'text-sw-text-secondary'}">
         {forkSummary.text}
       </span>
     </div>

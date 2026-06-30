@@ -13,6 +13,7 @@
   } from '$lib/ipc';
   import { pProfile, t } from '$lib/i18n';
   import { readProfileFile } from '$lib/ipc';
+  import { Users } from '@lucide/svelte';
   import EmptyState from './EmptyState.svelte';
   import { copyText } from '$lib/clipboard';
   import { relTime } from '$lib/relativeTime';
@@ -321,7 +322,7 @@
     { key: 'usage', label: t('profiles.colUsage'), width: '170px' },
     { key: 'provider', label: t('profiles.colProvider'), width: '200px', interactive: true, sortable: true },
     { key: 'links', label: t('profiles.colLinks'), width: '92px', align: 'center', sortable: true },
-    { key: 'actions', label: t('profiles.colActions'), width: '160px', interactive: true }
+    { key: 'actions', label: t('profiles.colActions'), width: '240px', interactive: true }
   ]);
   function linkedCount(p: Prof): number {
     return Object.values(p.sharedLinks).filter(
@@ -406,7 +407,7 @@
   {#if data}
     {#if hasIssues}
       <div class="sw-card mb-sw-4 border border-amber-500/40">
-        <div class="mb-sw-2 font-medium text-amber-400">{t('profiles.recommendations')}</div>
+        <div class="mb-sw-2 font-medium status-warn">{t('profiles.recommendations')}</div>
         <ul class="space-y-2 text-sw-sm">
           {#if brokenLinks.length > 0}
             <li class="flex flex-wrap items-center justify-between gap-sw-2">
@@ -501,12 +502,8 @@
           {/if}
         {:else if col.key === 'provider'}
           {#if p.exists}
-            <span class="flex min-w-0 items-center gap-sw-1 text-sw-xs">
-              <button type="button" class="min-w-0 flex-1 truncate text-left font-medium text-sw-text-secondary hover:text-sw-text disabled:opacity-60"
-                disabled={busy} onclick={() => editProvider(p.name)} title={t('profiles.providerEditTip')}>{providerLabel(p.name)}</button>
-              <button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" disabled={busy} onclick={() => editProvider(p.name)}
-                title={t('profiles.providerEditTip')}>{t('profiles.providerEdit')}</button>
-            </span>
+            <button type="button" class="block min-w-0 max-w-full truncate text-left text-sw-xs font-medium text-sw-text-secondary hover:text-sw-text disabled:opacity-60"
+              disabled={busy} onclick={() => editProvider(p.name)} title={t('profiles.providerEditTip')}>{providerLabel(p.name)}</button>
           {:else}
             <span class="text-sw-text-muted">—</span>
           {/if}
@@ -567,7 +564,7 @@
       {/snippet}
     </DataTable>
   {:else}
-    <EmptyState icon="☰" title={t('profiles.noData')} description={t('profiles.noDataHint')} />
+    <EmptyState icon={Users} title={t('profiles.noData')} description={t('profiles.noDataHint')} />
   {/if}
 </div>
 
@@ -586,7 +583,7 @@
   {#if viewerLoading}
     <p class="text-sw-sm text-sw-text-muted">{t('common.loading')}</p>
   {:else if viewerErr}
-    <p class="text-sw-sm text-red-400">{viewerErr}</p>
+    <p class="text-sw-sm status-bad">{viewerErr}</p>
   {:else}
     <pre class="cfg-view">{viewerContent}</pre>
   {/if}

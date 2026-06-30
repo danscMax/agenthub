@@ -54,7 +54,14 @@ jobs:
           }
       # tauri build runs `npm run build` (beforeBuildCommand) then bundles every
       # target — standalone exe + NSIS setup + WiX MSI (bundle.targets = "all").
-      - run: npm run tauri build
+      # The two TAURI_SIGNING_* env vars make the bundler sign the updater artifacts
+      # (createUpdaterArtifacts: "v1Compatible") — writes a *-setup.exe.sig used in latest.json.
+      # The private key is passwordless, so the password secret may be an empty string.
+      - name: Build (signed updater artifacts)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
 
       - name: Collect and version the artifacts
         shell: pwsh
@@ -71,8 +78,40 @@ jobs:
           Copy-Item (Get-ChildItem "$rel/bundle/msi/*.msi"        | Select-Object -First 1) $out
           $files = Get-ChildItem $out
           $files | Format-Table Name, @{n='MB';e={'{0:0.0}' -f ($_.Length/1MB)}}
-          # Fail loudly rather than upload a partial set.
+          # Fail loudly rather than upload a partial set (3 = exe + NSIS + MSI; latest.json is added next).
           if ($files.Count -ne 3) { throw "expected 3 artifacts, found $($files.Count)" }
+
+      # C3: the updater (plugins.updater.endpoint = releases/latest/download/latest.json) needs a manifest
+      # pointing at the SIGNED NSIS installer. tauri build wrote <setup>.exe.sig next to it — fold that
+      # signature + the eventual release download URL into latest.json. This is the bit tauri-action would
+      # otherwise do; we keep the hand-rolled pipeline and just add the manifest.
+      - name: Generate updater manifest (latest.json)
+        shell: pwsh
+        env:
+          NOTES: ${{ github.event.release.body }}
+        run: |
+          $rel  = "src-tauri/target/release"
+          $out  = "dist-release"
+          $setup = Get-ChildItem "$rel/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          $sigPath = "$($setup.FullName).sig"
+          if (-not (Test-Path $sigPath)) {
+            throw "no updater signature at $sigPath — is TAURI_SIGNING_PRIVATE_KEY set as a repo secret?"
+          }
+          $sig = (Get-Content $sigPath -Raw).Trim()
+          $notes = if ([string]::IsNullOrWhiteSpace($env:NOTES)) { "See the release page for details." } else { $env:NOTES }
+          $manifest = [ordered]@{
+            version   = "$env:TAG"
+            notes     = $notes
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $sig
+                url       = "https://github.com/danscMax/castellyn/releases/download/$env:TAG/$($setup.Name)"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content "$out/latest.json" -Encoding utf8
+          Write-Host "── latest.json ──"; Get-Content "$out/latest.json"
 
       - name: Upload to the release
         shell: pwsh

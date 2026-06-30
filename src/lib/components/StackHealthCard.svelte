@@ -2,6 +2,7 @@
   import { readStackHealth, type StackHealth } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import { statusFillVar } from '$lib/statusColor';
+  import { RefreshCw } from '@lucide/svelte';
 
   // onStart lets a stopped service be brought up straight from the health list (id → start).
   let { onStart, busy = false }: { onStart?: (id: string) => void; busy?: boolean } = $props();
@@ -108,7 +109,7 @@
       {/if}
       <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={loading} onclick={load}
         title={t('health.refresh') + ' — ' + t('health.refreshTip')} aria-label={t('health.refresh')}>
-        {loading ? t('health.loading') : '⟳'}
+        {#if loading}{t('health.loading')}{:else}<RefreshCw size={14} />{/if}
       </button>
     </div>
   </div>

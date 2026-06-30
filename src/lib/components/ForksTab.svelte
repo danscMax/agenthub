@@ -6,6 +6,7 @@
   import ForkRepoCard from './ForkRepoCard.svelte';
   import EmptyState from './EmptyState.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
+  import { GitFork } from '@lucide/svelte';
 
   let {
     status,
@@ -18,6 +19,8 @@
     onBatchFf,
     onOpenUrl,
     onOpenSession,
+    onClone,
+    cloningRepo = null,
     profiles = []
   }: {
     status: ForkStatus | null | undefined;
@@ -30,6 +33,8 @@
     onBatchFf: (names: string[]) => void;
     onOpenUrl?: (url: string) => void;
     onOpenSession?: (path: string, tool?: import('$lib/ipc').SessionTool, profile?: string) => void;
+    onClone?: (repo: GithubRepo) => void;
+    cloningRepo?: string | null;
     profiles?: string[];
   } = $props();
 
@@ -52,14 +57,32 @@
 
   // Filter: all / forks / own — applied to BOTH local repos and the GitHub-only list.
   let repoFilter = $state<'all' | 'fork' | 'own'>('all');
-  // Extra status filter toggled by clicking a KPI (conflict / needs-hands). Local repos only.
-  let statusFilter = $state<'conflict' | 'needHands' | null>(null);
+  // Status filter — toggled by clicking a KPI tile. null = no filter (the "Repos" tile clears).
+  let statusFilter = $state<
+    'conflict' | 'needHands' | 'merged' | 'open' | null
+  >(null);
   const repoHasConflict = (r: import('$lib/ipc').ForkRepo) =>
     (r.branches ?? []).some((b) => b.outcome === 'conflict' || (b.conflictFiles?.length ?? 0) > 0);
   const repoNeedsHands = (r: import('$lib/ipc').ForkRepo) =>
     r.dirty || r.untracked || r.midOp || r.detached || repoHasConflict(r) || (r.behindBy ?? 0) > 0;
-  const matchesStatus = (r: import('$lib/ipc').ForkRepo) =>
-    !statusFilter || (statusFilter === 'conflict' ? repoHasConflict(r) : repoNeedsHands(r));
+  const repoHasMergedPr = (r: import('$lib/ipc').ForkRepo) =>
+    (r.branches ?? []).some((b) => b.prState === 'MERGED');
+  const repoHasOpenPr = (r: import('$lib/ipc').ForkRepo) =>
+    (r.branches ?? []).some((b) => b.prState === 'OPEN');
+  const matchesStatus = (r: import('$lib/ipc').ForkRepo) => {
+    switch (statusFilter) {
+      case 'conflict':
+        return repoHasConflict(r);
+      case 'needHands':
+        return repoNeedsHands(r);
+      case 'merged':
+        return repoHasMergedPr(r);
+      case 'open':
+        return repoHasOpenPr(r);
+      case null:
+        return true;
+    }
+  };
   const byKind = $derived(
     repoFilter === 'fork'
       ? repos.filter((r) => !r.isOwn)
@@ -112,15 +135,17 @@
     const s = summary;
     if (!s) return [];
     return [
-      { label: pRepo(s.repos), value: s.repos, cls: 'text-sw-text', tip: t('forks.kpiReposTip'), filter: null },
-      { label: t('forks.kpiMerged'), value: s.merged, cls: statusTextClass('ok'), tip: t('forks.kpiMergedTip'), filter: null },
-      { label: t('forks.kpiOpen'), value: s.open, cls: statusTextClass('info'), tip: t('forks.kpiOpenTip'), filter: null },
+      { label: pRepo(s.repos), value: s.repos, cls: 'text-sw-text', tip: t('forks.kpiReposTip'), filter: 'repos' as const },
+      { label: t('forks.kpiMerged'), value: s.merged, cls: s.merged > 0 ? statusTextClass('ok') : 'text-sw-text', tip: t('forks.kpiMergedTip'), filter: 'merged' as const },
+      { label: t('forks.kpiOpen'), value: s.open, cls: s.open > 0 ? statusTextClass('info') : 'text-sw-text', tip: t('forks.kpiOpenTip'), filter: 'open' as const },
       { label: pConflict(s.conflict), value: s.conflict, cls: s.conflict > 0 ? statusTextClass('warn') : 'text-sw-text', tip: t('forks.kpiConflictsTip'), filter: 'conflict' as const },
       { label: plural(s.needHands, t('forks.needHands_one'), t('forks.needHands_few'), t('forks.needHands_many')), value: s.needHands, cls: s.needHands > 0 ? statusTextClass('warn') : 'text-sw-text', tip: t('forks.kpiNeedHandsTip'), filter: 'needHands' as const }
     ];
   });
-  function clickKpi(filter: 'conflict' | 'needHands' | null) {
-    statusFilter = filter && statusFilter !== filter ? filter : null;
+  function clickKpi(filter: 'conflict' | 'needHands' | 'merged' | 'open' | 'repos') {
+    // 'repos' = the "show all" tile; toggles the filter off (same as clicking the active tile again).
+    if (filter === 'repos') statusFilter = null;
+    else statusFilter = statusFilter === filter ? null : filter;
   }
 
   type Gh = GithubRepo;
@@ -182,18 +207,11 @@
   {#if summary}
     <div class="sw-card mb-sw-4 flex flex-wrap items-center gap-sw-6">
       {#each kpis as k (k.label)}
-        {#if k.filter}
-          <button class="min-w-[92px] cursor-pointer rounded-sw-md border text-center {statusFilter === k.filter ? 'border-sw-accent bg-sw-accent-glow' : 'border-transparent hover:border-sw-border'}"
-            title={k.tip} onclick={() => clickKpi(k.filter)}>
-            <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
-            <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
-          </button>
-        {:else}
-          <div class="min-w-[92px] text-center" title={k.tip}>
-            <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
-            <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
-          </div>
-        {/if}
+        <button class="min-w-[92px] cursor-pointer rounded-sw-md border text-center {statusFilter === k.filter || (k.filter === 'repos' && !statusFilter) ? 'border-sw-accent bg-sw-accent-glow' : 'border-transparent hover:border-sw-border'}"
+          title={k.tip} onclick={() => clickKpi(k.filter)}>
+          <div class="text-2xl font-semibold tabular-nums {k.cls}">{k.value}</div>
+          <div class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{k.label}</div>
+        </button>
       {/each}
       <div class="ml-auto text-right text-sw-xs text-sw-text-muted">
         <div>
@@ -260,7 +278,7 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="⑂" title={t('forks.emptyTitle')} description={t('forks.emptyHint')} />
+    <EmptyState icon={GitFork} title={t('forks.emptyTitle')} description={t('forks.emptyHint')} />
   {/if}
 
   {#if githubOnly.length}
@@ -303,7 +321,15 @@
                   <span class="badge badge-muted">{g.isFork ? t('forks.badgeFork') : t('forks.badgeOwn')}</span>
                 </span>
               {:else if col.key === 'actions'}
-                <button class="sw-btn sw-btn-ghost text-sw-xs whitespace-nowrap" onclick={() => onOpenUrl?.(g.url)} title={t('forks.ghOpenTip')}>{t('forks.ghOpenShort')}</button>
+                <span class="flex gap-sw-1 whitespace-nowrap">
+                  <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpenUrl?.(g.url)} title={t('forks.ghOpenTip')}>{t('forks.ghOpenShort')}</button>
+                  {#if onClone}
+                    <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={cloningRepo === g.nameWithOwner}
+                      onclick={() => onClone(g)} title={t('forks.ghCloneTip')}>
+                      {cloningRepo === g.nameWithOwner ? t('common.busy') : t('forks.ghCloneShort')}
+                    </button>
+                  {/if}
+                </span>
               {/if}
             {/snippet}
           </DataTable>

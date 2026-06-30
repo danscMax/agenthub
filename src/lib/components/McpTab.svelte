@@ -4,6 +4,8 @@
   import EmptyState from './EmptyState.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
   import ModalShell from './ModalShell.svelte';
+  import { Server } from '@lucide/svelte';
+  import SectionHeader from './SectionHeader.svelte';
 
   let {
     data,
@@ -203,13 +205,11 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="⧉" title={t('mcp.emptyTitle')} description={t('mcp.emptyHint')} />
+    <EmptyState icon={Server} title={t('mcp.emptyTitle')} description={t('mcp.emptyHint')} />
   {/if}
 
   {#if extras.length}
-    <h2 class="mb-sw-2 mt-sw-6 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
-      {t('mcp.extrasHeading')}
-    </h2>
+    <SectionHeader title={t('mcp.extrasHeading')} />
     <div class="sw-card flex flex-col gap-sw-2">
       <p class="text-sw-xs text-sw-text-muted">
         {t('mcp.extrasNote')}

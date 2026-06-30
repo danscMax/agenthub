@@ -10,6 +10,7 @@ export default {
   savedTimeouts: '超时已保存',
   autostartOn: '已启用开机自启',
   autostartOff: '已禁用开机自启',
+  autostartError: '修改开机自启失败',
   saved: '已保存',
 
   // View
@@ -93,6 +94,19 @@ export default {
   openConfigFileTip: '打开 Castellyn 设置文件',
   openStackFile: '打开 stack.json',
   openStackFileTip: '打开 LLM 技术栈配置',
+  openBackupFolder: '打开备份文件夹',
+  openBackupFolderTip: '在资源管理器中打开备份文件夹',
+  // C3: 自动更新
+  checkUpdates: '检查更新',
+  checkUpdatesTip: '在 GitHub 上检查更新的已签名版本',
+  checkingUpdates: '检查中……',
+  upToDate: '已是最新',
+  downloading: '下载中……',
+  downloadingPct: '下载中…… {pct}%',
+  updateError: '检查更新失败',
+  updateAvailableTitle: '有可用更新 — {version}',
+  updateAvailableMsg: '新版本已就绪（{from} → {to}）。立即下载并安装？应用将重启。',
+  updateNow: '更新并重启',
   backupSection: '设置备份',
   backupSectionDesc: '导出/导入 Castellyn 设置（config.json）——用于迁移到其他电脑',
   exportConfig: '导出设置',

@@ -16,7 +16,8 @@
     deleteSshHost,
     sshTarget,
     parseSshTarget,
-    pickFolder
+    pickFolder,
+    globalSessionCount
   } from '$lib/ipc';
   import { getMonitors, invalidateMonitors, openDetached } from '$lib/monitors';
   import Select from './Select.svelte';
@@ -27,6 +28,17 @@
   import { pushToast } from '$lib/toast.svelte';
 
   const MAX_PANES = 12; // each pane is a pwsh+tool process — cap to keep the machine responsive
+  // F16: per-window MAX_PANES isn't enough — detached monitor windows + restore share one global
+  // ceiling (lib.rs SESSION_LIMIT). Mirror it here to warn/gate before the backend hard-rejects spawn.
+  const SESSION_LIMIT = 24;
+  let globalCount = $state(0);
+  async function refreshGlobalCount() {
+    try {
+      globalCount = await globalSessionCount();
+    } catch {
+      /* ignore — backend is the hard guard; this only drives the UI hint */
+    }
+  }
 
   let {
     profiles = [],
@@ -129,6 +141,7 @@
         checkReach(h);
       })
       .catch(() => {});
+    refreshGlobalCount(); // F16: seed the global tally (other windows may already hold sessions)
     // A pane returned from a detached monitor window (← Castellyn): re-attach it here as the owner.
     track(
       listen<{ target: string; pane: DetachPane }>('pane:add', (e) => {
@@ -163,9 +176,16 @@
       const saved = localStorage.getItem(MLKEY);
       savedLayoutExists = !!(saved && saved !== '{}');
       if (savedLayoutExists) {
+        let detail = '';
+        try {
+          detail = layoutSummary(JSON.parse(saved!));
+        } catch {
+          /* ignore — show the prompt without the spec list */
+        }
         pushToast({
           kind: 'info',
           title: t('sessions.restoreLayoutPrompt'),
+          detail,
           action: { label: t('sessions.restoreLayoutAction'), onClick: restoreLayout }
         });
       }
@@ -211,6 +231,7 @@
       const { [key]: _drop, ...rest } = sessionIds;
       sessionIds = rest;
     }
+    refreshGlobalCount(); // F16: a spawn/exit here moved the global tally — re-read it
   }
   // ── Reload survival (#5): persist spawned-here sessions, re-attach the ones still alive on mount ──
   const LIVE_KEY = 'cmh-sessions-live';
@@ -243,17 +264,32 @@
   // Send-to-all fires a command (+Enter) into EVERY live session at once — including SSH/remote panes.
   // That's the most destructive surface in the app, so gate it behind the canonical confirm dialog
   // (project rule: destructive actions confirm first) showing the exact command + how many panes.
-  let confirmSend = $state<{ cmd: string } | null>(null);
+  let confirmSend = $state<{ cmd: string; targets: string[] } | null>(null);
   function sendToAll() {
     const cmd = sendAllText.trim();
     if (!cmd) return;
-    confirmSend = { cmd };
+    // F15: list the exact panes the command lands in (tool@profile · cwd/host) — count alone hid
+    // which sessions get hit, so the user couldn't catch a stray SSH pane before sending.
+    const targets = panes
+      .filter((p) => sessionIds[p.key])
+      .map((p) => {
+        const where = p.sshTarget ? `🖥 ${p.sshTarget}` : p.cwd || '~';
+        return p.tool === 'claude' ? `${p.tool}@${p.profile} · ${where}` : `${p.tool} · ${where}`;
+      });
+    confirmSend = { cmd, targets };
   }
   function doSendToAll() {
     if (!confirmSend) return;
     for (const id of Object.values(sessionIds)) sessionWrite(id, confirmSend.cmd + '\r');
     sendAllText = '';
     confirmSend = null;
+  }
+
+  // F14: generic destructive confirm — one callback-driven dialog so every ✕ gates first
+  // (project rule: destructive actions confirm before mutating). Each caller passes its own copy + run().
+  let confirmAsk = $state<{ title: string; message: string; details?: string[]; run: () => void } | null>(null);
+  function askConfirm(opts: { title: string; message: string; details?: string[]; run: () => void }) {
+    confirmAsk = opts;
   }
 
   // "Разнести по мониторам": open a detached window per (non-primary) monitor and spread the running
@@ -344,6 +380,17 @@
 
   // Restore the last "разнести" arrangement: reopen a window per saved monitor and SPAWN fresh sessions
   // (the old PTYs died with the app). Skips monitors that no longer exist. Offered via a toast on launch.
+  // F22: one-line spec of what a saved monitor layout will restore (tool@profile · folder), so the
+  // launch prompt shows the panes before the user clicks restore.
+  function layoutSummary(saved: Record<number, DetachPane[]>): string {
+    return Object.values(saved)
+      .flat()
+      .map((p) => {
+        const folder = p.cwd ? p.cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p.cwd : '~';
+        return p.tool === 'claude' ? `${p.tool}@${p.profile ?? '?'} · ${folder}` : `${p.tool} · ${folder}`;
+      })
+      .join('; ');
+  }
   async function restoreLayout() {
     let saved: Record<number, DetachPane[]>;
     try {
@@ -366,7 +413,9 @@
     }
   }
 
-  const atLimit = $derived(panes.length >= MAX_PANES);
+  // F16: block a new spawn at EITHER the per-window cap OR the global ceiling (globalCount already
+  // includes this window's live sessions, so the OR can't double-count).
+  const atLimit = $derived(panes.length >= MAX_PANES || globalCount >= SESSION_LIMIT);
   function rememberRecent(folder: string) {
     if (!folder) return;
     try {
@@ -576,6 +625,13 @@
     const list = await readSshHosts();
     sshHostList = list;
   }
+  function askDeleteServer(h: SshHost) {
+    askConfirm({
+      title: t('sessions.srvDeleteTitle', { name: h.name }),
+      message: t('sessions.srvDeleteMsg'),
+      run: () => deleteServer(h.id)
+    });
+  }
   async function testServer() {
     const p = parseSshTarget(srvTarget);
     if (!p.host) return;
@@ -743,6 +799,13 @@
   function removeFav(id: string) {
     favorites = favorites.filter((f) => f.id !== id);
   }
+  function askRemoveFav(f: Fav) {
+    askConfirm({
+      title: t('sessions.favDeleteTitle'),
+      message: t('sessions.favDeleteMsg', { label: f.label }),
+      run: () => removeFav(f.id)
+    });
+  }
   $effect(() => {
     try {
       localStorage.setItem(VKEY, JSON.stringify(favorites));
@@ -881,6 +944,13 @@
     workspaces = rest;
     persistWs();
   }
+  function askDeleteWorkspace(name: string) {
+    askConfirm({
+      title: t('sessions.wsDeleteTitle', { name }),
+      message: t('sessions.wsDeleteMsg', { count: (workspaces[name] ?? []).length }),
+      run: () => deleteWorkspace(name)
+    });
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -889,11 +959,26 @@
   open={!!confirmSend}
   title={t('sessions.sendAllConfirmTitle')}
   message={t('sessions.sendAllConfirmMsg', { count: Object.keys(sessionIds).length })}
-  details={confirmSend ? [confirmSend.cmd] : []}
+  details={confirmSend ? [confirmSend.cmd, ...confirmSend.targets] : []}
   confirmLabel={t('sessions.sendAllConfirmOk')}
   danger
   onConfirm={doSendToAll}
   onCancel={() => (confirmSend = null)}
+/>
+
+<!-- F14: generic destructive confirm for ✕ actions (remove favorite / SSH host / workspace). -->
+<ConfirmDialog
+  open={!!confirmAsk}
+  title={confirmAsk?.title ?? ''}
+  message={confirmAsk?.message ?? ''}
+  details={confirmAsk?.details ?? []}
+  confirmLabel={t('common.delete')}
+  danger
+  onConfirm={() => {
+    confirmAsk?.run();
+    confirmAsk = null;
+  }}
+  onCancel={() => (confirmAsk = null)}
 />
 
 <div class="wrap">
@@ -1001,7 +1086,7 @@
           {#each favorites as f (f.id)}
             <span class="fav-chip">
               <button type="button" class="fav-go" onclick={() => launchFav(f)} title={t('sessions.favLaunchTip')}>{f.label}</button>
-              <button type="button" class="fav-x" onclick={() => removeFav(f.id)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
+              <button type="button" class="fav-x" onclick={() => askRemoveFav(f)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
             </span>
           {/each}
           <span class="text-sw-text-muted">·</span>
@@ -1046,7 +1131,7 @@
                 <span class="srv-n">{h.name}</span>
                 <span class="srv-t font-mono">{sshTargetLabel(h)}</span>
                 {#if h.source === 'saved'}
-                  <button class="srv-x" onclick={() => deleteServer(h.id)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
+                  <button class="srv-x" onclick={() => askDeleteServer(h)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
                 {:else}
                   <span class="srv-cfg">~/.ssh/config</span>
                 {/if}
@@ -1068,8 +1153,12 @@
     {/if}
   </div>
 
-  {#if atLimit}
+  {#if globalCount >= SESSION_LIMIT}
+    <p class="mb-sw-2 text-sw-xs" style="color:var(--sw-warn)">{t('sessions.globalLimitNote', { n: SESSION_LIMIT })}</p>
+  {:else if panes.length >= MAX_PANES}
     <p class="mb-sw-2 text-sw-xs" style="color:var(--sw-warn)">{t('sessions.limitNote', { n: MAX_PANES })}</p>
+  {:else if globalCount >= SESSION_LIMIT - 4}
+    <p class="mb-sw-2 text-sw-xs" style="color:var(--sw-text-muted)">{t('sessions.globalNearNote', { used: globalCount, max: SESSION_LIMIT })}</p>
   {/if}
 
   <!-- Saved workspaces: one click re-opens the whole set of sessions -->
@@ -1081,7 +1170,7 @@
           <button class="ws-go" onclick={() => launchWorkspace(name)} title={t('sessions.wsLaunchTip', { name })}>
             ▶ {name} ({workspaces[name].length})
           </button>
-          <button class="ws-del" onclick={() => deleteWorkspace(name)} title={t('sessions.wsDeleteTip', { name })} aria-label="✕">✕</button>
+          <button class="ws-del" onclick={() => askDeleteWorkspace(name)} title={t('sessions.wsDeleteTip', { name })} aria-label="✕">✕</button>
         </span>
       {/each}
     </div>

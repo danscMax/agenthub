@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -34,8 +34,8 @@ fn assign_to_kill_job(pid: u32) {
     use std::sync::OnceLock;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-        JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
@@ -91,19 +91,39 @@ const MANIFEST_FALLBACK: &str = include_str!("../../manifest/maintenance-manifes
 /// Persistent hub settings (%APPDATA%\castellyn\config.json).
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct HubConfig {
-    #[serde(rename = "scriptsRoot", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "scriptsRoot",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     scripts_root: Option<String>,
     #[serde(rename = "startHidden", default)]
     start_hidden: bool,
     // None = default (true): the ✕ button hides to tray. false = ✕ actually quits the app.
-    #[serde(rename = "closeToTray", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "closeToTray",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     close_to_tray: Option<bool>,
-    #[serde(rename = "fetchTimeoutSec", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "fetchTimeoutSec",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     fetch_timeout_sec: Option<u32>,
-    #[serde(rename = "ghTimeoutSec", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ghTimeoutSec",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     gh_timeout_sec: Option<u32>,
     // OS-level accelerator (e.g. "CommandOrControl+Shift+H") that toggles the window. None/empty = off.
-    #[serde(rename = "toggleHotkey", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "toggleHotkey",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     toggle_hotkey: Option<String>,
     // Full action → accelerator mapping. Keys: "toggle_window" etc. Empty map = no shortcuts.
     // Supersedes toggleHotkey (which is kept for backward compat).
@@ -150,7 +170,11 @@ fn read_config_at(path: Option<String>) -> Option<HubConfig> {
 static CONFIG_CACHE: std::sync::RwLock<Option<HubConfig>> = std::sync::RwLock::new(None);
 
 fn read_config_file() -> HubConfig {
-    if let Some(c) = CONFIG_CACHE.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+    if let Some(c) = CONFIG_CACHE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
         return c.clone();
     }
     let mut cfg = read_config_at(config_path())
@@ -160,7 +184,11 @@ fn read_config_file() -> HubConfig {
     // Migrate toggleHotkey → shortcuts map (one-time: first read after upgrade populates the map).
     if cfg.shortcuts.is_none() {
         let mut m = HashMap::new();
-        if let Some(hk) = cfg.toggle_hotkey.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(hk) = cfg
+            .toggle_hotkey
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             m.insert("toggle_window".to_string(), hk.to_string());
         }
         cfg.shortcuts = if m.is_empty() { None } else { Some(m) };
@@ -188,7 +216,8 @@ fn scripts_root() -> String {
 /// to the UI match what actually runs. `{{SCRIPTS_ROOT}}` → scripts_root(), `{{USERPROFILE}}` → home.
 fn expand_placeholders(s: &str) -> String {
     let home = std::env::var("USERPROFILE").unwrap_or_default();
-    s.replace("{{SCRIPTS_ROOT}}", &scripts_root()).replace("{{USERPROFILE}}", &home)
+    s.replace("{{SCRIPTS_ROOT}}", &scripts_root())
+        .replace("{{USERPROFILE}}", &home)
 }
 
 /// Read the canonical manifest from disk; fall back to the embedded copy if the
@@ -375,6 +404,33 @@ struct ForkRuns(Mutex<std::collections::HashMap<String, u32>>);
 // serialize per-repo runs against each other (that stays independent, by design).
 static FORKS_GLOBAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// F17: bulk plugin ops run in their OWN domain (not the single RunState slot) so a 10-plugin sweep
+// doesn't block unrelated backup/forks work. ACTIVE rejects a second concurrent bulk; CANCEL is the
+// between-items kill switch (set by cancel_all). Plugin mutations stay SEQUENTIAL inside the run —
+// concurrent `claude plugin` writes would race the shared ~/.claude config.
+static BULK_PLUGINS_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static BULK_PLUGINS_CANCEL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// RAII reservation for the bulk-plugin domain (mirrors RunSlot): `Drop` ALWAYS clears ACTIVE, so a
+/// dropped command future (e.g. webview reload mid-sweep) can't wedge it into a permanent "busy".
+struct BulkSlot;
+impl BulkSlot {
+    fn reserve() -> Option<Self> {
+        if BULK_PLUGINS_ACTIVE.swap(true, Ordering::SeqCst) {
+            None
+        } else {
+            Some(BulkSlot)
+        }
+    }
+}
+impl Drop for BulkSlot {
+    fn drop(&mut self) {
+        BULK_PLUGINS_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct LogLine {
     component: String,
@@ -465,7 +521,11 @@ async fn spawn_streamed_prog(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            return Err(trv("err.spawn_failed", cur_lang(), &[("program", &program), ("e", &e)]));
+            return Err(trv(
+                "err.spawn_failed",
+                cur_lang(),
+                &[("program", &program), ("e", &e)],
+            ));
         }
     };
 
@@ -535,7 +595,14 @@ async fn pump_and_wait(
         handles.push(tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let _ = a.emit(log_event, LogLine { component: i.clone(), stream: "out".into(), line });
+                let _ = a.emit(
+                    log_event,
+                    LogLine {
+                        component: i.clone(),
+                        stream: "out".into(),
+                        line,
+                    },
+                );
             }
         }));
     }
@@ -544,7 +611,14 @@ async fn pump_and_wait(
         handles.push(tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let _ = a.emit(log_event, LogLine { component: i.clone(), stream: "err".into(), line });
+                let _ = a.emit(
+                    log_event,
+                    LogLine {
+                        component: i.clone(),
+                        stream: "err".into(),
+                        line,
+                    },
+                );
             }
         }));
     }
@@ -553,7 +627,13 @@ async fn pump_and_wait(
         let _ = h.await;
     }
     let code = status.ok().and_then(|s| s.code()).unwrap_or(-1);
-    let _ = app.emit(done_event, RunDone { component: id, code });
+    let _ = app.emit(
+        done_event,
+        RunDone {
+            component: id,
+            code,
+        },
+    );
     code
 }
 
@@ -578,13 +658,21 @@ where
         let out = |line: &str| {
             let _ = app_job.emit(
                 "run-log",
-                LogLine { component: id_job.clone(), stream: "out".into(), line: line.to_string() },
+                LogLine {
+                    component: id_job.clone(),
+                    stream: "out".into(),
+                    line: line.to_string(),
+                },
             );
         };
         let err = |line: &str| {
             let _ = app_job.emit(
                 "run-log",
-                LogLine { component: id_job.clone(), stream: "err".into(), line: line.to_string() },
+                LogLine {
+                    component: id_job.clone(),
+                    stream: "err".into(),
+                    line: line.to_string(),
+                },
             );
         };
         job(&out, &err)
@@ -592,7 +680,13 @@ where
     .await
     .unwrap_or(-1);
     drop(_slot); // release the single run slot (also released on early return / panic above)
-    let _ = app.emit("run-done", RunDone { component: id, code });
+    let _ = app.emit(
+        "run-done",
+        RunDone {
+            component: id,
+            code,
+        },
+    );
     Ok(code)
 }
 
@@ -611,7 +705,11 @@ async fn run_component(
 
     let args = if mode == "apply" {
         if !comp.supports_apply {
-            return Err(trv("err.component_no_apply", cur_lang(), &[("name", &comp.name)]));
+            return Err(trv(
+                "err.component_no_apply",
+                cur_lang(),
+                &[("name", &comp.name)],
+            ));
         }
         comp.apply_args.clone()
     } else {
@@ -628,7 +726,12 @@ fn forks_action_args(action: &str) -> Option<Vec<String>> {
     let v: Vec<&str> = match action {
         "check" => vec!["-Unattended"],
         "plan" => vec![
-            "-FfMain", "-DeleteMerged", "-NormalizeRemotes", "-Rebase", "-DryRun", "-Unattended",
+            "-FfMain",
+            "-DeleteMerged",
+            "-NormalizeRemotes",
+            "-Rebase",
+            "-DryRun",
+            "-Unattended",
         ],
         "ff" => vec!["-FfMain", "-Yes", "-Unattended"],
         "delete" => vec!["-DeleteMerged", "-Yes", "-Unattended"],
@@ -647,7 +750,10 @@ fn forks_action_args(action: &str) -> Option<Vec<String>> {
 fn fork_repo_out_file(path: &str) -> Option<String> {
     let comp = raw_components().into_iter().find(|c| c.id == "forks")?;
     let script = abs_with_fallback(&comp.script_rel, FORKS_SCRIPT_FALLBACK);
-    let dir = std::path::Path::new(&script).parent()?.to_string_lossy().to_string();
+    let dir = std::path::Path::new(&script)
+        .parent()?
+        .to_string_lossy()
+        .to_string();
     // A short readable hint + a stable hash of the FULL path. The old "every non-alphanumeric → '_'"
     // map collapsed distinct paths (Cyrillic, or `a-b` vs `a_b`) onto one file → concurrent per-repo
     // runs raced it. DefaultHasher::new() has fixed keys, so the hash is stable across processes —
@@ -655,10 +761,21 @@ fn fork_repo_out_file(path: &str) -> Option<String> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut h);
-    let hint: String =
-        path.chars().rev().take_while(|c| *c != '\\' && *c != '/').collect::<String>();
-    let hint: String = hint.chars().rev().filter(|c| c.is_ascii_alphanumeric()).take(24).collect();
-    Some(format!("{dir}\\fork-sync.{hint}.{:016x}.last.json", h.finish()))
+    let hint: String = path
+        .chars()
+        .rev()
+        .take_while(|c| *c != '\\' && *c != '/')
+        .collect::<String>();
+    let hint: String = hint
+        .chars()
+        .rev()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(24)
+        .collect();
+    Some(format!(
+        "{dir}\\fork-sync.{hint}.{:016x}.last.json",
+        h.finish()
+    ))
 }
 
 /// Run a Forks-tab action. `path` (a repo path) scopes the action to one repo via -Paths;
@@ -675,8 +792,13 @@ async fn run_forks(
         .into_iter()
         .find(|c| c.id == "forks")
         .ok_or(tr("err.forks_missing", cur_lang()))?;
-    let mut args =
-        forks_action_args(&action).ok_or_else(|| trv("err.unknown_forks_action", cur_lang(), &[("action", &action)]))?;
+    let mut args = forks_action_args(&action).ok_or_else(|| {
+        trv(
+            "err.unknown_forks_action",
+            cur_lang(),
+            &[("action", &action)],
+        )
+    })?;
     if let Some(p) = path {
         let mut full = vec!["-Paths".to_string(), p];
         full.append(&mut args);
@@ -715,8 +837,13 @@ async fn run_fork_repo(
     action: String,
     path: String,
 ) -> Result<i32, String> {
-    let mut args =
-        forks_action_args(&action).ok_or_else(|| trv("err.unknown_forks_action", cur_lang(), &[("action", &action)]))?;
+    let mut args = forks_action_args(&action).ok_or_else(|| {
+        trv(
+            "err.unknown_forks_action",
+            cur_lang(),
+            &[("action", &action)],
+        )
+    })?;
     if !std::path::Path::new(&path).is_dir() {
         return Err(trv("err.repo_dir_missing", cur_lang(), &[("path", &path)]));
     }
@@ -743,7 +870,12 @@ async fn run_fork_repo(
     let out_file = fork_repo_out_file(&path).unwrap_or_default();
     // `args` (from forks_action_args) already carries -Unattended for every action — don't repeat it
     // here, or pwsh fails with "parameter 'Unattended' specified more than once".
-    let mut full = vec!["-Single".to_string(), path.clone(), "-OutFile".to_string(), out_file];
+    let mut full = vec![
+        "-Single".to_string(),
+        path.clone(),
+        "-OutFile".to_string(),
+        out_file,
+    ];
     full.append(&mut args);
     let cfg = read_config_file();
     if let Some(t) = cfg.fetch_timeout_sec {
@@ -765,15 +897,24 @@ async fn run_fork_repo(
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            runs.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+            runs.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&path);
             return Err(trv("err.pwsh_failed", cur_lang(), &[("e", &e)]));
         }
     };
     if let Some(pid) = child.id() {
-        runs.0.lock().unwrap_or_else(|e| e.into_inner()).insert(path.clone(), pid);
+        runs.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(path.clone(), pid);
     }
     let code = pump_and_wait(app, path.clone(), child, "fork-log", "fork-done").await;
-    runs.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&path);
+    runs.0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&path);
     Ok(code)
 }
 
@@ -798,7 +939,13 @@ fn kill_tree(pid: u32) -> Result<(), String> {
 /// Cancel the in-flight fork run for `path` (kills its process tree). No-op if none is running.
 #[tauri::command]
 fn cancel_fork_repo(runs: State<'_, ForkRuns>, path: String) -> Result<(), String> {
-    let pid = { runs.0.lock().unwrap_or_else(|e| e.into_inner()).get(&path).copied() };
+    let pid = {
+        runs.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+            .copied()
+    };
     if let Some(p) = pid {
         if p != 0 {
             kill_tree(p)?;
@@ -814,7 +961,10 @@ fn read_fork_repo_status(path: String) -> Option<serde_json::Value> {
     let out_file = fork_repo_out_file(&path)?;
     let content = std::fs::read_to_string(&out_file).ok()?;
     let v = parse_json_bom(&content).ok()?;
-    v.get("repos").and_then(|r| r.as_array()).and_then(|a| a.first()).cloned()
+    v.get("repos")
+        .and_then(|r| r.as_array())
+        .and_then(|a| a.first())
+        .cloned()
 }
 
 const BACKUP_DIR_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\Backups";
@@ -835,8 +985,22 @@ fn is_snapshot_name(s: &str) -> bool {
         return false;
     }
     let d = |i: usize| b[i].is_ascii_digit();
-    d(0) && d(1) && d(2) && d(3) && b[4] == b'-' && d(5) && d(6) && b[7] == b'-' && d(8) && d(9)
-        && b[10] == b'_' && d(11) && d(12) && d(13) && d(14) && d(15) && d(16)
+    d(0) && d(1)
+        && d(2)
+        && d(3)
+        && b[4] == b'-'
+        && d(5)
+        && d(6)
+        && b[7] == b'-'
+        && d(8)
+        && d(9)
+        && b[10] == b'_'
+        && d(11)
+        && d(12)
+        && d(13)
+        && d(14)
+        && d(15)
+        && d(16)
 }
 
 /// List backup snapshots + weekly archives and parse .backup-state.json — one call so the
@@ -864,7 +1028,33 @@ fn list_backups() -> BackupList {
     let state = std::fs::read_to_string(format!("{dir}\\.backup-state.json"))
         .ok()
         .and_then(|c| parse_json_bom(&c).ok());
-    BackupList { snapshots, weeklies, state }
+    BackupList {
+        snapshots,
+        weeklies,
+        state,
+    }
+}
+
+/// F9: reveal a weekly archive in Explorer (file selected). Name is validated against the weekly-zip
+/// shape and rejected if it contains path separators, so the FE can't smuggle an arbitrary path.
+#[tauri::command]
+fn reveal_backup(name: String) -> Result<(), String> {
+    if name.contains('/')
+        || name.contains('\\')
+        || !(name.starts_with("weekly-") && name.ends_with(".zip"))
+    {
+        return Err(trv("err.dir_not_found", cur_lang(), &[("path", &name)]));
+    }
+    let path = format!("{}\\{}", abs(BACKUP_DIR_REL), name);
+    if !std::path::Path::new(&path).exists() {
+        return Err(trv("err.dir_not_found", cur_lang(), &[("path", &path)]));
+    }
+    std::process::Command::new("explorer")
+        .arg(format!("/select,{path}"))
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| trv("err.open_path", cur_lang(), &[("path", &path), ("e", &e)]))?;
+    Ok(())
 }
 
 /// Build the (script, args) for a Backup-tab action. Kept pure so the security-sensitive gating is
@@ -892,10 +1082,19 @@ fn backup_args(
         "delete-snapshot" => match timestamp.as_deref().filter(|t| !t.is_empty()) {
             // Must carry a non-empty id: an empty -DeleteSnapshot would make the script run a normal
             // backup instead. The PS side additionally pattern-validates the id against traversal.
-            Some(id) => (BACKUP_SCRIPT_REL, vec!["-DeleteSnapshot".to_string(), id.to_string()]),
+            Some(id) => (
+                BACKUP_SCRIPT_REL,
+                vec!["-DeleteSnapshot".to_string(), id.to_string()],
+            ),
             None => return Err("delete-snapshot requires a snapshot id".to_string()),
         },
-        _ => return Err(trv("err.unknown_backup_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_backup_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     };
     if action == "restore-preview" || action == "restore" {
         if let Some(t) = timestamp {
@@ -931,8 +1130,13 @@ async fn run_backup(
     include_credentials: Option<bool>,
     keep_snapshots: Option<u32>,
 ) -> Result<i32, String> {
-    let (script_rel, args) =
-        backup_args(&action, timestamp, profiles, include_credentials, keep_snapshots)?;
+    let (script_rel, args) = backup_args(
+        &action,
+        timestamp,
+        profiles,
+        include_credentials,
+        keep_snapshots,
+    )?;
     let script = abs(script_rel);
     spawn_streamed(app, state, "backup".to_string(), script, args).await
 }
@@ -1002,7 +1206,13 @@ async fn run_profiles(
             }
             (REPAIR_SCRIPT_REL, vec!["-Name".to_string(), n])
         }
-        _ => return Err(trv("err.unknown_profiles_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_profiles_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "profiles".to_string(), script, args).await
@@ -1029,7 +1239,13 @@ async fn run_config_drift(
         "check" => (INTEGRITY_SCRIPT_REL, Vec::new()),
         "relink" => (RELINK_SCRIPT_REL, vec!["-NonInteractive".to_string()]),
         "sync-now" => (BACKUP_SCRIPT_REL, vec!["-Force".to_string()]),
-        _ => return Err(trv("err.unknown_configdrift_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_configdrift_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     };
     let script = abs(script_rel);
     spawn_streamed(app, state, "sync".to_string(), script, args).await
@@ -1081,14 +1297,23 @@ fn compute_diff(a: &[String], b: &[String]) -> Vec<DiffLine> {
     let (mut i, mut j) = (m, n);
     while i > 0 || j > 0 {
         if i > 0 && j > 0 && a[i - 1] == b[j - 1] {
-            result.push(DiffLine { kind: DiffLineKind::Same, text: a[i - 1].clone() });
+            result.push(DiffLine {
+                kind: DiffLineKind::Same,
+                text: a[i - 1].clone(),
+            });
             i -= 1;
             j -= 1;
         } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            result.push(DiffLine { kind: DiffLineKind::Add, text: b[j - 1].clone() });
+            result.push(DiffLine {
+                kind: DiffLineKind::Add,
+                text: b[j - 1].clone(),
+            });
             j -= 1;
         } else {
-            result.push(DiffLine { kind: DiffLineKind::Del, text: a[i - 1].clone() });
+            result.push(DiffLine {
+                kind: DiffLineKind::Del,
+                text: a[i - 1].clone(),
+            });
             i -= 1;
         }
     }
@@ -1145,8 +1370,12 @@ fn read_profiles_config() -> Result<Option<serde_json::Value>, String> {
 fn valid_profile_name(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 32
-        && s.chars().next().map(|c| c.is_ascii_alphanumeric()).unwrap_or(false)
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && s.chars()
+            .next()
+            .map(|c| c.is_ascii_alphanumeric())
+            .unwrap_or(false)
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Profile lifecycle: add / remove / rename / recolor / redescribe / set-links via Manage-Profiles.ps1.
@@ -1164,7 +1393,11 @@ async fn run_profile_mgmt(
     enabled: Option<Vec<String>>,
 ) -> Result<i32, String> {
     if !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
+        return Err(trv(
+            "err.invalid_profile_name",
+            cur_lang(),
+            &[("name", &name)],
+        ));
     }
     let mut args: Vec<String> = vec!["-Action".into(), action.clone(), "-Name".into(), name];
     match action.as_str() {
@@ -1196,7 +1429,13 @@ async fn run_profile_mgmt(
             args.push("-Enabled".into());
             args.push(enabled.unwrap_or_default().join(","));
         }
-        _ => return Err(trv("err.unknown_profile_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_profile_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     }
     let script = abs(PROFILE_MGMT_SCRIPT_REL);
     spawn_streamed(app, state, "profiles".to_string(), script, args).await
@@ -1217,7 +1456,11 @@ async fn repair_profile_elevated(
     // so a single quote there would be admin-level command injection. valid_profile_name()
     // (mirrors run_profile_mgmt) makes the "name is validated" guarantee real, not assumed.
     if !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
+        return Err(trv(
+            "err.invalid_profile_name",
+            cur_lang(),
+            &[("name", &name)],
+        ));
     }
     if !profile_names().iter().any(|x| x == &name) {
         return Err(trv("err.unknown_profile", cur_lang(), &[("name", &name)]));
@@ -1248,7 +1491,15 @@ async fn repair_profile_elevated(
          catch {{ Write-Host '{s_cancel}'; exit 1 }}"
     );
     let args = vec!["-NoProfile".to_string(), "-Command".to_string(), inner];
-    spawn_streamed_prog(app, state, "profiles".to_string(), "pwsh".to_string(), args, None).await
+    spawn_streamed_prog(
+        app,
+        state,
+        "profiles".to_string(),
+        "pwsh".to_string(),
+        args,
+        None,
+    )
+    .await
 }
 
 /// Relaunch the whole app elevated (so inline symlink creation works). Launches a new
@@ -1296,8 +1547,10 @@ fn live_stignore_path() -> String {
 
 /// Read config\sync-config.json → ordered (key, enabled); default all-on, `items.<k>` overrides.
 fn read_sync_config() -> Vec<(String, bool)> {
-    let mut items: Vec<(String, bool)> =
-        sync_item_lines().iter().map(|(k, _)| (k.to_string(), true)).collect();
+    let mut items: Vec<(String, bool)> = sync_item_lines()
+        .iter()
+        .map(|(k, _)| (k.to_string(), true))
+        .collect();
     if let Some(v) = std::fs::read_to_string(abs(SYNC_CONFIG_REL))
         .ok()
         .and_then(|c| parse_json_bom(&c).ok())
@@ -1318,7 +1571,8 @@ fn build_stignore(items: &[(String, bool)]) -> String {
     let mut lines: Vec<String> = vec![
         "// =====================================================".into(),
         "// Syncthing ignore rules for ~/.claude  (generated by Castellyn)".into(),
-        "// Whitelist below is driven by config\\sync-config.json (dashboard -> Синхронизация).".into(),
+        "// Whitelist below is driven by config\\sync-config.json (dashboard -> Синхронизация)."
+            .into(),
         "// First match wins; \"//\" starts a comment.".into(),
         "// =====================================================".into(),
         "".into(),
@@ -1370,7 +1624,10 @@ fn write_file_no_bom(path: &str, content: &str) -> std::io::Result<()> {
         .as_ref()
         .map(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
         .unwrap_or(false);
-    let was_ro = meta.as_ref().map(|m| m.permissions().readonly()).unwrap_or(false);
+    let was_ro = meta
+        .as_ref()
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false);
     if was_hidden || was_ro {
         run_attrib(&["-h", "-r"], path);
     }
@@ -1405,7 +1662,10 @@ fn write_json_atomic(path: &str, content: &str) -> std::io::Result<()> {
         .as_ref()
         .map(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
         .unwrap_or(false);
-    let was_ro = meta.as_ref().map(|m| m.permissions().readonly()).unwrap_or(false);
+    let was_ro = meta
+        .as_ref()
+        .map(|m| m.permissions().readonly())
+        .unwrap_or(false);
     // Back up the prior good copy before we touch anything (best-effort, mirrors the old writers) —
     // EXCEPT for secret-bearing files: a profile's settings.json carries the ANTHROPIC_AUTH_TOKEN and
     // opencode.json a literal apiKey, both living outside Castellyn's own dir where they may be synced.
@@ -1484,12 +1744,16 @@ fn st_claude_folder(agent: &ureq::Agent, key: &str) -> Option<serde_json::Value>
     let home = std::env::var("USERPROFILE").unwrap_or_default();
     let claude = normalize_path(&format!("{home}\\.claude"));
     let folders = st_get(agent, key, "/rest/config/folders")?;
-    folders.as_array()?.iter().find(|f| {
-        f.get("path")
-            .and_then(|p| p.as_str())
-            .map(|p| normalize_path(p) == claude)
-            .unwrap_or(false)
-    }).cloned()
+    folders
+        .as_array()?
+        .iter()
+        .find(|f| {
+            f.get("path")
+                .and_then(|p| p.as_str())
+                .map(|p| normalize_path(p) == claude)
+                .unwrap_or(false)
+        })
+        .cloned()
 }
 
 fn syncthing_status() -> serde_json::Value {
@@ -1519,19 +1783,32 @@ fn syncthing_status() -> serde_json::Value {
     if let Some(label) = folder.get("label").and_then(|x| x.as_str()) {
         out.insert("folderLabel".into(), serde_json::json!(label));
     }
-    let fid = folder.get("id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let fid = folder
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     out.insert("folderId".into(), serde_json::json!(fid));
     if let Some(st) = st_get(&agent, &key, &format!("/rest/db/status?folder={fid}")) {
         if let Some(state) = st.get("state").and_then(|x| x.as_str()) {
             out.insert("state".into(), serde_json::json!(state));
         }
-        let g = st.get("globalBytes").and_then(|x| x.as_f64()).unwrap_or(0.0);
+        let g = st
+            .get("globalBytes")
+            .and_then(|x| x.as_f64())
+            .unwrap_or(0.0);
         let n = st.get("needBytes").and_then(|x| x.as_f64()).unwrap_or(0.0);
         out.insert("globalBytes".into(), serde_json::json!(g as i64));
         out.insert("needBytes".into(), serde_json::json!(n as i64));
         // Clamp: needBytes can momentarily exceed globalBytes mid-scan, which would otherwise yield
         // a negative or >100 completion.
-        let completion = (if g > 0.0 { (100.0 * (g - n) / g).clamp(0.0, 100.0) } else { 100.0 } * 10.0).round() / 10.0;
+        let completion = (if g > 0.0 {
+            (100.0 * (g - n) / g).clamp(0.0, 100.0)
+        } else {
+            100.0
+        } * 10.0)
+            .round()
+            / 10.0;
         out.insert("completion".into(), serde_json::json!(completion));
     } else {
         out.insert("state".into(), serde_json::json!("unknown"));
@@ -1542,7 +1819,11 @@ fn syncthing_status() -> serde_json::Value {
             .and_then(|c| c.as_object())
             .map(|o| {
                 o.values()
-                    .filter(|d| d.get("connected").and_then(|x| x.as_bool()).unwrap_or(false))
+                    .filter(|d| {
+                        d.get("connected")
+                            .and_then(|x| x.as_bool())
+                            .unwrap_or(false)
+                    })
                     .count()
             })
             .unwrap_or(0);
@@ -1553,7 +1834,9 @@ fn syncthing_status() -> serde_json::Value {
 
 /// Ask Syncthing to rescan the ~/.claude folder so a fresh .stignore applies now (best-effort).
 fn syncthing_rescan() {
-    let Some(key) = syncthing_api_key() else { return };
+    let Some(key) = syncthing_api_key() else {
+        return;
+    };
     let agent = st_agent();
     if let Some(fid) = st_claude_folder(&agent, &key)
         .and_then(|f| f.get("id").and_then(|x| x.as_str()).map(String::from))
@@ -1575,8 +1858,10 @@ async fn read_sync() -> Result<Option<serde_json::Value>, String> {
             .as_ref()
             .map(|c| rule_lines(c) == rule_lines(&expected))
             .unwrap_or(false);
-        let items_obj: serde_json::Map<String, serde_json::Value> =
-            items.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect();
+        let items_obj: serde_json::Map<String, serde_json::Value> = items
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::json!(v)))
+            .collect();
         // generatedAt must change per fetch so SyncTab re-seeds its selection from items.
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1604,8 +1889,10 @@ fn sync_set(enabled: &[String]) -> Result<i32, String> {
 
     // Backup + atomic write of the source-of-truth config.
     let cfg = abs(SYNC_CONFIG_REL);
-    let items_obj: serde_json::Map<String, serde_json::Value> =
-        items.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect();
+    let items_obj: serde_json::Map<String, serde_json::Value> = items
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::json!(v)))
+        .collect();
     let payload = serde_json::json!({
         "schemaVersion": 1,
         "_comment": "Что синхронизируется между машинами (Syncthing claude-config = ~/.claude). Менять через дашборд Castellyn.",
@@ -1635,7 +1922,11 @@ async fn run_sync(action: String, enabled: Option<Vec<String>>) -> Result<i32, S
                 .await
                 .map_err(|e| format!("{e}"))?
         }
-        _ => Err(trv("err.unknown_sync_action", cur_lang(), &[("action", &action)])),
+        _ => Err(trv(
+            "err.unknown_sync_action",
+            cur_lang(),
+            &[("action", &action)],
+        )),
     }
 }
 
@@ -1665,7 +1956,9 @@ struct EngineStatus {
 
 /// Is an executable `name` (with common Windows extensions) found on PATH?
 fn cmd_on_path(name: &str) -> bool {
-    let Ok(path) = std::env::var("PATH") else { return false };
+    let Ok(path) = std::env::var("PATH") else {
+        return false;
+    };
     let exts = ["", ".cmd", ".exe", ".ps1", ".bat"];
     for dir in std::env::split_paths(&path) {
         for ext in exts {
@@ -1708,9 +2001,14 @@ fn port_listening(port: u16) -> bool {
 /// total by the slowest single probe instead of N*250ms. (port 0 → false, handled by port_listening.)
 fn probe_ports(ports: &[u16]) -> Vec<bool> {
     std::thread::scope(|scope| {
-        let handles: Vec<_> =
-            ports.iter().map(|&p| scope.spawn(move || port_listening(p))).collect();
-        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect()
+        let handles: Vec<_> = ports
+            .iter()
+            .map(|&p| scope.spawn(move || port_listening(p)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or(false))
+            .collect()
     })
 }
 
@@ -1718,7 +2016,9 @@ fn probe_ports(ports: &[u16]) -> Vec<bool> {
 #[tauri::command]
 async fn read_engines() -> Vec<EngineStatus> {
     // Off the main/event-loop thread — the port probe blocks up to 250ms per dashboard refresh.
-    tokio::task::spawn_blocking(read_engines_blocking).await.unwrap_or_default()
+    tokio::task::spawn_blocking(read_engines_blocking)
+        .await
+        .unwrap_or_default()
 }
 
 fn read_engines_blocking() -> Vec<EngineStatus> {
@@ -1750,7 +2050,11 @@ fn read_engines_blocking() -> Vec<EngineStatus> {
                 dashboard_url: s(e, "dashboardUrl"),
                 has_command: !s(e, "command").is_empty() || !s(e, "start").is_empty(),
                 router: is_router,
-                installed: if is_router { Some(cmd_on_path("ccr")) } else { None },
+                installed: if is_router {
+                    Some(cmd_on_path("ccr"))
+                } else {
+                    None
+                },
                 running: false,
             }
         })
@@ -1772,8 +2076,13 @@ fn stack_services() -> Vec<serde_json::Value> {
     let Ok(content) = std::fs::read_to_string(abs(STACK_CONFIG_REL)) else {
         return Vec::new();
     };
-    let Ok(v) = parse_json_bom(&content) else { return Vec::new() };
-    v.get("services").and_then(|s| s.as_array()).cloned().unwrap_or_default()
+    let Ok(v) = parse_json_bom(&content) else {
+        return Vec::new();
+    };
+    v.get("services")
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default()
 }
 
 #[derive(Serialize)]
@@ -1796,7 +2105,9 @@ struct StackService {
 #[tauri::command]
 async fn read_stack() -> Vec<StackService> {
     // Off the main/event-loop thread — the port probe blocks up to 250ms per dashboard refresh.
-    tokio::task::spawn_blocking(read_stack_blocking).await.unwrap_or_default()
+    tokio::task::spawn_blocking(read_stack_blocking)
+        .await
+        .unwrap_or_default()
 }
 
 fn read_stack_blocking() -> Vec<StackService> {
@@ -1811,7 +2122,11 @@ fn read_stack_blocking() -> Vec<StackService> {
             group: s(e, "group"),
             port: e.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
             protocol: s(e, "protocol"),
-            dashboard: e.get("dashboard").and_then(|d| d.as_str()).unwrap_or("").to_string(),
+            dashboard: e
+                .get("dashboard")
+                .and_then(|d| d.as_str())
+                .unwrap_or("")
+                .to_string(),
             dir: expand_placeholders(&s(e, "dir")),
             enabled: e.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
             running: false,
@@ -1829,7 +2144,8 @@ fn read_stack_blocking() -> Vec<StackService> {
 fn valid_stack_id(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 40
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Start or stop the LLM stack. With no `only`, acts on the whole stack (start `-Router` includes
@@ -1862,8 +2178,24 @@ async fn run_stack(
         };
         // Start even if stop failed — the goal is a running service.
         // ponytail: a cancel during the stop phase still proceeds to start; fine for a restart.
-        let _ = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_STOP_REL), stop_args, "run-restart-stop").await;
-        let code = spawn_pwsh_phase(&app, &state, "engine", abs(STACK_START_REL), start_args, "run-done").await;
+        let _ = spawn_pwsh_phase(
+            &app,
+            &state,
+            "engine",
+            abs(STACK_STOP_REL),
+            stop_args,
+            "run-restart-stop",
+        )
+        .await;
+        let code = spawn_pwsh_phase(
+            &app,
+            &state,
+            "engine",
+            abs(STACK_START_REL),
+            start_args,
+            "run-done",
+        )
+        .await;
         drop(_slot); // release the run slot (also released on early return / panic above)
         return Ok(code);
     }
@@ -1885,7 +2217,13 @@ async fn run_stack(
             };
             (script, args)
         }
-        _ => return Err(trv("err.unknown_stack_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_stack_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     };
     spawn_streamed(app, state, "engine".to_string(), script, args).await
 }
@@ -1920,10 +2258,22 @@ async fn read_stack_procs() -> Vec<StackProc> {
     if ports.is_empty() {
         return Vec::new();
     }
-    let port_args = ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+    let port_args = ports
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let script = abs(STACK_PROCS_SCRIPT_REL);
     let out = tokio::process::Command::new("pwsh")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script, "-Ports", &port_args])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script,
+            "-Ports",
+            &port_args,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .await;
@@ -2024,13 +2374,16 @@ async fn read_freellmapi_analytics(range_hours: u32) -> FreellmapiAnalytics {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .await;
-    let Ok(out) = out else { return FreellmapiAnalytics::default() };
+    let Ok(out) = out else {
+        return FreellmapiAnalytics::default();
+    };
     if !out.status.success() {
         return FreellmapiAnalytics::default();
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let parsed: Option<AnalyticsHelperOut> =
-        parse_json_bom(stdout.trim()).ok().and_then(|v| serde_json::from_value(v).ok());
+    let parsed: Option<AnalyticsHelperOut> = parse_json_bom(stdout.trim())
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok());
     match parsed {
         Some(p) if p.error.is_none() && p.totals.is_some() => FreellmapiAnalytics {
             available: true,
@@ -2059,7 +2412,11 @@ fn http_health_ok(port: u16, path: &str) -> bool {
         };
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(700)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(400)));
-    let p = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
+    let p = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
     let req = format!(
         "GET {p} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: Castellyn\r\nAccept: */*\r\nConnection: close\r\n\r\n"
     );
@@ -2073,7 +2430,12 @@ fn http_health_ok(port: u16, path: &str) -> bool {
     };
     // Status line looks like "HTTP/1.1 200 OK" — accept any 2xx.
     let head = String::from_utf8_lossy(&buf[..n]);
-    head.starts_with("HTTP/1.") && head.split(' ').nth(1).map(|c| c.starts_with('2')).unwrap_or(false)
+    head.starts_with("HTTP/1.")
+        && head
+            .split(' ')
+            .nth(1)
+            .map(|c| c.starts_with('2'))
+            .unwrap_or(false)
 }
 
 #[derive(Serialize)]
@@ -2095,7 +2457,9 @@ struct StackHealth {
 #[tauri::command]
 async fn read_stack_health() -> Vec<StackHealth> {
     // Off the main/event-loop thread — probe + HTTP health checks block up to ~1.1s per refresh.
-    tokio::task::spawn_blocking(read_stack_health_blocking).await.unwrap_or_default()
+    tokio::task::spawn_blocking(read_stack_health_blocking)
+        .await
+        .unwrap_or_default()
 }
 
 fn read_stack_health_blocking() -> Vec<StackHealth> {
@@ -2139,7 +2503,10 @@ fn read_stack_health_blocking() -> Vec<StackHealth> {
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().unwrap_or((false, None))).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or((false, None)))
+            .collect()
     });
     rows.into_iter()
         .zip(results)
@@ -2259,9 +2626,13 @@ fn spawn_engine_detached(program: &str, args: &[String], cwd: Option<&str>) -> R
     if let Some(d) = cwd.filter(|d| !d.is_empty()) {
         cmd.current_dir(d);
     }
-    cmd.spawn()
-        .map(|_| ())
-        .map_err(|e| trv("err.spawn_failed", cur_lang(), &[("program", &program), ("e", &e)]))
+    cmd.spawn().map(|_| ()).map_err(|e| {
+        trv(
+            "err.spawn_failed",
+            cur_lang(),
+            &[("program", &program), ("e", &e)],
+        )
+    })
 }
 
 /// Console feedback for a detached engine launch (the launch produced no streamed output here —
@@ -2276,7 +2647,13 @@ fn emit_engine_started(app: &AppHandle) {
             line: tr("log.detached_launch", cur_lang()).into(),
         },
     );
-    let _ = app.emit("run-done", RunDone { component: "engine".into(), code: 0 });
+    let _ = app.emit(
+        "run-done",
+        RunDone {
+            component: "engine".into(),
+            code: 0,
+        },
+    );
 }
 
 /// Start / stop a local LLM engine from config\engines.json (native; was Manage-Engine.ps1).
@@ -2291,7 +2668,11 @@ async fn run_engine(
     id: String,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "start" | "stop") {
-        return Err(trv("err.unknown_engine_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_engine_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     let Some(cfg) = load_engine_cfg(&id) else {
         return Err(trv("err.engine_not_found_json", cur_lang(), &[("id", &id)]));
@@ -2330,7 +2711,15 @@ async fn run_engine(
     // stop
     if !cfg.stop.trim().is_empty() {
         let sh = expand_placeholders(&cfg.stop);
-        return spawn_streamed_prog(app, state, "engine".into(), "cmd".into(), vec!["/c".into(), sh], None).await;
+        return spawn_streamed_prog(
+            app,
+            state,
+            "engine".into(),
+            "cmd".into(),
+            vec!["/c".into(), sh],
+            None,
+        )
+        .await;
     }
     // Fallback: kill whatever listens on the engine's port.
     let pids = listeners_on_port(cfg.port);
@@ -2355,7 +2744,11 @@ fn stream_output(
     out: &dyn Fn(&str),
     err: &dyn Fn(&str),
 ) -> Option<i32> {
-    match std::process::Command::new(prog).args(args).creation_flags(CREATE_NO_WINDOW).output() {
+    match std::process::Command::new(prog)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
         Ok(o) => {
             for line in String::from_utf8_lossy(&o.stdout).lines() {
                 out(&format!("    {line}"));
@@ -2407,9 +2800,12 @@ fn apply_router_config(
     if !obj.get("Providers").map(|p| p.is_array()).unwrap_or(false) {
         obj.insert("Providers".into(), json!([]));
     }
-    out(&trv("log.provider_line", cur_lang(), &[("name", &name), ("api_base", &api_base), ("model", &model)]));
-    let provider =
-        json!({ "name": name, "api_base_url": api_base, "api_key": "not-needed", "models": [model] });
+    out(&trv(
+        "log.provider_line",
+        cur_lang(),
+        &[("name", &name), ("api_base", &api_base), ("model", &model)],
+    ));
+    let provider = json!({ "name": name, "api_base_url": api_base, "api_key": "not-needed", "models": [model] });
     {
         let providers = obj.get_mut("Providers").unwrap().as_array_mut().unwrap();
         let mut found = false;
@@ -2473,7 +2869,12 @@ fn setup_router_native(
             return 1;
         };
         out("  npm install -g @musistudio/claude-code-router …");
-        stream_output(&npm, &["install", "-g", "@musistudio/claude-code-router"], out, err);
+        stream_output(
+            &npm,
+            &["install", "-g", "@musistudio/claude-code-router"],
+            out,
+            err,
+        );
         if exe_on_path("ccr").is_some() {
             out(tr("log.ccr_installed", cur_lang()));
             0
@@ -2508,7 +2909,11 @@ fn connect_router_native(
     err: &dyn Fn(&str),
 ) -> i32 {
     let ccr_base = "http://127.0.0.1:3456";
-    out(&trv("log.router_connect_header", cur_lang(), &[("name", &name), ("profile", &profile)]));
+    out(&trv(
+        "log.router_connect_header",
+        cur_lang(),
+        &[("name", &name), ("profile", &profile)],
+    ));
 
     // 1. Configure ccr for this backend/model (+ ccr restart inside Setup-Router).
     let code = setup_router_native("configure", backend, model, name, out, err);
@@ -2541,15 +2946,36 @@ fn connect_router_native(
 
     // 4. Bind the profile to ccr (Anthropic endpoint). Empty token → Manage-Provider writes the
     //    dummy bearer (single source of that rule) so a bare `claude` skips the login screen.
-    let token_opt = if token.is_empty() { None } else { Some(token.as_str()) };
+    let token_opt = if token.is_empty() {
+        None
+    } else {
+        Some(token.as_str())
+    };
     let code = manage_provider_native(
-        profile, "set", ccr_base, false, token_opt, Some(model), None, out, err,
+        profile,
+        "set",
+        ccr_base,
+        false,
+        token_opt,
+        Some(model),
+        None,
+        out,
+        err,
     );
     if code != 0 {
         err(tr("log.aborted_bind", cur_lang()));
         return code;
     }
-    out(&trv("log.router_done", cur_lang(), &[("profile", &profile), ("ccr_base", &ccr_base), ("name", &name), ("model", &model)]));
+    out(&trv(
+        "log.router_done",
+        cur_lang(),
+        &[
+            ("profile", &profile),
+            ("ccr_base", &ccr_base),
+            ("name", &name),
+            ("model", &model),
+        ],
+    ));
     0
 }
 
@@ -2565,7 +2991,11 @@ async fn run_router(
     name: Option<String>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "install" | "configure") {
-        return Err(trv("err.unknown_router_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_router_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     let backend = backend.unwrap_or_default();
     let model = model.unwrap_or_default();
@@ -2573,7 +3003,9 @@ async fn run_router(
         return Err(tr("err.configure_needs_backend_model", cur_lang()).into());
     }
     // PS default provider name is 'lmstudio'.
-    let name = name.filter(|s| !s.is_empty()).unwrap_or_else(|| "lmstudio".to_string());
+    let name = name
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "lmstudio".to_string());
     run_native_streamed(app, state, "engine".to_string(), move |out, err| {
         setup_router_native(&action, &backend, &model, &name, out, err)
     })
@@ -2594,10 +3026,16 @@ async fn run_connect_router(
         return Err(tr("err.needs_backend_model", cur_lang()).into());
     }
     if !valid_profile_name(&profile) {
-        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &profile)]));
+        return Err(trv(
+            "err.invalid_profile",
+            cur_lang(),
+            &[("profile", &profile)],
+        ));
     }
     // PS default provider name is 'lmstudio'.
-    let name = name.filter(|s| !s.is_empty()).unwrap_or_else(|| "lmstudio".to_string());
+    let name = name
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "lmstudio".to_string());
     run_native_streamed(app, state, "provider".to_string(), move |out, err| {
         connect_router_native(&backend, &model, &profile, &name, out, err)
     })
@@ -2682,7 +3120,10 @@ async fn list_github_repos() -> Vec<GithubRepo> {
                     .and_then(|x| x.as_str())
                     .unwrap_or("")
                     .to_string(),
-                stars: r.get("stargazerCount").and_then(|x| x.as_u64()).unwrap_or(0),
+                stars: r
+                    .get("stargazerCount")
+                    .and_then(|x| x.as_u64())
+                    .unwrap_or(0),
             }
         })
         .collect()
@@ -2739,16 +3180,28 @@ fn read_providers() -> Vec<ProfileProvider> {
         if let Ok(c) = std::fs::read_to_string(&path) {
             if let Ok(v) = parse_json_bom(&c) {
                 if let Some(env) = v.get("env").and_then(|e| e.as_object()) {
-                    let g = |k: &str| env.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    let g = |k: &str| {
+                        env.get(k)
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string()
+                    };
                     // Prefer the current tier env vars; fall back to the legacy single-value keys
                     // so profiles bound by an older AgentHub still display their model.
                     let g_or = |new: &str, old: &str| {
                         let v = g(new);
-                        if v.is_empty() { g(old) } else { v }
+                        if v.is_empty() {
+                            g(old)
+                        } else {
+                            v
+                        }
                     };
                     p.base_url = g("ANTHROPIC_BASE_URL");
                     p.model = g_or("ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_MODEL");
-                    p.small_model = g_or("ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL");
+                    p.small_model = g_or(
+                        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                        "ANTHROPIC_SMALL_FAST_MODEL",
+                    );
                     p.has_token = !g("ANTHROPIC_AUTH_TOKEN").is_empty();
                 }
             }
@@ -2775,16 +3228,23 @@ const PROVIDER_ENV_KEYS: [&str; 7] = [
 /// activity ≈ an open session. Pure (takes the dir) so it is unit-testable.
 fn dir_recently_written(base: &std::path::Path, recent_secs: u64) -> bool {
     let now = std::time::SystemTime::now();
-    [".claude.json", "sessions", "shell-snapshots", "session-env", "todos", "projects"]
-        .iter()
-        .any(|p| {
-            std::fs::metadata(base.join(p))
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| now.duration_since(t).ok())
-                .map(|age| age.as_secs() <= recent_secs)
-                .unwrap_or(false)
-        })
+    [
+        ".claude.json",
+        "sessions",
+        "shell-snapshots",
+        "session-env",
+        "todos",
+        "projects",
+    ]
+    .iter()
+    .any(|p| {
+        std::fs::metadata(base.join(p))
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .map(|age| age.as_secs() <= recent_secs)
+            .unwrap_or(false)
+    })
 }
 
 /// Guard for the cc3-class footgun: rebinding a profile whose `claude` session is live rewrites a
@@ -2793,8 +3253,13 @@ fn dir_recently_written(base: &std::path::Path, recent_secs: u64) -> bool {
 /// or when Syncthing just pulled the profile from the other machine (itself a "don't rebind now"
 /// case). Upgrade to real process-env inspection only if the false positives ever annoy.
 fn profile_session_active(name: &str) -> bool {
-    let Ok(home) = std::env::var("USERPROFILE") else { return false };
-    dir_recently_written(&std::path::Path::new(&home).join(format!(".claude-{name}")), 120)
+    let Ok(home) = std::env::var("USERPROFILE") else {
+        return false;
+    };
+    dir_recently_written(
+        &std::path::Path::new(&home).join(format!(".claude-{name}")),
+        120,
+    )
 }
 
 /// Native port of Manage-Provider.ps1: merge the provider env block of ONE profile's
@@ -2817,13 +3282,21 @@ fn manage_provider_native(
     // Validate against the canonical profile list (mirrors the script's Get-ClaudeProfiles check).
     let known = profile_names();
     if !known.iter().any(|n| n == name) {
-        err(&trv("log.profile_not_found", cur_lang(), &[("name", &name), ("known", &known.join(", "))]));
+        err(&trv(
+            "log.profile_not_found",
+            cur_lang(),
+            &[("name", &name), ("known", &known.join(", "))],
+        ));
         return 1;
     }
     // cc3-class guard: never rewrite a settings.json a live session is reading (see
     // profile_session_active). All provider-bind paths funnel here, so one check covers them all.
     if profile_session_active(name) {
-        err(&trv("log.profile_running_warn", cur_lang(), &[("name", &name)]));
+        err(&trv(
+            "log.profile_running_warn",
+            cur_lang(),
+            &[("name", &name)],
+        ));
         return 1;
     }
     let home = match std::env::var("USERPROFILE") {
@@ -2971,10 +3444,18 @@ async fn run_provider(
     keep_token: Option<bool>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "set" | "clear") {
-        return Err(trv("err.unknown_provider_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_provider_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     if !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
+        return Err(trv(
+            "err.invalid_profile_name",
+            cur_lang(),
+            &[("name", &name)],
+        ));
     }
     let base_url = base_url.unwrap_or_default();
     if action == "set" && base_url.is_empty() {
@@ -2992,7 +3473,11 @@ async fn run_provider(
         } else {
             (None, None)
         };
-        let token_arg = if keep_token { None } else { Some(token.as_str()) };
+        let token_arg = if keep_token {
+            None
+        } else {
+            Some(token.as_str())
+        };
         manage_provider_native(
             &name, &action, &base_url, keep_token, token_arg, model_arg, small_arg, out, err,
         )
@@ -3013,11 +3498,16 @@ const KR_FREELLMAPI: &str = "castellyn.freellmapi";
 /// Pre-Castellyn keyring service for a current one: `castellyn.X` → `agenthub.X`. Used only for
 /// one-time lazy migration of secrets stored under the old brand. None for non-castellyn services.
 fn legacy_kr_service(service: &str) -> Option<String> {
-    service.strip_prefix("castellyn.").map(|s| format!("agenthub.{s}"))
+    service
+        .strip_prefix("castellyn.")
+        .map(|s| format!("agenthub.{s}"))
 }
 
 fn kr_get(service: &str, user: &str) -> Option<String> {
-    if let Some(v) = keyring::Entry::new(service, user).ok().and_then(|e| e.get_password().ok()) {
+    if let Some(v) = keyring::Entry::new(service, user)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+    {
         return Some(v);
     }
     // Lazy migration: a secret stored under the old `agenthub.*` service is re-homed under the new
@@ -3057,7 +3547,11 @@ fn key_pool_meta(e: &serde_json::Value) -> (u64, u64) {
 
 /// Next index when rotating a pool of `count` keys (wraps around). count<=1 → 0 (no-op rotation).
 fn next_key_index(active: u64, count: u64) -> u64 {
-    if count <= 1 { 0 } else { (active + 1) % count }
+    if count <= 1 {
+        0
+    } else {
+        (active + 1) % count
+    }
 }
 
 /// The currently active API key for a provider: pool slot `provider:<id>:<active>` when a pool
@@ -3092,15 +3586,27 @@ fn valid_base_url(s: &str) -> Result<(), String> {
     // strip an optional :port; handle an IPv6 literal ([::1] / [::1]:port) without mistaking its
     // inner colons for the port separator.
     let host = if host_port.starts_with('[') {
-        host_port.trim_start_matches('[').split(']').next().unwrap_or("")
+        host_port
+            .trim_start_matches('[')
+            .split(']')
+            .next()
+            .unwrap_or("")
     } else {
-        host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+        host_port
+            .rsplit_once(':')
+            .map(|(h, _)| h)
+            .unwrap_or(host_port)
     };
     if host.is_empty() {
         return Err(tr("err.empty_host", cur_lang()).into());
     }
     let hl = host.to_ascii_lowercase();
-    let blocked = ["169.254.169.254", "100.100.100.200", "fd00:ec2::254", "metadata.google.internal"];
+    let blocked = [
+        "169.254.169.254",
+        "100.100.100.200",
+        "fd00:ec2::254",
+        "metadata.google.internal",
+    ];
     if blocked.contains(&hl.as_str()) || hl.starts_with("169.254.") || hl == "metadata" {
         return Err(trv("err.blocked_host", cur_lang(), &[("host", &host)]));
     }
@@ -3192,9 +3698,11 @@ fn read_myproviders_raw() -> Vec<serde_json::Value> {
 /// myproviders list for MUTATING callers: Err (abort, don't overwrite) when the file is corrupt and
 /// unrecoverable, instead of silently returning an empty list that the next write persists as a wipe.
 fn read_myproviders_checked() -> Result<Vec<serde_json::Value>, String> {
-    Ok(read_json_or_recover(abs(MYPROVIDERS_CONFIG_REL), "myproviders.json")?
-        .and_then(|v| v.get("providers").and_then(|p| p.as_array()).cloned())
-        .unwrap_or_default())
+    Ok(
+        read_json_or_recover(abs(MYPROVIDERS_CONFIG_REL), "myproviders.json")?
+            .and_then(|v| v.get("providers").and_then(|p| p.as_array()).cloned())
+            .unwrap_or_default(),
+    )
 }
 
 fn write_myproviders_raw(list: &[serde_json::Value]) -> Result<(), String> {
@@ -3235,7 +3743,10 @@ fn myprovider_from_entry(e: &serde_json::Value) -> MyProvider {
 /// List the user's custom providers (metadata + computed hasKey). Read-only.
 #[tauri::command]
 fn list_my_providers() -> Vec<MyProvider> {
-    read_myproviders_raw().iter().map(myprovider_from_entry).collect()
+    read_myproviders_raw()
+        .iter()
+        .map(myprovider_from_entry)
+        .collect()
 }
 
 /// Upsert a provider record. `api_key` arrives over the (local) Tauri IPC channel — not argv —
@@ -3253,7 +3764,10 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
     if !matches!(p.connect_via.as_str(), "freellmapi" | "direct") {
         return Err(tr("err.invalid_connectvia", cur_lang()).into());
     }
-    let id = p.id.clone().filter(|s| !s.is_empty()).unwrap_or_else(gen_provider_id);
+    let id =
+        p.id.clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(gen_provider_id);
     // The id becomes a Credential Manager slot key (`provider:{id}` / `provider:{id}:{idx}`); a colon
     // or other separator in it could alias another provider's stored key. Validate like the opencode
     // path already does (alnum + _/- only) — gen_provider_id's 12-hex output passes this.
@@ -3298,7 +3812,11 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
             // The dialog's key replaces the *active* key: overwrite its pool slot if a pool exists,
             // otherwise write the legacy single entry (pools are created via add_provider_key).
             if key_count > 0 {
-                let idx = if active_key < key_count { active_key } else { 0 };
+                let idx = if active_key < key_count {
+                    active_key
+                } else {
+                    0
+                };
                 kr_set(KR_PROVIDERS, &format!("provider:{id}:{idx}"), k.trim())?;
             } else {
                 kr_set(KR_PROVIDERS, &format!("provider:{id}"), k.trim())?;
@@ -3310,12 +3828,14 @@ fn save_my_provider(p: MyProviderInput, api_key: Option<String>) -> Result<MyPro
 
 /// Find a my-provider record by id (read) — shared predicate across the providers block.
 fn find_provider<'a>(list: &'a [serde_json::Value], id: &str) -> Option<&'a serde_json::Value> {
-    list.iter().find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+    list.iter()
+        .find(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
 }
 
 /// Index of a my-provider record by id (for in-place mutation).
 fn find_provider_idx(list: &[serde_json::Value], id: &str) -> Option<usize> {
-    list.iter().position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
+    list.iter()
+        .position(|e| e.get("id").and_then(|x| x.as_str()) == Some(id))
 }
 
 /// Delete a provider record and its Credential Manager entry.
@@ -3323,7 +3843,9 @@ fn find_provider_idx(list: &[serde_json::Value], id: &str) -> Option<usize> {
 fn delete_my_provider(id: String) -> Result<(), String> {
     let _guard = MYPROVIDERS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut list = read_myproviders_checked()?;
-    let (key_count, _) = find_provider(&list, &id).map(key_pool_meta).unwrap_or((0, 0));
+    let (key_count, _) = find_provider(&list, &id)
+        .map(key_pool_meta)
+        .unwrap_or((0, 0));
     let before = list.len();
     list.retain(|e| e.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
     if list.len() != before {
@@ -3428,7 +3950,11 @@ fn set_freellmapi_auth(
     token: Option<String>,
 ) -> Result<(), String> {
     let mut any = false;
-    for (user, val) in [("email", &email), ("password", &password), ("token", &token)] {
+    for (user, val) in [
+        ("email", &email),
+        ("password", &password),
+        ("token", &token),
+    ] {
         if let Some(v) = val {
             let v = v.trim();
             if !v.is_empty() {
@@ -3448,11 +3974,37 @@ fn set_freellmapi_auth(
 fn freellmapi_auth_status() -> serde_json::Value {
     serde_json::json!({
         "hasEmail": kr_get(KR_FREELLMAPI, "email").is_some(),
+        "hasPassword": kr_get(KR_FREELLMAPI, "password").is_some(),
         "hasToken": kr_get(KR_FREELLMAPI, "token").is_some(),
     })
 }
 
+/// Delete a single freellmapi auth entry from Credential Manager.
+/// `key` must be one of {email, password, token} — anything else is rejected to avoid accidentally
+/// purging unrelated keyring entries under KR_FREELLMAPI. We don't read first because the user
+/// likely wants to remove a stale credential regardless of whether kr_get still returns Some.
+#[tauri::command]
+fn delete_freellmapi_auth(key: String) -> Result<(), String> {
+    let k = key.trim();
+    if !matches!(k, "email" | "password" | "token") {
+        return Err(tr("err.freellmapi_key_invalid", cur_lang()).into());
+    }
+    kr_delete(KR_FREELLMAPI, k);
+    Ok(())
+}
+
+/// F24: canonical `~/.claude/skills` path (resolves symlinks), mirroring gateway_base_url pattern.
+#[tauri::command]
+fn canonical_skills_dir() -> Result<String, String> {
+    let home = std::env::var("USERPROFILE").map_err(|e| format!("USERPROFILE: {e}"))?;
+    let root = std::path::Path::new(&home).join(".claude").join("skills");
+    std::fs::canonicalize(&root)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| format!("canonicalize skills dir: {e}"))
+}
+
 /// freellmapi gateway base URL from the `gateway` service port in stack.json. None if absent.
+#[tauri::command]
 fn gateway_base_url() -> Option<String> {
     let port = stack_services()
         .iter()
@@ -3509,7 +4061,11 @@ fn connect_custom_native(
                     .read_to_string()
                     .ok()
                     .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-                match parsed.as_ref().and_then(|v| v["token"].as_str()).filter(|t| !t.is_empty()) {
+                match parsed
+                    .as_ref()
+                    .and_then(|v| v["token"].as_str())
+                    .filter(|t| !t.is_empty())
+                {
                     Some(t) => t.to_string(),
                     None => {
                         err(tr("log.freellmapi_no_token", cur_lang()));
@@ -3539,7 +4095,11 @@ fn connect_custom_native(
     payload.insert("baseUrl".into(), json!(base_url));
     payload.insert(
         "displayName".into(),
-        json!(if display_name.is_empty() { base_url } else { display_name }),
+        json!(if display_name.is_empty() {
+            base_url
+        } else {
+            display_name
+        }),
     );
     if !label.is_empty() {
         payload.insert("label".into(), json!(label));
@@ -3574,19 +4134,33 @@ fn connect_custom_native(
                 .unwrap_or(Value::Null);
             let key_id = v["keyId"].as_str().unwrap_or("");
             let platform = v["platform"].as_str().unwrap_or("");
-            out(&trv("log.provider_registered", cur_lang(), &[("key_id", &key_id), ("platform", &platform)]));
+            out(&trv(
+                "log.provider_registered",
+                cur_lang(),
+                &[("key_id", &key_id), ("platform", &platform)],
+            ));
             if let Some(models) = v["models"].as_array() {
-                let names: Vec<String> =
-                    models.iter().filter_map(|m| m.as_str().map(String::from)).collect();
+                let names: Vec<String> = models
+                    .iter()
+                    .filter_map(|m| m.as_str().map(String::from))
+                    .collect();
                 if !names.is_empty() {
-                    out(&trv("log.models_list", cur_lang(), &[("names", &names.join(", "))]));
+                    out(&trv(
+                        "log.models_list",
+                        cur_lang(),
+                        &[("names", &names.join(", "))],
+                    ));
                 }
             }
             out(tr("log.freellmapi_done", cur_lang()));
             0
         }
         Err(ureq::Error::StatusCode(code @ (401 | 403))) => {
-            err(&trv("log.freellmapi_auth_invalid", cur_lang(), &[("code", &code)]));
+            err(&trv(
+                "log.freellmapi_auth_invalid",
+                cur_lang(),
+                &[("code", &code)],
+            ));
             1
         }
         Err(ureq::Error::StatusCode(400)) => {
@@ -3782,7 +4356,9 @@ fn probe_provider(base_url: &str, protocol: &str, api_key: &str) -> serde_json::
                 serde_json::json!({ "ok": true, "detail": trv("det.responds_http", cur_lang(), &[("code", &code)]) })
             }
         }
-        Err(e) => serde_json::json!({ "ok": false, "detail": trv("det.no_response", cur_lang(), &[("e", &e)]) }),
+        Err(e) => {
+            serde_json::json!({ "ok": false, "detail": trv("det.no_response", cur_lang(), &[("e", &e)]) })
+        }
     }
 }
 
@@ -3806,14 +4382,21 @@ fn fetch_engine_models(base_url: &str) -> Vec<String> {
         .build()
         .into();
     // Some servers want an Authorization header even when no real key is needed.
-    let body = match agent.get(&url).header("Authorization", "Bearer not-needed").call() {
+    let body = match agent
+        .get(&url)
+        .header("Authorization", "Bearer not-needed")
+        .call()
+    {
         Ok(mut resp) => resp.body_mut().read_to_string().unwrap_or_default(),
         Err(_) => return Vec::new(),
     };
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
         return Vec::new();
     };
-    let arr = v.get("data").and_then(|x| x.as_array()).or_else(|| v.as_array());
+    let arr = v
+        .get("data")
+        .and_then(|x| x.as_array())
+        .or_else(|| v.as_array());
     match arr {
         Some(items) => items
             .iter()
@@ -3827,7 +4410,11 @@ fn fetch_engine_models(base_url: &str) -> Vec<String> {
 /// Shared liveness check: GET {baseUrl}/v1/models with the API key. Returns `{ ok, detail, count? }`.
 /// Native HTTP (ureq) via spawn_blocking — no PowerShell, no run slot taken.
 async fn run_provider_check(base_url: &str, protocol: &str, api_key: &str) -> serde_json::Value {
-    let (b, p, k) = (base_url.to_string(), protocol.to_string(), api_key.to_string());
+    let (b, p, k) = (
+        base_url.to_string(),
+        protocol.to_string(),
+        api_key.to_string(),
+    );
     tokio::task::spawn_blocking(move || probe_provider(&b, &p, &k))
         .await
         .unwrap_or_else(|e| serde_json::json!({ "ok": false, "detail": format!("{e}") }))
@@ -3841,8 +4428,16 @@ async fn check_my_provider(id: String) -> serde_json::Value {
     let Some(e) = entry else {
         return serde_json::json!({ "ok": false, "detail": tr("err.provider_not_found", cur_lang()) });
     };
-    let base_url = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai").to_string();
+    let base_url = e
+        .get("baseUrl")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let protocol = e
+        .get("protocol")
+        .and_then(|x| x.as_str())
+        .unwrap_or("openai")
+        .to_string();
     let api_key = active_provider_key(&id, &e).unwrap_or_default();
     run_provider_check(&base_url, &protocol, &api_key).await
 }
@@ -3861,7 +4456,11 @@ async fn check_provider_url(base_url: String, protocol: String) -> serde_json::V
 fn json_f64(v: &serde_json::Value, path: &str) -> Option<f64> {
     let mut cur = v;
     for seg in path.split('.') {
-        cur = if let Ok(i) = seg.parse::<usize>() { cur.get(i)? } else { cur.get(seg)? };
+        cur = if let Ok(i) = seg.parse::<usize>() {
+            cur.get(i)?
+        } else {
+            cur.get(seg)?
+        };
     }
     match cur {
         serde_json::Value::Number(n) => n.as_f64(),
@@ -3871,7 +4470,12 @@ fn json_f64(v: &serde_json::Value, path: &str) -> Option<f64> {
 }
 
 /// GET a balance endpoint with the provider's auth header; parse the JSON body.
-fn balance_get(agent: &ureq::Agent, url: &str, protocol: &str, key: &str) -> Option<serde_json::Value> {
+fn balance_get(
+    agent: &ureq::Agent,
+    url: &str,
+    protocol: &str,
+    key: &str,
+) -> Option<serde_json::Value> {
     let mut req = agent.get(url);
     for (k, v) in provider_auth_headers(protocol, key) {
         req = req.header(k, &v);
@@ -3885,7 +4489,10 @@ fn extract_balance(v: &serde_json::Value) -> Option<(f64, String)> {
     let cur = v
         .get("currency")
         .and_then(|x| x.as_str())
-        .or_else(|| v.pointer("/balance_infos/0/currency").and_then(|x| x.as_str()))
+        .or_else(|| {
+            v.pointer("/balance_infos/0/currency")
+                .and_then(|x| x.as_str())
+        })
         .unwrap_or("")
         .to_string();
     // Prefer keys that mean "remaining balance"; treat limit/quota fields as last-resort fallbacks
@@ -3913,10 +4520,16 @@ fn fetch_provider_balance(id: &str) -> serde_json::Value {
         return serde_json::json!({ "ok": false, "detail": tr("err.provider_not_found", cur_lang()) });
     };
     let base = e.get("baseUrl").and_then(|x| x.as_str()).unwrap_or("");
-    let protocol = e.get("protocol").and_then(|x| x.as_str()).unwrap_or("openai");
+    let protocol = e
+        .get("protocol")
+        .and_then(|x| x.as_str())
+        .unwrap_or("openai");
     let balance_url = e.get("balanceUrl").and_then(|x| x.as_str()).unwrap_or("");
     let key = active_provider_key(id, e).unwrap_or_default();
-    let root = base.trim_end_matches('/').trim_end_matches("/v1").trim_end_matches('/');
+    let root = base
+        .trim_end_matches('/')
+        .trim_end_matches("/v1")
+        .trim_end_matches('/');
 
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
@@ -3931,10 +4544,16 @@ fn fetch_provider_balance(id: &str) -> serde_json::Value {
         }
         return match balance_get(&agent, balance_url, protocol, &key) {
             Some(v) => match extract_balance(&v) {
-                Some((amt, cur)) => serde_json::json!({ "ok": true, "amount": amt, "currency": cur, "detail": "" }),
-                None => serde_json::json!({ "ok": false, "detail": tr("det.no_balance_number", cur_lang()) }),
+                Some((amt, cur)) => {
+                    serde_json::json!({ "ok": true, "amount": amt, "currency": cur, "detail": "" })
+                }
+                None => {
+                    serde_json::json!({ "ok": false, "detail": tr("det.no_balance_number", cur_lang()) })
+                }
             },
-            None => serde_json::json!({ "ok": false, "detail": tr("det.balance_no_response", cur_lang()) }),
+            None => {
+                serde_json::json!({ "ok": false, "detail": tr("det.balance_no_response", cur_lang()) })
+            }
         };
     }
     // 2) DeepSeek-style.
@@ -3946,8 +4565,15 @@ fn fetch_provider_balance(id: &str) -> serde_json::Value {
         }
     }
     // 3) OpenAI-billing style (one-api / new-api gateways).
-    if let Some(v) = balance_get(&agent, &format!("{root}/dashboard/billing/subscription"), protocol, &key) {
-        if let Some(amt) = json_f64(&v, "hard_limit_usd").or_else(|| json_f64(&v, "system_hard_limit_usd")) {
+    if let Some(v) = balance_get(
+        &agent,
+        &format!("{root}/dashboard/billing/subscription"),
+        protocol,
+        &key,
+    ) {
+        if let Some(amt) =
+            json_f64(&v, "hard_limit_usd").or_else(|| json_f64(&v, "system_hard_limit_usd"))
+        {
             return serde_json::json!({ "ok": true, "amount": amt, "currency": "USD", "detail": tr("det.limit", cur_lang()) });
         }
     }
@@ -4008,7 +4634,11 @@ fn fetch_profile_usage(profile: &str) -> Option<ProfileUsage> {
     let creds = format!("{home}\\.claude-{profile}\\.credentials.json");
     let content = std::fs::read_to_string(&creds).ok()?;
     let v: serde_json::Value = serde_json::from_str(content.trim_start_matches('\u{feff}')).ok()?;
-    let token = v.get("claudeAiOauth")?.get("accessToken")?.as_str()?.to_string();
+    let token = v
+        .get("claudeAiOauth")?
+        .get("accessToken")?
+        .as_str()?
+        .to_string();
     if token.is_empty() {
         return None;
     }
@@ -4027,9 +4657,17 @@ fn fetch_profile_usage(profile: &str) -> Option<ProfileUsage> {
         .read_to_string()
         .ok()?;
     let r: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let pct = |k: &str| r.get(k).and_then(|x| x.get("utilization")).and_then(|x| x.as_f64());
-    let reset =
-        |k: &str| r.get(k).and_then(|x| x.get("resets_at")).and_then(|x| x.as_str()).map(String::from);
+    let pct = |k: &str| {
+        r.get(k)
+            .and_then(|x| x.get("utilization"))
+            .and_then(|x| x.as_f64())
+    };
+    let reset = |k: &str| {
+        r.get(k)
+            .and_then(|x| x.get("resets_at"))
+            .and_then(|x| x.as_str())
+            .map(String::from)
+    };
     Some(ProfileUsage {
         five_hour_pct: pct("five_hour"),
         seven_day_pct: pct("seven_day"),
@@ -4056,7 +4694,10 @@ async fn read_profile_usage(
         }
     }
     let p = profile.clone();
-    let fetched = tokio::task::spawn_blocking(move || fetch_profile_usage(&p)).await.ok().flatten();
+    let fetched = tokio::task::spawn_blocking(move || fetch_profile_usage(&p))
+        .await
+        .ok()
+        .flatten();
     if let Some(u) = &fetched {
         cache
             .0
@@ -4107,23 +4748,39 @@ fn read_opencode() -> OpencodeStatus {
     let content = match std::fs::read_to_string(opencode_config_path()) {
         Ok(c) => c,
         Err(_) => {
-            return OpencodeStatus { installed: false, model: String::new(), providers: Vec::new() }
+            return OpencodeStatus {
+                installed: false,
+                model: String::new(),
+                providers: Vec::new(),
+            }
         }
     };
     let v = match parse_json_bom(&content) {
         Ok(v) => v,
         Err(_) => {
-            return OpencodeStatus { installed: true, model: String::new(), providers: Vec::new() }
+            return OpencodeStatus {
+                installed: true,
+                model: String::new(),
+                providers: Vec::new(),
+            }
         }
     };
-    let model = v.get("model").and_then(|m| m.as_str()).unwrap_or("").to_string();
+    let model = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
     let mut providers = Vec::new();
     if let Some(obj) = v.get("provider").and_then(|p| p.as_object()) {
         for (id, p) in obj {
             let opts = p.get("options");
             providers.push(OpencodeProvider {
                 id: id.clone(),
-                name: p.get("name").and_then(|x| x.as_str()).unwrap_or(id).to_string(),
+                name: p
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or(id)
+                    .to_string(),
                 base_url: opts
                     .and_then(|o| o.get("baseURL"))
                     .and_then(|x| x.as_str())
@@ -4137,7 +4794,11 @@ fn read_opencode() -> OpencodeStatus {
             });
         }
     }
-    OpencodeStatus { installed: true, model, providers }
+    OpencodeStatus {
+        installed: true,
+        model,
+        providers,
+    }
 }
 
 /// Bind (`set`) or unbind (`clear`) a custom OpenAI-compatible provider for opencode via
@@ -4175,21 +4836,32 @@ fn opencode_provider_native(
         cfg = json!({});
     }
     let obj = cfg.as_object_mut().unwrap();
-    obj.entry("$schema").or_insert_with(|| json!("https://opencode.ai/config.json"));
+    obj.entry("$schema")
+        .or_insert_with(|| json!("https://opencode.ai/config.json"));
     if !obj.get("provider").map(|p| p.is_object()).unwrap_or(false) {
         obj.insert("provider".into(), json!({}));
     }
 
-    out(&format!("=== opencode provider: {action} {provider_id} ==="));
+    out(&format!(
+        "=== opencode provider: {action} {provider_id} ==="
+    ));
 
     if action == "set" {
         let mut active_model: Option<String> = None;
         {
             let providers = obj.get_mut("provider").unwrap().as_object_mut().unwrap();
-            if !providers.get(provider_id).map(|x| x.is_object()).unwrap_or(false) {
+            if !providers
+                .get(provider_id)
+                .map(|x| x.is_object())
+                .unwrap_or(false)
+            {
                 providers.insert(provider_id.to_string(), json!({}));
             }
-            let p = providers.get_mut(provider_id).unwrap().as_object_mut().unwrap();
+            let p = providers
+                .get_mut(provider_id)
+                .unwrap()
+                .as_object_mut()
+                .unwrap();
             p.insert("npm".into(), json!("@ai-sdk/openai-compatible"));
             match name.filter(|s| !s.is_empty()) {
                 Some(n) => {
@@ -4255,7 +4927,11 @@ fn opencode_provider_native(
         if points_here {
             obj.remove("model");
         }
-        out(&trv("log.provider_removed", cur_lang(), &[("provider_id", &provider_id)]));
+        out(&trv(
+            "log.provider_removed",
+            cur_lang(),
+            &[("provider_id", &provider_id)],
+        ));
     }
 
     // Backup + atomic write (temp+rename, UTF-8 no BOM).
@@ -4270,7 +4946,11 @@ fn opencode_provider_native(
         err(&trv("log.write_opencode", cur_lang(), &[("e", &e)]));
         return 1;
     }
-    out(&trv("log.opencode_updated", cur_lang(), &[("cfg_path", &cfg_path)]));
+    out(&trv(
+        "log.opencode_updated",
+        cur_lang(),
+        &[("cfg_path", &cfg_path)],
+    ));
     0
 }
 
@@ -4292,10 +4972,18 @@ async fn run_opencode_provider(
     keep_key: Option<bool>,
 ) -> Result<i32, String> {
     if !matches!(action.as_str(), "set" | "clear") {
-        return Err(trv("err.unknown_opencode_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_opencode_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     if !valid_profile_name(&provider_id) {
-        return Err(trv("err.invalid_provider_id", cur_lang(), &[("id", &provider_id)]));
+        return Err(trv(
+            "err.invalid_provider_id",
+            cur_lang(),
+            &[("id", &provider_id)],
+        ));
     }
     let base_url = base_url.unwrap_or_default();
     if action == "set" && base_url.is_empty() {
@@ -4425,7 +5113,11 @@ fn read_mcp() -> Result<McpStatus, String> {
         .map(|(name, present_in)| McpExtra { name, present_in })
         .collect();
 
-    Ok(McpStatus { source, extras, profiles: existing_profiles })
+    Ok(McpStatus {
+        source,
+        extras,
+        profiles: existing_profiles,
+    })
 }
 
 /// Serialize lock for the canonical .mcp.json: add/edit/remove all read-modify-write it.
@@ -4457,7 +5149,11 @@ fn mcp_upsert_server(name: String, definition: String) -> Result<(), String> {
         return Err("server definition must be a JSON object".to_string());
     }
     let mut doc = read_mcp_doc()?;
-    if !doc.get("mcpServers").map(|m| m.is_object()).unwrap_or(false) {
+    if !doc
+        .get("mcpServers")
+        .map(|m| m.is_object())
+        .unwrap_or(false)
+    {
         doc["mcpServers"] = serde_json::json!({});
     }
     doc["mcpServers"][name] = def;
@@ -4480,7 +5176,11 @@ fn mcp_remove_server(name: String) -> Result<(), String> {
 #[tauri::command]
 fn mcp_remove_extra(name: String, profile: String) -> Result<(), String> {
     if !valid_profile_name(&profile) {
-        return Err(trv("err.invalid_provider_id", cur_lang(), &[("id", &profile)]));
+        return Err(trv(
+            "err.invalid_provider_id",
+            cur_lang(),
+            &[("id", &profile)],
+        ));
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let path = format!("{home}\\.claude-{profile}\\.claude.json");
@@ -4532,7 +5232,11 @@ async fn run_schedule(
     time: Option<String>,
 ) -> Result<i32, String> {
     if !valid_schedule_action(&action) {
-        return Err(trv("err.unknown_schedule_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_schedule_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     let mut args = vec!["-Action".to_string(), action];
     if let Some(i) = id {
@@ -4562,7 +5266,13 @@ async fn run_mcp(
 ) -> Result<i32, String> {
     let script_rel = match action.as_str() {
         "deploy" => MCP_DEPLOY_SCRIPT_REL,
-        _ => return Err(trv("err.unknown_mcp_action", cur_lang(), &[("action", &action)])),
+        _ => {
+            return Err(trv(
+                "err.unknown_mcp_action",
+                cur_lang(),
+                &[("action", &action)],
+            ))
+        }
     };
     let script = abs(script_rel);
     // Optional `-Only a,b` limits deployment to specific profiles (Deploy-Mcp.ps1 supports it);
@@ -4573,7 +5283,6 @@ async fn run_mcp(
     };
     spawn_streamed(app, state, "mcp".to_string(), script, args).await
 }
-
 
 /// Resolve the Claude plugins dir + parsed installed_plugins.json + known_marketplaces.json.
 /// None when USERPROFILE is unset or installed_plugins.json is missing/unparseable.
@@ -4603,18 +5312,26 @@ fn first_install_path(arr: &serde_json::Value) -> &str {
 /// (the `claude plugin list --json` output has no description).
 fn plugin_descriptions() -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
-    let Some((_dir, installed, markets)) = load_installed_plugins() else { return map };
+    let Some((_dir, installed, markets)) = load_installed_plugins() else {
+        return map;
+    };
     let Some(po) = installed.get("plugins").and_then(|v| v.as_object()) else {
         return map;
     };
     for (id, arr) in po {
         let install_path = first_install_path(arr);
         if let Some(dir) = plugin_content_dir(id, install_path, &markets) {
-            let pj = std::path::Path::new(&dir).join(".claude-plugin").join("plugin.json");
+            let pj = std::path::Path::new(&dir)
+                .join(".claude-plugin")
+                .join("plugin.json");
             if let Some(d) = std::fs::read_to_string(pj)
                 .ok()
                 .and_then(|c| parse_json_bom(&c).ok())
-                .and_then(|m| m.get("description").and_then(|v| v.as_str()).map(String::from))
+                .and_then(|m| {
+                    m.get("description")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
                 .filter(|s| !s.is_empty())
             {
                 map.insert(id.clone(), d);
@@ -4628,12 +5345,24 @@ fn plugin_descriptions() -> std::collections::HashMap<String, String> {
 #[tauri::command]
 async fn list_plugins() -> Result<serde_json::Value, String> {
     let fut = tokio::process::Command::new("pwsh")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "claude plugin list --json"])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "claude plugin list --json",
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
     let out = match tokio::time::timeout(std::time::Duration::from_secs(30), fut).await {
         Ok(r) => r.map_err(|e| trv("err.claude_launch", cur_lang(), &[("e", &e)]))?,
-        Err(_) => return Err(trv("err.claude_launch", cur_lang(), &[("e", &"timed out".to_string())])),
+        Err(_) => {
+            return Err(trv(
+                "err.claude_launch",
+                cur_lang(),
+                &[("e", &"timed out".to_string())],
+            ))
+        }
     };
     // Surface a clean error when `claude` is missing/fails, not the confusing "parse plugins" below.
     if !out.status.success() {
@@ -4677,10 +5406,18 @@ struct SkillInfo {
 /// e.g. "max-marketplace". Plugins/skills from these count as "mine".
 fn own_marketplaces() -> std::collections::HashSet<String> {
     let mut set = std::collections::HashSet::new();
-    let Ok(home) = std::env::var("USERPROFILE") else { return set };
+    let Ok(home) = std::env::var("USERPROFILE") else {
+        return set;
+    };
     let p = format!("{home}\\.claude\\plugins\\known_marketplaces.json");
-    if let Some(v) = std::fs::read_to_string(p).ok().and_then(|c| parse_json_bom(&c).ok()) {
-        let obj = v.get("marketplaces").and_then(|m| m.as_object()).or_else(|| v.as_object());
+    if let Some(v) = std::fs::read_to_string(p)
+        .ok()
+        .and_then(|c| parse_json_bom(&c).ok())
+    {
+        let obj = v
+            .get("marketplaces")
+            .and_then(|m| m.as_object())
+            .or_else(|| v.as_object());
         if let Some(obj) = obj {
             for (name, m) in obj {
                 let stype = m
@@ -4742,7 +5479,14 @@ fn read_skill_info(skill_dir: &std::path::Path, source: String, mine: bool) -> S
             version = v;
         }
     }
-    SkillInfo { name, description, version, dir: skill_dir.display().to_string(), source, mine }
+    SkillInfo {
+        name,
+        description,
+        version,
+        dir: skill_dir.display().to_string(),
+        source,
+        mine,
+    }
 }
 
 /// Skills bundled inside installed plugins (source = "plugin:<id>").
@@ -4806,7 +5550,11 @@ fn list_skills() -> Vec<SkillInfo> {
                 .unwrap_or(false);
             out.push(read_skill_info(
                 &p,
-                if is_link { "own".into() } else { "default".into() },
+                if is_link {
+                    "own".into()
+                } else {
+                    "default".into()
+                },
                 is_link,
             ));
         }
@@ -4919,8 +5667,10 @@ fn skill_sets(home: &str) -> SkillSets {
     let agents = skill_names_in(&format!("{home}\\.agents\\skills"));
     let opencode_skills = skill_names_in(&opencode_skills_dir(home));
     let codex_skills = skill_names_in(&format!("{home}\\.codex\\skills"));
-    let plugin_names: BTreeSet<String> =
-        plugin_bundled_skills().into_iter().map(|s| s.name).collect();
+    let plugin_names: BTreeSet<String> = plugin_bundled_skills()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
 
     let union = |parts: &[&BTreeSet<String>]| -> BTreeSet<String> {
         let mut out = BTreeSet::new();
@@ -4933,7 +5683,13 @@ fn skill_sets(home: &str) -> SkillSets {
         claude_visible: union(&[&claude_all, &plugin_names]),
         opencode_visible: union(&[&claude_all, &agents, &opencode_skills]),
         codex_visible: union(&[&agents, &codex_skills]),
-        universe: union(&[&claude_all, &agents, &opencode_skills, &codex_skills, &plugin_names]),
+        universe: union(&[
+            &claude_all,
+            &agents,
+            &opencode_skills,
+            &codex_skills,
+            &plugin_names,
+        ]),
         source_names: union(&[&claude_real, &plugin_names]),
         plugin_names,
     }
@@ -4968,7 +5724,10 @@ fn rtk_plugin_path_ok(content: &str) -> bool {
             if let Ok(p) = serde_json::from_str::<String>(rest) {
                 return std::path::Path::new(&p).is_file();
             }
-            if let Some(inner) = rest.strip_prefix("String.raw`").and_then(|s| s.strip_suffix('`')) {
+            if let Some(inner) = rest
+                .strip_prefix("String.raw`")
+                .and_then(|s| s.strip_suffix('`'))
+            {
                 return std::path::Path::new(inner).is_file();
             }
         }
@@ -4986,7 +5745,10 @@ fn count_toml_tables(text: &str, prefix: &str) -> usize {
             continue;
         }
         if let Some(rest) = l.strip_prefix(prefix) {
-            let key: String = rest.chars().take_while(|c| *c != '.' && *c != ']').collect();
+            let key: String = rest
+                .chars()
+                .take_while(|c| *c != '.' && *c != ']')
+                .collect();
             let key = key.trim().trim_matches('"').to_string();
             if !key.is_empty() {
                 set.insert(key);
@@ -5059,15 +5821,16 @@ fn read_environments() -> Vec<EnvInfo> {
         .map(|o| o.len())
         .unwrap_or(0);
     // RTK "on" only when the managed plugin's pinned path still resolves (else it self-disabled).
-    let opencode_rtk = std::fs::read_to_string(format!("{home}\\.config\\opencode\\plugins\\rtk.ts"))
-        .map(|c| {
-            if c.contains("Managed by Castellyn") {
-                rtk_plugin_path_ok(&c)
-            } else {
-                true
-            }
-        })
-        .unwrap_or(false);
+    let opencode_rtk =
+        std::fs::read_to_string(format!("{home}\\.config\\opencode\\plugins\\rtk.ts"))
+            .map(|c| {
+                if c.contains("Managed by Castellyn") {
+                    rtk_plugin_path_ok(&c)
+                } else {
+                    true
+                }
+            })
+            .unwrap_or(false);
 
     // Codex — TOML config; distinct-key tallies instead of a raw substring count.
     let codex_cfg = format!("{home}\\.codex\\config.toml");
@@ -5222,10 +5985,13 @@ fn share_skills() -> Result<ShareResult, String> {
     for (name, src) in shareable_skill_sources(&home) {
         // Reject names that could break out of the mklink argv (cmd re-parses its arguments).
         if name.is_empty()
-            || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
         {
             res.failed += 1;
-            res.details.push(format!("{name}: unsafe skill name, skipped"));
+            res.details
+                .push(format!("{name}: unsafe skill name, skipped"));
             continue;
         }
         let link = format!("{target_dir}\\{name}");
@@ -5249,7 +6015,10 @@ fn share_skills() -> Result<ShareResult, String> {
             Ok(_) if std::fs::symlink_metadata(lp).is_ok() => res.skipped += 1,
             Ok(o) => {
                 res.failed += 1;
-                res.details.push(format!("{name}: {}", String::from_utf8_lossy(&o.stderr).trim()));
+                res.details.push(format!(
+                    "{name}: {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ));
             }
             Err(e) => {
                 res.failed += 1;
@@ -5336,7 +6105,8 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
         "enable" => {
             let rtk = resolve_rtk_path(&home)
                 .ok_or_else(|| "rtk binary not found (install rtk first)".to_string())?;
-            std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("create {plugins_dir}: {e}"))?;
+            std::fs::create_dir_all(&plugins_dir)
+                .map_err(|e| format!("create {plugins_dir}: {e}"))?;
             // serde_json renders the path as a safe JS string literal (escapes \, ", ${, backtick).
             let rtk_json = serde_json::to_string(&rtk).map_err(|e| e.to_string())?;
             let content = OPENCODE_RTK_PLUGIN.replace("{{RTK_JSON}}", &rtk_json);
@@ -5348,8 +6118,10 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
         "disable" => {
             // Only remove a plugin we wrote — never delete a user's own hand-authored rtk.ts.
             match std::fs::read_to_string(&plugin_file) {
-                Ok(c) if c.contains("Managed by Castellyn") => std::fs::remove_file(&plugin_file)
-                    .map_err(|e| format!("remove {plugin_file}: {e}"))?,
+                Ok(c) if c.contains("Managed by Castellyn") => {
+                    std::fs::remove_file(&plugin_file)
+                        .map_err(|e| format!("remove {plugin_file}: {e}"))?
+                }
                 Ok(_) => return Err("rtk.ts is not Castellyn-managed — left untouched".to_string()),
                 Err(_) => {} // not present → already disabled
             }
@@ -5388,7 +6160,8 @@ fn run_opencode_mcp() -> Result<usize, String> {
     let Some(obj) = cfg.as_object_mut() else {
         return Err("opencode.json is not a JSON object".to_string());
     };
-    obj.entry("$schema").or_insert_with(|| json!("https://opencode.ai/config.json"));
+    obj.entry("$schema")
+        .or_insert_with(|| json!("https://opencode.ai/config.json"));
     if !obj.get("mcp").map(|m| m.is_object()).unwrap_or(false) {
         obj.insert("mcp".into(), json!({}));
     }
@@ -5396,7 +6169,10 @@ fn run_opencode_mcp() -> Result<usize, String> {
 
     let mut count = 0usize;
     for (name, def) in servers {
-        let command = def.get("command").and_then(|c| c.as_str()).unwrap_or_default();
+        let command = def
+            .get("command")
+            .and_then(|c| c.as_str())
+            .unwrap_or_default();
         if command.is_empty() {
             continue;
         }
@@ -5406,7 +6182,10 @@ fn run_opencode_mcp() -> Result<usize, String> {
         }
         let mut entry = json!({ "type": "local", "command": cmd, "enabled": true });
         if let Some(env) = def.get("env").and_then(|e| e.as_object()) {
-            entry.as_object_mut().unwrap().insert("environment".into(), json!(env));
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("environment".into(), json!(env));
         }
         mcp.insert(name.clone(), entry);
         count += 1;
@@ -5533,7 +6312,9 @@ fn plugin_content_dir(id: &str, install_path: &str, markets: &serde_json::Value)
 fn collect_md_names(root: &std::path::Path) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     fn walk(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<String>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in entries.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -5601,7 +6382,12 @@ fn list_plugin_contents() -> Vec<PluginContents> {
         if skills.is_empty() && commands.is_empty() && agents.is_empty() {
             continue;
         }
-        out.push(PluginContents { id: id.clone(), skills, commands, agents });
+        out.push(PluginContents {
+            id: id.clone(),
+            skills,
+            commands,
+            agents,
+        });
     }
     out.sort_by(|a, b| a.id.to_lowercase().cmp(&b.id.to_lowercase()));
     out
@@ -5636,11 +6422,12 @@ struct PluginRelease {
 
 /// In-memory cache keyed by plugin id: (fetch_time, releases). 5 minute TTL.
 static RELEASES_CACHE: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>>
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>>,
 > = std::sync::OnceLock::new();
 
-fn get_releases_cache(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>> {
+fn get_releases_cache() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, (std::time::Instant, Vec<PluginRelease>)>,
+> {
     RELEASES_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
@@ -5691,7 +6478,10 @@ fn fetch_plugin_releases(id: &str) -> Vec<PluginRelease> {
     let releases: Vec<PluginRelease> = serde_json::from_str(&body).unwrap_or_default();
     // Update cache.
     if let Ok(mut guard) = get_releases_cache().lock() {
-        guard.insert(id.to_string(), (std::time::Instant::now(), releases.clone()));
+        guard.insert(
+            id.to_string(),
+            (std::time::Instant::now(), releases.clone()),
+        );
     }
     releases
 }
@@ -5717,7 +6507,8 @@ fn run_claude_plugin(
     err: &dyn Fn(&str),
 ) {
     let mut cmd = std::process::Command::new(claude);
-    cmd.args(["plugin", action, id]).creation_flags(CREATE_NO_WINDOW);
+    cmd.args(["plugin", action, id])
+        .creation_flags(CREATE_NO_WINDOW);
     if let Some(d) = cfg_dir {
         cmd.env("CLAUDE_CONFIG_DIR", d);
     }
@@ -5744,7 +6535,11 @@ fn manage_plugin_native(action: &str, id: &str, out: &dyn Fn(&str), err: &dyn Fn
         err(tr("log.claude_not_found", cur_lang()));
         return 1;
     };
-    out(&trv("log.plugin_header", cur_lang(), &[("action", &action), ("id", &id)]));
+    out(&trv(
+        "log.plugin_header",
+        cur_lang(),
+        &[("action", &action), ("id", &id)],
+    ));
     if action == "update" {
         run_claude_plugin(&claude, None, action, id, out, err);
     } else {
@@ -5775,7 +6570,9 @@ async fn run_plugin(
     // Guard the id since it reaches `cmd /c` — plugin ids are name@marketplace, never shell metachars.
     if action == "remove" {
         if id.is_empty()
-            || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
         {
             return Err(trv("err.invalid_plugin_id", cur_lang(), &[("id", &id)]));
         }
@@ -5784,17 +6581,29 @@ async fn run_plugin(
             state,
             "plugin-mgr".to_string(),
             "cmd".to_string(),
-            vec!["/c".into(), "claude".into(), "plugin".into(), "remove".into(), id],
+            vec![
+                "/c".into(),
+                "claude".into(),
+                "plugin".into(),
+                "remove".into(),
+                id,
+            ],
             None,
         )
         .await;
     }
     if !matches!(action.as_str(), "enable" | "disable" | "update") {
-        return Err(trv("err.unknown_plugin_action", cur_lang(), &[("action", &action)]));
+        return Err(trv(
+            "err.unknown_plugin_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
     }
     // id reaches process args natively now — guard it (same rule as the remove branch).
     if id.is_empty()
-        || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
     {
         return Err(trv("err.invalid_plugin_id", cur_lang(), &[("id", &id)]));
     }
@@ -5802,6 +6611,114 @@ async fn run_plugin(
         manage_plugin_native(&action, &id, out, err)
     })
     .await
+}
+
+/// F17: bulk plugin op in its own domain — sequential inside (no config race), but off the global
+/// RunState so other work proceeds. Streams id-tagged lines to "run-log" (component "plugin-mgr",
+/// same channel the single op uses) and emits one "run-done" at the end. Cancellable between items.
+#[tauri::command]
+async fn run_plugins_bulk(app: AppHandle, action: String, ids: Vec<String>) -> Result<i32, String> {
+    if !matches!(action.as_str(), "enable" | "disable" | "update" | "remove") {
+        return Err(trv(
+            "err.unknown_plugin_action",
+            cur_lang(),
+            &[("action", &action)],
+        ));
+    }
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    for id in &ids {
+        if id.is_empty()
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '@' | '-' | '/'))
+        {
+            return Err(trv("err.invalid_plugin_id", cur_lang(), &[("id", id)]));
+        }
+    }
+    // Reserve the bulk domain (RAII: released on drop, even if this future is dropped mid-sweep).
+    let _slot = match BulkSlot::reserve() {
+        Some(s) => s,
+        None => return Err(tr("err.run_in_progress", cur_lang()).into()),
+    };
+    BULK_PLUGINS_CANCEL.store(false, Ordering::SeqCst);
+    let app_job = app.clone();
+    let code = tokio::task::spawn_blocking(move || {
+        let out = |line: &str| {
+            let _ = app_job.emit(
+                "run-log",
+                LogLine {
+                    component: "plugin-mgr".into(),
+                    stream: "out".into(),
+                    line: line.to_string(),
+                },
+            );
+        };
+        let err = |line: &str| {
+            let _ = app_job.emit(
+                "run-log",
+                LogLine {
+                    component: "plugin-mgr".into(),
+                    stream: "err".into(),
+                    line: line.to_string(),
+                },
+            );
+        };
+        let mut worst = 0;
+        for id in &ids {
+            if BULK_PLUGINS_CANCEL.load(Ordering::SeqCst) {
+                out(tr("log.bulk_cancelled", cur_lang()));
+                worst = 130;
+                break;
+            }
+            out(&format!("── {id} ──")); // id tag so the serialized output stays correlatable
+            let c = if action == "remove" {
+                // Mirror the single-remove path (`cmd /c claude`) so a claude.cmd shim still launches.
+                out(&format!("  claude plugin remove {id}"));
+                match std::process::Command::new("cmd")
+                    .args(["/c", "claude", "plugin", "remove", id])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                {
+                    Ok(o) => {
+                        for line in String::from_utf8_lossy(&o.stdout).lines() {
+                            out(&format!("    {line}"));
+                        }
+                        for line in String::from_utf8_lossy(&o.stderr).lines() {
+                            err(&format!("    {line}"));
+                        }
+                        if o.status.success() {
+                            0
+                        } else {
+                            o.status.code().unwrap_or(1)
+                        }
+                    }
+                    Err(e) => {
+                        err(&format!("    {e}"));
+                        1
+                    }
+                }
+            } else {
+                manage_plugin_native(&action, id, &out, &err)
+            };
+            if c != 0 {
+                worst = c;
+            }
+        }
+        worst
+    })
+    .await
+    .unwrap_or(-1);
+    drop(_slot); // release the bulk domain (also released automatically if dropped earlier)
+    let _ = app.emit(
+        "run-done",
+        RunDone {
+            component: "plugin-mgr".into(),
+            code,
+        },
+    );
+    Ok(code)
 }
 
 /// Delete a standalone skill from ~/.claude/skills. Guard uses the entry's PARENT (not the
@@ -5813,12 +6730,15 @@ fn delete_skill(dir: String) -> Result<(), String> {
     let skills_root = std::path::Path::new(&home).join(".claude").join("skills");
     let target = std::path::Path::new(&dir);
     let parent = target.parent().ok_or(tr("err.bad_path", cur_lang()))?;
-    let canon_root = std::fs::canonicalize(&skills_root).map_err(|e| trv("err.skills_dir", cur_lang(), &[("e", &e)]))?;
-    let canon_parent = std::fs::canonicalize(parent).map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
+    let canon_root = std::fs::canonicalize(&skills_root)
+        .map_err(|e| trv("err.skills_dir", cur_lang(), &[("e", &e)]))?;
+    let canon_parent = std::fs::canonicalize(parent)
+        .map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
     if canon_parent != canon_root {
         return Err(tr("err.skill_not_in_skills", cur_lang()).into());
     }
-    let meta = std::fs::symlink_metadata(target).map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
+    let meta = std::fs::symlink_metadata(target)
+        .map_err(|e| trv("err.skill_not_found", cur_lang(), &[("e", &e)]))?;
     if meta.file_type().is_symlink() {
         // Remove only the symlink, never the linked-to source collection.
         std::fs::remove_dir(target)
@@ -5876,6 +6796,8 @@ fn app_paths() -> serde_json::Value {
         "configPath": config_path(),
         "exe": std::env::current_exe().ok().map(|p| p.display().to_string()),
         "stackPath": if std::path::Path::new(&stack).exists() { Some(stack) } else { None },
+        // F11: backup folder path (Backups/) so Settings → About can offer "Open in Explorer".
+        "backupDir": abs(BACKUP_DIR_REL),
     })
 }
 
@@ -5891,7 +6813,8 @@ fn export_config(dest: String) -> Result<(), String> {
 /// via write_config). Invalid JSON / wrong shape → Err.
 #[tauri::command]
 fn import_config(src: String) -> Result<HubConfig, String> {
-    let text = std::fs::read_to_string(&src).map_err(|e| trv("err.read", cur_lang(), &[("e", &e)]))?;
+    let text =
+        std::fs::read_to_string(&src).map_err(|e| trv("err.read", cur_lang(), &[("e", &e)]))?;
     // BOM-tolerant like every other file read (PowerShell-written configs often carry one).
     serde_json::from_str::<HubConfig>(text.trim_start_matches('\u{feff}'))
         .map_err(|e| trv("err.bad_config_file", cur_lang(), &[("e", &e)]))
@@ -5961,11 +6884,19 @@ fn read_profile_launch(name: &str) -> (String, Vec<String>, bool) {
     let content = std::fs::read_to_string(abs(LAUNCH_CONFIG_REL)).unwrap_or_default();
     if let Ok(v) = parse_json_bom(&content) {
         if let Some(p) = v.get("profiles").and_then(|p| p.get(name)) {
-            let mode = p.get("mode").and_then(|x| x.as_str()).unwrap_or("full").to_string();
+            let mode = p
+                .get("mode")
+                .and_then(|x| x.as_str())
+                .unwrap_or("full")
+                .to_string();
             let mcp = p
                 .get("mcp")
                 .and_then(|x| x.as_array())
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let claude_md = p.get("claudeMd").and_then(|x| x.as_bool()).unwrap_or(false);
             return (mode, mcp, claude_md);
@@ -6073,7 +7004,10 @@ fn read_launch_config() -> LaunchConfigStatus {
             }
         })
         .collect();
-    LaunchConfigStatus { profiles, available_mcp }
+    LaunchConfigStatus {
+        profiles,
+        available_mcp,
+    }
 }
 
 /// Set a profile's launch config (mode + selected MCP + CLAUDE.md). Backup + UTF-8 no BOM.
@@ -6085,7 +7019,11 @@ fn set_launch_config(
     claude_md: bool,
 ) -> Result<(), String> {
     if !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
+        return Err(trv(
+            "err.invalid_profile_name",
+            cur_lang(),
+            &[("name", &name)],
+        ));
     }
     if !matches!(mode.as_str(), "full" | "lean") {
         return Err(trv("err.unknown_mode", cur_lang(), &[("mode", &mode)]));
@@ -6119,7 +7057,11 @@ fn set_launch_config(
 #[tauri::command]
 async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
     if !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile_name", cur_lang(), &[("name", &name)]));
+        return Err(trv(
+            "err.invalid_profile_name",
+            cur_lang(),
+            &[("name", &name)],
+        ));
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let dir = format!("{home}\\.claude-{name}");
@@ -6171,7 +7113,11 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
         _ => raw,
     };
     let v = parse_json_bom(json_str).map_err(|_| {
-        trv("err.parse_claude", cur_lang(), &[("e", &raw.chars().take(200).collect::<String>())])
+        trv(
+            "err.parse_claude",
+            cur_lang(),
+            &[("e", &raw.chars().take(200).collect::<String>())],
+        )
     })?;
     v.get("usage")
         .and_then(|u| u.get("input_tokens"))
@@ -6186,10 +7132,18 @@ async fn measure_context(name: String, lean: bool) -> Result<i64, String> {
 #[tauri::command]
 fn launch_profile(name: String, mode: String) -> Result<(), String> {
     if !PROFILE_NAMES.contains(&name.as_str()) && !valid_profile_name(&name) {
-        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &name)]));
+        return Err(trv(
+            "err.invalid_profile",
+            cur_lang(),
+            &[("profile", &name)],
+        ));
     }
     if mode != "terminal" {
-        return Err(trv("err.unsupported_launch_mode", cur_lang(), &[("mode", &mode)]));
+        return Err(trv(
+            "err.unsupported_launch_mode",
+            cur_lang(),
+            &[("mode", &mode)],
+        ));
     }
     let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
     let dir = format!("{home}\\.claude-{name}");
@@ -6207,8 +7161,15 @@ fn launch_profile(name: String, mode: String) -> Result<(), String> {
     // screen is already skipped by the token in settings.json `env`; this re-export is redundant
     // safety (kept harmless) rather than the mechanism.
     let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/c", "start", &format!("Claude {name}"), "cmd", "/k", &claude_cmd])
-        .env("CLAUDE_CONFIG_DIR", &dir);
+    cmd.args([
+        "/c",
+        "start",
+        &format!("Claude {name}"),
+        "cmd",
+        "/k",
+        &claude_cmd,
+    ])
+    .env("CLAUDE_CONFIG_DIR", &dir);
     for (k, v) in profile_env_pairs(&name) {
         cmd.env(k, v);
     }
@@ -6255,6 +7216,33 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// F10: clone a GitHub repo to a user-picked path via the git CLI. Blocks until the clone finishes;
+/// `target` is the full destination dir (picked parent + repo name). Only https URLs are accepted.
+#[tauri::command]
+fn clone_repo(url: String, target: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(trv("err.bad_url_scheme", cur_lang(), &[("url", &url)]));
+    }
+    if std::path::Path::new(&target).exists() {
+        return Err(trv(
+            "err.clone_target_exists",
+            cur_lang(),
+            &[("path", &target)],
+        ));
+    }
+    let out = std::process::Command::new("git")
+        .args(["clone", "--", &url, &target])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| trv("err.git_failed", cur_lang(), &[("e", &e)]))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        Err(msg.trim().to_string())
+    }
+}
+
 /// Open a web URL in the default browser via the opener plugin. (open_path is for filesystem paths —
 /// using it on an https URL fails with "directory not found".)
 #[tauri::command]
@@ -6263,11 +7251,16 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String> {
     // Only ever hand http/https to the OS opener. A file://, UNC, or custom-scheme value (which can
     // reach here via fork remote/upstream metadata in a compare link) would otherwise launch a
     // program rather than a browser — restrict the scheme before calling the plugin.
-    let scheme = url.split_once(':').map(|(s, _)| s.trim().to_ascii_lowercase()).unwrap_or_default();
+    let scheme = url
+        .split_once(':')
+        .map(|(s, _)| s.trim().to_ascii_lowercase())
+        .unwrap_or_default();
     if scheme != "http" && scheme != "https" {
         return Err(trv("err.bad_url_scheme", cur_lang(), &[("url", &url)]));
     }
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 const AUTOSTART_KEY: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -6290,10 +7283,22 @@ fn migrate_autostart() {
     // Re-point at the current exe under the new name, and drop the old value ONLY once the new one
     // is actually in place. If current_exe() or the add fails, leave the old value alone — autostart
     // is preserved and the migration simply retries next launch (idempotent), never silently lost.
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let exe = exe.display().to_string();
     let added = std::process::Command::new("reg")
-        .args(["add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", &exe, "/f"])
+        .args([
+            "add",
+            AUTOSTART_KEY,
+            "/v",
+            AUTOSTART_NAME,
+            "/t",
+            "REG_SZ",
+            "/d",
+            &exe,
+            "/f",
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| o.status.success())
@@ -6318,6 +7323,9 @@ fn get_autostart() -> bool {
 }
 
 /// Enable/disable start-with-Windows via the HKCU Run key (points at this exe).
+/// Both branches now surface success/failure honestly — the off-path used to swallow
+/// `reg delete` errors via `let _ = ...output()` so a failed unregistration left the
+/// registry value orphaned while the UI believed "off" had taken effect.
 #[tauri::command]
 fn set_autostart(enabled: bool) -> Result<(), String> {
     if enabled {
@@ -6326,7 +7334,17 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
             .display()
             .to_string();
         let out = std::process::Command::new("reg")
-            .args(["add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", &exe, "/f"])
+            .args([
+                "add",
+                AUTOSTART_KEY,
+                "/v",
+                AUTOSTART_NAME,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &exe,
+                "/f",
+            ])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| e.to_string())?;
@@ -6334,10 +7352,14 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
             return Err(String::from_utf8_lossy(&out.stderr).to_string());
         }
     } else {
-        let _ = std::process::Command::new("reg")
+        let out = std::process::Command::new("reg")
             .args(["delete", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/f"])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).to_string());
+        }
     }
     Ok(())
 }
@@ -6368,12 +7390,65 @@ fn cancel_run(state: State<'_, RunState>) -> Result<(), String> {
     }
 }
 
+/// F21: global panic button — kills the single-slot run, every per-repo fork run, every live PTY
+/// session, and flips the bulk-plugin cancel flag. Best-effort (ignores per-target kill errors) and
+/// emits 'cancel-all-done' so the UI can refresh. Bound to Ctrl+Shift+Backspace and a tray entry.
+#[tauri::command]
+fn cancel_all(
+    app: AppHandle,
+    run: State<'_, RunState>,
+    forks: State<'_, ForkRuns>,
+    sessions: State<'_, SessionState>,
+) -> Result<(), String> {
+    // 1. The single-slot run (backup / profiles / sync / engine / component / single plugin op).
+    let run_pid = { *run.0.lock().unwrap_or_else(|e| e.into_inner()) };
+    if let Some(p) = run_pid {
+        if p != 0 {
+            let _ = kill_tree(p);
+        }
+    }
+    // 2. Every per-repo fork run (each removes itself from the map once its pid dies).
+    let fork_pids: Vec<u32> = {
+        let m = forks.0.lock().unwrap_or_else(|e| e.into_inner());
+        m.values().copied().filter(|p| *p != 0).collect()
+    };
+    for p in fork_pids {
+        let _ = kill_tree(p);
+    }
+    // 3. A bulk plugin sweep stops at the next item boundary.
+    BULK_PLUGINS_CANCEL.store(true, Ordering::SeqCst);
+    // 4. Every live PTY session (drain so their reader threads end on EOF).
+    {
+        let mut map = sessions.0.lock().unwrap_or_else(|e| e.into_inner());
+        for (_, mut s) in map.drain() {
+            let _ = s.killer.kill();
+        }
+    }
+    update_tray_tooltip(&app);
+    let _ = app.emit("cancel-all-done", ());
+    Ok(())
+}
+
 /// Build the tray menu with labels in the given locale. Shared by initial build + relabel-on-switch.
+/// F18: extended via the current Tauri v2 MenuBuilder (replaced the deprecated Menu::with_items).
+/// Each id below has a matching arm in build_tray's on_menu_event — keep the two in sync.
 fn tray_menu(app: &AppHandle, lang: Lang) -> tauri::Result<Menu<tauri::Wry>> {
-    let show = MenuItem::with_id(app, "show", tr("tray.show", lang), true, None::<&str>)?;
-    let check_all = MenuItem::with_id(app, "check_all", tr("tray.check_all", lang), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", tr("tray.quit", lang), true, None::<&str>)?;
-    Menu::with_items(app, &[&show, &check_all, &quit])
+    MenuBuilder::new(app)
+        .text("show", tr("tray.show", lang))
+        .separator()
+        .text("check_all", tr("tray.check_all", lang))
+        .text("refresh_forks", tr("tray.refresh_forks", lang))
+        .text("refresh_providers", tr("tray.refresh_providers", lang))
+        .separator()
+        .text("stack_start", tr("tray.stack_start", lang))
+        .text("stack_stop", tr("tray.stack_stop", lang))
+        .separator()
+        .text("open_backup", tr("tray.open_backup", lang))
+        .text("open_settings", tr("tray.open_settings", lang))
+        .separator()
+        .text("cancel_all", tr("tray.cancel_all", lang))
+        .text("quit", tr("tray.quit", lang))
+        .build()
 }
 
 /// Relabel the tray menu in-place after a language switch (no app restart needed).
@@ -6397,7 +7472,38 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 reveal(app);
                 let _ = app.emit("tray-check-all", ());
             }
-            "quit" => app.exit(0),
+            // F18: the new entries emit an event the frontend handles (mirrors tray-check-all). reveal()
+            // first for the ones that show their result on a tab; cancel_all/stack don't need the window.
+            "refresh_forks" => {
+                reveal(app);
+                let _ = app.emit("tray-refresh-forks", ());
+            }
+            "refresh_providers" => {
+                reveal(app);
+                let _ = app.emit("tray-refresh-providers", ());
+            }
+            "stack_start" => {
+                let _ = app.emit("tray-stack-start", ());
+            }
+            "stack_stop" => {
+                let _ = app.emit("tray-stack-stop", ());
+            }
+            "open_backup" => {
+                reveal(app);
+                let _ = app.emit("tray-open-tab", "backup");
+            }
+            "open_settings" => {
+                reveal(app);
+                let _ = app.emit("tray-open-tab", "settings");
+            }
+            "cancel_all" => {
+                let _ = app.emit("tray-cancel-all", ());
+            }
+            "quit" => {
+                // F19: confirm before quitting (live sessions die) — defer to the frontend dialog.
+                reveal(app);
+                let _ = app.emit("tray-quit-request", ());
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -6447,7 +7553,11 @@ fn update_tray_tooltip(app: &AppHandle) {
     let label = if n == 0 {
         "Castellyn".to_string()
     } else {
-        trv("tray.tooltip_sessions", cur_lang(), &[("n", &n.to_string())])
+        trv(
+            "tray.tooltip_sessions",
+            cur_lang(),
+            &[("n", &n.to_string())],
+        )
     };
     if let Some(tray) = app.tray_by_id("main-tray") {
         let _ = tray.set_tooltip(Some(&label));
@@ -6458,8 +7568,11 @@ fn update_tray_tooltip(app: &AppHandle) {
 fn register_shortcut(app: &AppHandle, _accel: &str) -> Result<(), String> {
     use std::str::FromStr;
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-    let sc = Shortcut::from_str(_accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
-    app.global_shortcut().register(sc).map_err(|e| format!("{e}"))
+    let sc =
+        Shortcut::from_str(_accel).map_err(|e| trv("err.bad_hotkey", cur_lang(), &[("e", &e)]))?;
+    app.global_shortcut()
+        .register(sc)
+        .map_err(|e| format!("{e}"))
 }
 
 /// Register (replacing any previous) the OS-global show/hide accelerator. Errors on a bad/taken combo.
@@ -6503,7 +7616,11 @@ fn read_shortcuts() -> HashMap<String, String> {
 fn set_shortcuts(app: AppHandle, shortcuts: HashMap<String, String>) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     // Validate + probe-register every non-empty accelerator BEFORE touching the old registration.
-    let non_empty: Vec<&str> = shortcuts.values().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    let non_empty: Vec<&str> = shortcuts
+        .values()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     for accel in &non_empty {
         register_shortcut(&app, accel)?;
     }
@@ -6569,7 +7686,23 @@ fn gen_session_id() -> String {
         .unwrap_or(0);
     let seq = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
     // 12 hex of (48-bit) nanos + 3 hex of counter = 15 hex → "s" + 15 = 16-char id (shape contract).
-    format!("s{:012x}{:03x}", (n as u64) & 0x0000_ffff_ffff_ffff, seq & 0xfff)
+    format!(
+        "s{:012x}{:03x}",
+        (n as u64) & 0x0000_ffff_ffff_ffff,
+        seq & 0xfff
+    )
+}
+
+/// F16/F19: live PTY session count across ALL windows (the global SESSION_LIMIT pool).
+#[tauri::command]
+fn global_session_count(state: State<'_, SessionState>) -> usize {
+    state.0.lock().unwrap_or_else(|e| e.into_inner()).len()
+}
+
+/// F19: hard-exit the app — called from the frontend after the tray-Quit confirm.
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 /// Spawn a tool (claude / opencode / shell / ssh) inside a real PTY and stream its output. Returns the
@@ -6592,19 +7725,35 @@ fn session_spawn(
 ) -> Result<String, String> {
     use portable_pty::{CommandBuilder, PtySize};
     let tool = tool.unwrap_or_else(|| "claude".into());
-    if !matches!(tool.as_str(), "claude" | "opencode" | "codex" | "shell" | "ssh") {
+    if !matches!(
+        tool.as_str(),
+        "claude" | "opencode" | "codex" | "shell" | "ssh"
+    ) {
         return Err(trv("err.unknown_tool", cur_lang(), &[("tool", &tool)]));
     }
     // Global session ceiling across ALL windows — the main grid's MAX_PANES=12 is per-window, but
     // detached windows + restore can otherwise burst past it and swamp the machine.
     if state.0.lock().unwrap_or_else(|e| e.into_inner()).len() >= SESSION_LIMIT {
-        return Err(trv("err.session_limit", cur_lang(), &[("max", &SESSION_LIMIT)]));
+        return Err(trv(
+            "err.session_limit",
+            cur_lang(),
+            &[("max", &SESSION_LIMIT)],
+        ));
     }
     // The profile only matters for claude (it picks CLAUDE_CONFIG_DIR = ~/.claude-<name>).
     if tool == "claude" && !valid_profile_name(&profile) {
-        return Err(trv("err.invalid_profile", cur_lang(), &[("profile", &profile)]));
+        return Err(trv(
+            "err.invalid_profile",
+            cur_lang(),
+            &[("profile", &profile)],
+        ));
     }
-    let size = PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 };
+    let size = PtySize {
+        rows: rows.max(1),
+        cols: cols.max(1),
+        pixel_width: 0,
+        pixel_height: 0,
+    };
     let pair = portable_pty::native_pty_system()
         .openpty(size)
         .map_err(|e| format!("openpty: {e}"))?;
@@ -6619,8 +7768,14 @@ fn session_spawn(
     let extra = extra.trim();
     // Model: environment (claude/opencode/shell) × location (local | ssh_target). `ssh` as a tool is
     // legacy (kept until the UI migrates) and means "bare remote shell with target in `args`".
-    let ssh = ssh_target.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let remote = remote_dir.as_deref().map(str::trim).filter(|d| !d.is_empty());
+    let ssh = ssh_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let remote = remote_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty());
 
     let mut cmd = CommandBuilder::new("pwsh");
     cmd.arg("-NoLogo");
@@ -6637,25 +7792,46 @@ fn session_spawn(
         // Environment over SSH: run the tool ON the remote (shell = bare remote shell).
         let mut parts: Vec<String> = Vec::new();
         if let Some(dir) = remote {
-            parts.push(format!("Set-Location -LiteralPath '{}'", dir.replace('\'', "''")));
+            parts.push(format!(
+                "Set-Location -LiteralPath '{}'",
+                dir.replace('\'', "''")
+            ));
         }
         match tool.as_str() {
-            "claude" => parts.push(if extra.is_empty() { "claude".into() } else { format!("claude {extra}") }),
-            "opencode" => parts.push(if extra.is_empty() { "opencode".into() } else { format!("opencode {extra}") }),
-            "codex" => parts.push(if extra.is_empty() { "codex".into() } else { format!("codex {extra}") }),
+            "claude" => parts.push(if extra.is_empty() {
+                "claude".into()
+            } else {
+                format!("claude {extra}")
+            }),
+            "opencode" => parts.push(if extra.is_empty() {
+                "opencode".into()
+            } else {
+                format!("opencode {extra}")
+            }),
+            "codex" => parts.push(if extra.is_empty() {
+                "codex".into()
+            } else {
+                format!("codex {extra}")
+            }),
             _ => {} // shell: nothing extra — just a remote shell
         }
         Some(if parts.is_empty() {
             format!("ssh --% -t {target}")
         } else {
-            format!("ssh --% -t {target} powershell -NoExit -EncodedCommand {}", ps_encoded_command(&parts.join("; ")))
+            format!(
+                "ssh --% -t {target} powershell -NoExit -EncodedCommand {}",
+                ps_encoded_command(&parts.join("; "))
+            )
         })
     } else if tool == "ssh" {
         // Legacy: target rides `args`; optional remote dir via EncodedCommand.
         Some(match (extra.is_empty(), remote) {
             (false, Some(dir)) => {
                 let ps = format!("Set-Location -LiteralPath '{}'", dir.replace('\'', "''"));
-                format!("ssh --% -t {extra} powershell -NoExit -EncodedCommand {}", ps_encoded_command(&ps))
+                format!(
+                    "ssh --% -t {extra} powershell -NoExit -EncodedCommand {}",
+                    ps_encoded_command(&ps)
+                )
             }
             (true, _) => "ssh".to_string(),
             (false, None) => format!("ssh --% {extra}"),
@@ -6663,8 +7839,16 @@ fn session_spawn(
     } else if tool == "shell" {
         None // local interactive PowerShell — no -Command
     } else {
-        let base = match tool.as_str() { "opencode" => "opencode", "codex" => "codex", _ => "claude" };
-        Some(if extra.is_empty() { base.to_string() } else { format!("{base} {extra}") })
+        let base = match tool.as_str() {
+            "opencode" => "opencode",
+            "codex" => "codex",
+            _ => "claude",
+        };
+        Some(if extra.is_empty() {
+            base.to_string()
+        } else {
+            format!("{base} {extra}")
+        })
     };
     if let Some(c) = command {
         cmd.arg("-NoExit");
@@ -6675,22 +7859,34 @@ fn session_spawn(
     if tool == "claude" && ssh.is_none() {
         cmd.env("CLAUDE_CONFIG_DIR", format!("{home}\\.claude-{profile}"));
     }
-    let dir = cwd.filter(|c| !c.trim().is_empty()).unwrap_or_else(|| home.clone());
+    let dir = cwd
+        .filter(|c| !c.trim().is_empty())
+        .unwrap_or_else(|| home.clone());
     if !dir.is_empty() {
         cmd.cwd(dir);
     }
 
     use portable_pty::{Child, ChildKiller};
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn: {e}"))?;
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn: {e}"))?;
     drop(pair.slave); // close the slave in the parent so EOF arrives when the child exits
-    // Tie the child's process tree to the kill-on-close Job Object (#4): a crash/forced exit then
-    // can't leave orphaned node/ssh grandchildren running. Best-effort — never fail a spawn over it.
+                      // Tie the child's process tree to the kill-on-close Job Object (#4): a crash/forced exit then
+                      // can't leave orphaned node/ssh grandchildren running. Best-effort — never fail a spawn over it.
     if let Some(pid) = child.process_id() {
         assign_to_kill_job(pid);
     }
-    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("reader: {e}"))?;
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("reader: {e}"))?;
     let writer: std::sync::Arc<Mutex<Box<dyn std::io::Write + Send>>> =
-        std::sync::Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| format!("writer: {e}"))?));
+        std::sync::Arc::new(Mutex::new(
+            pair.master
+                .take_writer()
+                .map_err(|e| format!("writer: {e}"))?,
+        ));
     // Keep a killer handle for session_kill; the Child moves into the reader thread so it can
     // wait() and report the tool's REAL exit code instead of a hardcoded 0.
     let killer: Box<dyn ChildKiller + Send + Sync> = child.clone_killer();
@@ -6714,11 +7910,22 @@ fn session_spawn(
         if map.len() >= SESSION_LIMIT {
             let mut k = killer;
             let _ = k.kill(); // lost the race against a concurrent spawn — tear the child back down
-            return Err(trv("err.session_limit", cur_lang(), &[("max", &SESSION_LIMIT)]));
+            return Err(trv(
+                "err.session_limit",
+                cur_lang(),
+                &[("max", &SESSION_LIMIT)],
+            ));
         }
         map.insert(
             id.clone(),
-            PtySession { master: pair.master, writer, killer, chans: chans.clone(), ring: ring.clone(), next_token: std::sync::atomic::AtomicU64::new(1) },
+            PtySession {
+                master: pair.master,
+                writer,
+                killer,
+                chans: chans.clone(),
+                ring: ring.clone(),
+                next_token: std::sync::atomic::AtomicU64::new(1),
+            },
         );
     }
 
@@ -6742,19 +7949,33 @@ fn session_spawn(
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let bytes = &buf[..n];
-                    push_bounded(&mut ring_r.lock().unwrap_or_else(|e| e.into_inner()), bytes, SESSION_RING_MAX);
+                    push_bounded(
+                        &mut ring_r.lock().unwrap_or_else(|e| e.into_inner()),
+                        bytes,
+                        SESSION_RING_MAX,
+                    );
                     // Raw body → each JS side gets an ArrayBuffer (binary). Drop channels whose window closed.
                     let mut cs = chans_r.lock().unwrap_or_else(|e| e.into_inner());
-                    cs.retain(|(_, c)| c.send(tauri::ipc::InvokeResponseBody::Raw(bytes.to_vec())).is_ok());
+                    cs.retain(|(_, c)| {
+                        c.send(tauri::ipc::InvokeResponseBody::Raw(bytes.to_vec()))
+                            .is_ok()
+                    });
                 }
             }
         }
         // EOF means the child has exited; surface its real exit code (-1 if wait() fails).
-        let code = Child::wait(&mut *child).map(|s| s.exit_code() as i32).unwrap_or(-1);
+        let code = Child::wait(&mut *child)
+            .map(|s| s.exit_code() as i32)
+            .unwrap_or(-1);
         let _ = app2.emit(exit_event.as_str(), code);
         // Reap from the map: a naturally-exited but still-open pane otherwise holds its SESSION_LIMIT
         // slot + master/ring until session_kill (which only runs when the pane is explicitly closed).
-        let _ = app2.state::<SessionState>().0.lock().unwrap_or_else(|e| e.into_inner()).remove(&id_r);
+        let _ = app2
+            .state::<SessionState>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id_r);
     });
 
     update_tray_tooltip(&app);
@@ -6770,29 +7991,49 @@ fn session_write(state: State<'_, SessionState>, id: String, data: String) -> Re
     // op (spawn's atomic insert, kill, resize, tray tooltip) that needs the same map lock.
     let writer = {
         let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
+        let s = map
+            .get(&id)
+            .ok_or(tr("err.session_not_found", cur_lang()))?;
         s.writer.clone()
     };
     let mut w = writer.lock().unwrap_or_else(|e| e.into_inner());
-    w.write_all(data.as_bytes()).map_err(|e| format!("write: {e}"))?;
+    w.write_all(data.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
     w.flush().map_err(|e| format!("flush: {e}"))
 }
 
 /// Resize the PTY when its pane changes size (xterm fit addon).
 #[tauri::command]
-fn session_resize(state: State<'_, SessionState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+fn session_resize(
+    state: State<'_, SessionState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     use portable_pty::PtySize;
     let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-    let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
+    let s = map
+        .get(&id)
+        .ok_or(tr("err.session_not_found", cur_lang()))?;
     s.master
-        .resize(PtySize { rows: rows.max(1), cols: cols.max(1), pixel_width: 0, pixel_height: 0 })
+        .resize(PtySize {
+            rows: rows.max(1),
+            cols: cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| format!("resize: {e}"))
 }
 
 /// Kill a session's child process and drop it (its reader thread then ends on EOF).
 #[tauri::command]
 fn session_kill(app: AppHandle, state: State<'_, SessionState>, id: String) -> Result<(), String> {
-    if let Some(mut s) = state.0.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+    if let Some(mut s) = state
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id)
+    {
         let _ = s.killer.kill();
     }
     update_tray_tooltip(&app);
@@ -6814,7 +8055,9 @@ fn session_attach(
     // stalls for its duration. The token is returned so this window can later session_detach itself.
     let (ring, chans, token) = {
         let map = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        let s = map.get(&id).ok_or(tr("err.session_not_found", cur_lang()))?;
+        let s = map
+            .get(&id)
+            .ok_or(tr("err.session_not_found", cur_lang()))?;
         let token = s.next_token.fetch_add(1, Ordering::Relaxed);
         (s.ring.clone(), s.chans.clone(), token)
     };
@@ -6825,7 +8068,10 @@ fn session_attach(
             let _ = on_data.send(tauri::ipc::InvokeResponseBody::Raw(snapshot));
         }
     }
-    chans.lock().unwrap_or_else(|e| e.into_inner()).push((token, on_data));
+    chans
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((token, on_data));
     Ok(token)
 }
 
@@ -6841,7 +8087,10 @@ fn session_detach(state: State<'_, SessionState>, id: String, token: u64) -> Res
             None => return Ok(()),
         }
     };
-    chans.lock().unwrap_or_else(|e| e.into_inner()).retain(|(t, _)| *t != token);
+    chans
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|(t, _)| *t != token);
     Ok(())
 }
 
@@ -6850,7 +8099,13 @@ fn session_detach(state: State<'_, SessionState>, id: String, token: u64) -> Res
 /// holding SESSION_LIMIT slots — this lets the UI re-attach its panes instead of orphaning them.
 #[tauri::command]
 fn session_list(state: State<'_, SessionState>) -> Vec<String> {
-    state.0.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
+    state
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect()
 }
 
 /// Open a source location in the user's editor (#13), triggered by clicking a `path:line` link in a
@@ -6862,14 +8117,15 @@ fn session_list(state: State<'_, SessionState>) -> Vec<String> {
 #[tauri::command]
 fn open_in_editor(app: AppHandle, path: String, line: Option<u32>) -> Result<(), String> {
     // Resolve to a real on-disk path; a non-existent or metacharacter-laden string fails here.
-    let canon = std::fs::canonicalize(&path).map_err(|_| "open_in_editor: no such file".to_string())?;
+    let canon =
+        std::fs::canonicalize(&path).map_err(|_| "open_in_editor: no such file".to_string())?;
     if !canon.is_file() {
         return Err("open_in_editor: not a regular file".into());
     }
     // Never auto-open an executable/script — opening it could run it.
     const BLOCKED_EXT: &[&str] = &[
-        "exe", "bat", "cmd", "com", "ps1", "psm1", "scr", "lnk", "vbs", "vbe", "js", "jse",
-        "wsf", "wsh", "msi", "reg", "hta", "cpl", "jar", "msc", "pif",
+        "exe", "bat", "cmd", "com", "ps1", "psm1", "scr", "lnk", "vbs", "vbe", "js", "jse", "wsf",
+        "wsh", "msi", "reg", "hta", "cpl", "jar", "msc", "pif",
     ];
     if let Some(ext) = canon.extension().and_then(|e| e.to_str()) {
         if BLOCKED_EXT.iter().any(|b| b.eq_ignore_ascii_case(ext)) {
@@ -6929,7 +8185,9 @@ fn list_subdirs(path: String) -> Vec<String> {
 const SSHHOSTS_CONFIG_REL: &str = "!Настройки и MCP\\ClaudeProfiles\\config\\sshhosts.json";
 static SSHHOSTS_LOCK: Mutex<()> = Mutex::new(());
 
-fn default_ssh_source() -> String { "saved".into() }
+fn default_ssh_source() -> String {
+    "saved".into()
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -6956,7 +8214,11 @@ fn read_ssh_hosts_saved() -> Vec<SshHost> {
         .ok()
         .and_then(|c| parse_json_bom(&c).ok())
         .and_then(|v| v.get("hosts").and_then(|p| p.as_array()).cloned())
-        .map(|arr| arr.into_iter().filter_map(|e| serde_json::from_value::<SshHost>(e).ok()).collect())
+        .map(|arr| {
+            arr.into_iter()
+                .filter_map(|e| serde_json::from_value::<SshHost>(e).ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -6971,7 +8233,9 @@ fn write_ssh_hosts_saved(list: &[SshHost]) -> Result<(), String> {
 /// IdentityFile path with spaces). Leaves unquoted strings untouched.
 fn unquote(s: &str) -> &str {
     let b = s.as_bytes();
-    if b.len() >= 2 && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\'')) {
+    if b.len() >= 2
+        && ((b[0] == b'"' && b[b.len() - 1] == b'"') || (b[0] == b'\'' && b[b.len() - 1] == b'\''))
+    {
         &s[1..s.len() - 1]
     } else {
         s
@@ -6987,27 +8251,37 @@ fn parse_ssh_config(text: &str) -> Vec<SshHost> {
     let mut cur: Option<usize> = None; // out-index of the current Host block (None for wildcard-only blocks)
     for raw in text.lines() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let (key, val) = match line.find(|c: char| c.is_whitespace() || c == '=') {
-            Some(i) => (line[..i].trim(), line[i + 1..].trim_matches(|c: char| c.is_whitespace() || c == '=').trim()),
+            Some(i) => (
+                line[..i].trim(),
+                line[i + 1..]
+                    .trim_matches(|c: char| c.is_whitespace() || c == '=')
+                    .trim(),
+            ),
             None => (line, ""),
         };
         if key.eq_ignore_ascii_case("host") {
             // `Host a b c` lists alternative match patterns for ONE host — use the first concrete alias
             // as its name (extra aliases aren't separate machines; one-per-alias used to dupe them).
-            cur = val.split_whitespace().find(|a| !a.contains(['*', '?', '!'])).map(|alias| {
-                out.push(SshHost {
-                    id: format!("cfg:{alias}"),
-                    name: alias.to_string(),
-                    host: alias.to_string(), // replaced by HostName if the block has one
-                    port: None,
-                    user: None,
-                    key_path: None,
-                    remote_dir: None,
-                    source: "sshconfig".into(),
+            cur = val
+                .split_whitespace()
+                .find(|a| !a.contains(['*', '?', '!']))
+                .map(|alias| {
+                    out.push(SshHost {
+                        id: format!("cfg:{alias}"),
+                        name: alias.to_string(),
+                        host: alias.to_string(), // replaced by HostName if the block has one
+                        port: None,
+                        user: None,
+                        key_path: None,
+                        remote_dir: None,
+                        source: "sshconfig".into(),
+                    });
+                    out.len() - 1
                 });
-                out.len() - 1
-            });
         } else if let Some(i) = cur {
             match key.to_ascii_lowercase().as_str() {
                 "hostname" => out[i].host = unquote(val).to_string(),
@@ -7093,7 +8367,8 @@ fn resolve_ssh_include(pat: &str, home: &str) -> Vec<std::path::PathBuf> {
 #[tauri::command]
 fn read_ssh_hosts() -> Vec<SshHost> {
     let mut all = read_ssh_hosts_saved();
-    let mut seen: std::collections::HashSet<String> = all.iter().map(|h| h.host.to_ascii_lowercase()).collect();
+    let mut seen: std::collections::HashSet<String> =
+        all.iter().map(|h| h.host.to_ascii_lowercase()).collect();
     for h in read_ssh_config_hosts() {
         if seen.insert(h.host.to_ascii_lowercase()) {
             all.push(h);
@@ -7139,9 +8414,9 @@ fn test_ssh_host(host: String, port: Option<u16>) -> bool {
     match format!("{host}:{p}").to_socket_addrs() {
         // Try EVERY resolved address (short-circuits on the first success). Probing only the first
         // wrongly reported IPv6-first hosts as unreachable when only their IPv4 endpoint was up.
-        Ok(addrs) => addrs.into_iter().any(|a| {
-            TcpStream::connect_timeout(&a, std::time::Duration::from_secs(2)).is_ok()
-        }),
+        Ok(addrs) => addrs
+            .into_iter()
+            .any(|a| TcpStream::connect_timeout(&a, std::time::Duration::from_secs(2)).is_ok()),
         Err(_) => false,
     }
 }
@@ -7161,8 +8436,16 @@ fn ps_encoded_command(s: &str) -> String {
         let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
         out.push(T[(b[0] >> 2) as usize] as char);
         out.push(T[(((b[0] & 0x03) << 4) | (b[1] >> 4)) as usize] as char);
-        out.push(if c.len() > 1 { T[(((b[1] & 0x0f) << 2) | (b[2] >> 6)) as usize] as char } else { '=' });
-        out.push(if c.len() > 2 { T[(b[2] & 0x3f) as usize] as char } else { '=' });
+        out.push(if c.len() > 1 {
+            T[(((b[1] & 0x0f) << 2) | (b[2] >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(b[2] & 0x3f) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -7182,8 +8465,15 @@ Host minipc 192.168.1.177\n\
 Host *\n\
     ForwardAgent yes\n";
         let hosts = parse_ssh_config(cfg);
-        assert_eq!(hosts.len(), 1, "multi-alias Host line = one host, wildcard skipped");
-        let mini = hosts.iter().find(|h| h.name == "minipc").expect("minipc host");
+        assert_eq!(
+            hosts.len(),
+            1,
+            "multi-alias Host line = one host, wildcard skipped"
+        );
+        let mini = hosts
+            .iter()
+            .find(|h| h.name == "minipc")
+            .expect("minipc host");
         assert_eq!(mini.host, "192.168.1.177");
         assert_eq!(mini.user.as_deref(), Some("dansc"));
         assert_eq!(mini.port, Some(22));
@@ -7193,12 +8483,17 @@ Host *\n\
 
     #[test]
     fn strips_surrounding_quotes_from_values() {
-        let cfg = "Host q\n  HostName \"10.0.0.5\"\n  User 'bob'\n  IdentityFile \"C:/keys/my key\"\n";
+        let cfg =
+            "Host q\n  HostName \"10.0.0.5\"\n  User 'bob'\n  IdentityFile \"C:/keys/my key\"\n";
         let hosts = parse_ssh_config(cfg);
         let h = hosts.iter().find(|h| h.name == "q").expect("host q");
         assert_eq!(h.host, "10.0.0.5", "double quotes stripped");
         assert_eq!(h.user.as_deref(), Some("bob"), "single quotes stripped");
-        assert_eq!(h.key_path.as_deref(), Some("C:/keys/my key"), "quoted path with space kept intact");
+        assert_eq!(
+            h.key_path.as_deref(),
+            Some("C:/keys/my key"),
+            "quoted path with space kept intact"
+        );
     }
 
     #[test]
@@ -7240,11 +8535,10 @@ struct MonitorInfo {
 
 #[tauri::command]
 fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
-    let prim_pos = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| { let p = m.position(); (p.x, p.y) });
+    let prim_pos = app.primary_monitor().ok().flatten().map(|m| {
+        let p = m.position();
+        (p.x, p.y)
+    });
     match app.available_monitors() {
         Ok(mons) => mons
             .iter()
@@ -7254,7 +8548,10 @@ fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
                 let s = m.size();
                 MonitorInfo {
                     index: i,
-                    name: m.name().cloned().unwrap_or_else(|| format!("Monitor {}", i + 1)),
+                    name: m
+                        .name()
+                        .cloned()
+                        .unwrap_or_else(|| format!("Monitor {}", i + 1)),
                     x: p.x,
                     y: p.y,
                     width: s.width,
@@ -7270,12 +8567,14 @@ fn list_monitors(app: AppHandle) -> Vec<MonitorInfo> {
 
 // Handoff: the main window stashes a pane's display spec under the new window's label; the child reads
 // (and clears) it on mount. Lazy-init map (HashMap::new isn't const).
-static DETACH_REGISTRY: Mutex<Option<std::collections::HashMap<String, serde_json::Value>>> = Mutex::new(None);
+static DETACH_REGISTRY: Mutex<Option<std::collections::HashMap<String, serde_json::Value>>> =
+    Mutex::new(None);
 
 #[tauri::command]
 fn prepare_detach(label: String, spec: serde_json::Value) {
     let mut g = DETACH_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    g.get_or_insert_with(std::collections::HashMap::new).insert(label, spec);
+    g.get_or_insert_with(std::collections::HashMap::new)
+        .insert(label, spec);
 }
 
 #[tauri::command]
@@ -7294,7 +8593,9 @@ fn open_monitor_window(app: AppHandle, label: String, monitor_index: usize) -> R
         return Ok(());
     }
     let mons = app.available_monitors().map_err(|e| e.to_string())?;
-    let m = mons.get(monitor_index).ok_or_else(|| "monitor index out of range".to_string())?;
+    let m = mons
+        .get(monitor_index)
+        .ok_or_else(|| "monitor index out of range".to_string())?;
     let pos = *m.position();
     let size = *m.size();
     // Build OFF the main thread. The command runs on the main (event-loop) thread, and a synchronous
@@ -7303,12 +8604,16 @@ fn open_monitor_window(app: AppHandle, label: String, monitor_index: usize) -> R
     // creation to the (now free) main loop and returns once the webview is ready.
     let app2 = app.clone();
     std::thread::spawn(move || {
-        let built = tauri::WebviewWindowBuilder::new(&app2, &label, tauri::WebviewUrl::App("index.html".into()))
-            .title("Castellyn")
-            .decorations(false)
-            // Dark background so the frame never flashes white while the webview boots.
-            .background_color(tauri::webview::Color(8, 12, 24, 255))
-            .build();
+        let built = tauri::WebviewWindowBuilder::new(
+            &app2,
+            &label,
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Castellyn")
+        .decorations(false)
+        // Dark background so the frame never flashes white while the webview boots.
+        .background_color(tauri::webview::Color(8, 12, 24, 255))
+        .build();
         // Physical position/size — correct across mixed-DPI monitors (the window-state plugin is
         // denylisted for mon-* so it can't override these with a stale restored rect).
         match built {
@@ -7335,6 +8640,8 @@ fn open_monitor_window(app: AppHandle, label: String, monitor_index: usize) -> R
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -7344,7 +8651,9 @@ pub fn run() {
         // session, so they never collide on restore).
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_denylist(&["mon-0", "mon-1", "mon-2", "mon-3", "mon-4", "mon-5", "mon-6", "mon-7"])
+                .with_denylist(&[
+                    "mon-0", "mon-1", "mon-2", "mon-3", "mon-4", "mon-5", "mon-6", "mon-7",
+                ])
                 .build(),
         )
         // OS-global hotkey to show/hide the window; the actual combo is registered from config in setup.
@@ -7371,6 +8680,7 @@ pub fn run() {
             cancel_fork_repo,
             read_fork_repo_status,
             list_backups,
+            reveal_backup,
             run_backup,
             read_profiles,
             run_profiles,
@@ -7423,6 +8733,7 @@ pub fn run() {
             save_my_provider,
             delete_my_provider,
             set_freellmapi_auth,
+            delete_freellmapi_auth,
             freellmapi_auth_status,
             connect_my_provider,
             check_my_provider,
@@ -7451,6 +8762,7 @@ pub fn run() {
             list_plugin_contents,
             list_plugin_releases,
             run_plugin,
+            run_plugins_bulk,
             delete_skill,
             read_schedules,
             run_schedule,
@@ -7459,7 +8771,12 @@ pub fn run() {
             export_config,
             import_config,
             app_paths,
+            gateway_base_url,
+            canonical_skills_dir,
+            global_session_count,
+            quit_app,
             open_path,
+            clone_repo,
             open_url,
             open_terminal,
             get_autostart,
@@ -7468,7 +8785,8 @@ pub fn run() {
             read_shortcuts,
             set_shortcuts,
             set_language,
-            cancel_run
+            cancel_run,
+            cancel_all
         ])
         .setup(|app| {
             // Warm the elevation check off the main/UI thread: is_elevated() shells out to pwsh
@@ -7495,7 +8813,8 @@ pub fn run() {
             // Register all configured shortcuts. A bad/taken combo must not block startup.
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             if let Some(shortcuts) = cfg.shortcuts.as_ref() {
-                let count: usize = shortcuts.values()
+                let count: usize = shortcuts
+                    .values()
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
                     .map(|accel| {
@@ -7512,7 +8831,11 @@ pub fn run() {
                     // first probe's unregister_all + re-register would orphan the others. The probe-only
                     // loop above already registered them; we unregister_all and re-register cleanly.
                     let _ = app.global_shortcut().unregister_all();
-                    for accel in shortcuts.values().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    for accel in shortcuts
+                        .values()
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                    {
                         let _ = register_shortcut(app.handle(), accel);
                     }
                 }
@@ -7562,7 +8885,10 @@ mod tests {
     fn run_slot_reserves_releases_and_survives_panic() {
         let state = RunState::default();
         let slot = RunSlot::reserve(&state).expect("first reserve succeeds");
-        assert!(RunSlot::reserve(&state).is_err(), "a second reserve while held must fail");
+        assert!(
+            RunSlot::reserve(&state).is_err(),
+            "a second reserve while held must fail"
+        );
         drop(slot);
         assert!(RunSlot::reserve(&state).is_ok(), "the slot frees on drop");
 
@@ -7574,7 +8900,10 @@ mod tests {
             panic!("boom");
         }));
         std::panic::set_hook(prev);
-        assert!(RunSlot::reserve(&state).is_ok(), "the slot frees after a panic, not wedged busy");
+        assert!(
+            RunSlot::reserve(&state).is_ok(),
+            "the slot frees after a panic, not wedged busy"
+        );
     }
 
     #[test]
@@ -7616,7 +8945,10 @@ mod tests {
         let corrupt = dir.join(format!("castellyn_rec_bad_{pid}.json"));
         std::fs::write(&corrupt, "{ not json").unwrap();
         std::fs::write(format!("{}.bak", corrupt.display()), "{\"a\":2}").unwrap();
-        assert_eq!(read_json_or_recover(&corrupt, "t").unwrap().unwrap()["a"], 2);
+        assert_eq!(
+            read_json_or_recover(&corrupt, "t").unwrap().unwrap()["a"],
+            2
+        );
         // Corrupt main + no usable .bak → Err (caller must abort, not overwrite).
         let _ = std::fs::remove_file(format!("{}.bak", corrupt.display()));
         assert!(read_json_or_recover(&corrupt, "t").is_err());
@@ -7628,7 +8960,8 @@ mod tests {
     fn embedded_manifest_fallback_is_valid() {
         // raw_components falls back to MANIFEST_FALLBACK on a corrupt on-disk manifest — that embedded
         // copy must itself parse and list components, else the fallback can't save a blank dashboard.
-        let m: RawManifest = serde_json::from_str(MANIFEST_FALLBACK).expect("fallback is valid JSON");
+        let m: RawManifest =
+            serde_json::from_str(MANIFEST_FALLBACK).expect("fallback is valid JSON");
         assert!(!m.components.is_empty(), "fallback must list components");
     }
 
@@ -7652,7 +8985,11 @@ mod tests {
 
         // A preview is always -WhatIf and NEVER carries credentials, even if asked.
         let (s, a) = backup_args(
-            "restore-preview", Some("2026-06-12_100002".into()), None, Some(true), None,
+            "restore-preview",
+            Some("2026-06-12_100002".into()),
+            None,
+            Some(true),
+            None,
         )
         .unwrap();
         assert_eq!(s, RESTORE_SCRIPT_REL);
@@ -7666,7 +9003,11 @@ mod tests {
 
         // Only a real restore WITH the explicit flag carries credentials + scoping.
         let (_, a) = backup_args(
-            "restore", Some("2026-06-12_100002".into()), Some(vec!["work".into()]), Some(true), None,
+            "restore",
+            Some("2026-06-12_100002".into()),
+            Some(vec!["work".into()]),
+            Some(true),
+            None,
         )
         .unwrap();
         assert!(a.contains(&"-IncludeCredentials".to_string()));
@@ -7688,11 +9029,17 @@ mod tests {
 
         write_json_atomic(&p, "{\"v\":1}").unwrap(); // creates parent dirs + file
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"v\":1}");
-        assert!(!path.with_extension("json.bak").exists() && !std::path::Path::new(&format!("{p}.bak")).exists());
+        assert!(
+            !path.with_extension("json.bak").exists()
+                && !std::path::Path::new(&format!("{p}.bak")).exists()
+        );
 
         write_json_atomic(&p, "{\"v\":2}").unwrap(); // overwrite → prior copy backed up
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"v\":2}");
-        assert_eq!(std::fs::read_to_string(format!("{p}.bak")).unwrap(), "{\"v\":1}");
+        assert_eq!(
+            std::fs::read_to_string(format!("{p}.bak")).unwrap(),
+            "{\"v\":1}"
+        );
         assert!(!std::path::Path::new(&format!("{p}.tmp")).exists()); // no stray temp left
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -7709,14 +9056,20 @@ mod tests {
             write_json_atomic(&p, "{\"token\":\"old\"}").unwrap();
             write_json_atomic(&p, "{\"token\":\"new\"}").unwrap(); // overwrite — prior secret must not survive
             assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"token\":\"new\"}");
-            assert!(!std::path::Path::new(&format!("{p}.bak")).exists(), "{name} left a secret .bak");
+            assert!(
+                !std::path::Path::new(&format!("{p}.bak")).exists(),
+                "{name} left a secret .bak"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn forks_args_known_and_unknown() {
-        assert_eq!(forks_action_args("check"), Some(vec!["-Unattended".to_string()]));
+        assert_eq!(
+            forks_action_args("check"),
+            Some(vec!["-Unattended".to_string()])
+        );
         let ff = forks_action_args("ff").unwrap();
         assert!(ff.contains(&"-FfMain".to_string()));
         assert!(ff.contains(&"-Yes".to_string())); // mutations must be unattended
@@ -7772,9 +9125,22 @@ mod tests {
     #[test]
     fn forks_actions_all_unattended() {
         // Every fork action runs unattended (no interactive Read-Host hang).
-        for a in ["check", "plan", "ff", "delete", "rebase", "sync-wip", "delete-wip", "prune", "normalize"] {
+        for a in [
+            "check",
+            "plan",
+            "ff",
+            "delete",
+            "rebase",
+            "sync-wip",
+            "delete-wip",
+            "prune",
+            "normalize",
+        ] {
             let args = forks_action_args(a).unwrap();
-            assert!(args.contains(&"-Unattended".to_string()), "{a} must be unattended");
+            assert!(
+                args.contains(&"-Unattended".to_string()),
+                "{a} must be unattended"
+            );
         }
     }
 
@@ -7800,8 +9166,17 @@ mod tests {
 
         // set tgt → new baseURL + name + model + {env:VAR}; other provider & curated model preserved.
         let code = opencode_provider_native(
-            &p, "set", "tgt", Some("New"), "http://new", Some("m1"), None, Some("MY_KEY"), false,
-            &noop, &noop,
+            &p,
+            "set",
+            "tgt",
+            Some("New"),
+            "http://new",
+            Some("m1"),
+            None,
+            Some("MY_KEY"),
+            false,
+            &noop,
+            &noop,
         );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
@@ -7843,8 +9218,16 @@ mod tests {
 
         // set with a token + model (no small) → base/token/tier set, legacy scrubbed, others kept.
         let code = apply_provider_env(
-            &p, "cc1", "set", "http://localhost:4000", false, Some("sk-x"),
-            Some("glm-4.7"), Some(""), &noop, &noop,
+            &p,
+            "cc1",
+            "set",
+            "http://localhost:4000",
+            false,
+            Some("sk-x"),
+            Some("glm-4.7"),
+            Some(""),
+            &noop,
+            &noop,
         );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
@@ -7860,7 +9243,16 @@ mod tests {
 
         // set without a token (keyless endpoint) → dummy bearer, never tokenless.
         let code = apply_provider_env(
-            &p, "cc1", "set", "http://localhost:4000", false, Some(""), None, None, &noop, &noop,
+            &p,
+            "cc1",
+            "set",
+            "http://localhost:4000",
+            false,
+            Some(""),
+            None,
+            None,
+            &noop,
+            &noop,
         );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
@@ -7868,7 +9260,9 @@ mod tests {
         assert_eq!(v["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-4.7"); // model None → untouched
 
         // clear → all provider keys gone; the empty env block is dropped; unrelated setting kept.
-        let code = apply_provider_env(&p, "cc1", "clear", "", false, None, None, None, &noop, &noop);
+        let code = apply_provider_env(
+            &p, "cc1", "clear", "", false, None, None, None, &noop, &noop,
+        );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(v["theme"], "dark");
@@ -7899,8 +9293,14 @@ mod tests {
         let noop = |_: &str| {};
 
         // configure: backend without /chat/completions → normalized; upsert lmstudio; others kept.
-        let code =
-            apply_router_config(&p, "http://localhost:1234/v1", "qwen", "lmstudio", &noop, &noop);
+        let code = apply_router_config(
+            &p,
+            "http://localhost:1234/v1",
+            "qwen",
+            "lmstudio",
+            &noop,
+            &noop,
+        );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(v["APIKEY"], "keep-me"); // unrelated top-level key preserved
@@ -7909,18 +9309,31 @@ mod tests {
         let other = provs.iter().find(|x| x["name"] == "other").unwrap();
         assert_eq!(other["api_base_url"], "http://other/v1/chat/completions"); // untouched
         let lm = provs.iter().find(|x| x["name"] == "lmstudio").unwrap();
-        assert_eq!(lm["api_base_url"], "http://localhost:1234/v1/chat/completions"); // normalized
+        assert_eq!(
+            lm["api_base_url"],
+            "http://localhost:1234/v1/chat/completions"
+        ); // normalized
         assert_eq!(lm["api_key"], "not-needed");
         assert_eq!(lm["models"][0], "qwen");
         assert_eq!(v["Router"]["default"], "lmstudio,qwen");
 
         // A backend already ending in /chat/completions must not be doubled.
         let code = apply_router_config(
-            &p, "http://h/v1/chat/completions", "m", "lmstudio", &noop, &noop,
+            &p,
+            "http://h/v1/chat/completions",
+            "m",
+            "lmstudio",
+            &noop,
+            &noop,
         );
         assert_eq!(code, 0);
         let v = parse_json_bom(&std::fs::read_to_string(&p).unwrap()).unwrap();
-        let lm = v["Providers"].as_array().unwrap().iter().find(|x| x["name"] == "lmstudio").unwrap();
+        let lm = v["Providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "lmstudio")
+            .unwrap();
         assert_eq!(lm["api_base_url"], "http://h/v1/chat/completions");
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(format!("{p}.bak"));
@@ -7956,7 +9369,12 @@ mod tests {
         use portable_pty::{CommandBuilder, PtySize};
         use std::io::Read;
         let pair = portable_pty::native_pty_system()
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .expect("openpty");
         let mut cmd = CommandBuilder::new("cmd");
         cmd.arg("/c");
@@ -7978,7 +9396,10 @@ mod tests {
             }
         }
         let _ = child.wait();
-        assert!(out.contains("agenthub-pty-probe"), "pty output was: {out:?}");
+        assert!(
+            out.contains("agenthub-pty-probe"),
+            "pty output was: {out:?}"
+        );
     }
 
     #[test]
@@ -8014,7 +9435,10 @@ mod tests {
     fn key_pool_meta_defaults() {
         // no metadata → legacy layout (0, 0)
         assert_eq!(key_pool_meta(&serde_json::json!({})), (0, 0));
-        assert_eq!(key_pool_meta(&serde_json::json!({ "keyCount": 3, "activeKey": 2 })), (3, 2));
+        assert_eq!(
+            key_pool_meta(&serde_json::json!({ "keyCount": 3, "activeKey": 2 })),
+            (3, 2)
+        );
     }
 
     #[test]
@@ -8057,7 +9481,10 @@ mod tests {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
             std::fs::write(p, body).unwrap();
         };
-        mk(&root.join("skills\\max-dedup\\SKILL.md"), "---\nname: max-dedup\n---\nx");
+        mk(
+            &root.join("skills\\max-dedup\\SKILL.md"),
+            "---\nname: max-dedup\n---\nx",
+        );
         mk(&root.join("skills\\plain\\SKILL.md"), "no frontmatter here");
         mk(&root.join("commands\\check.md"), "c");
         mk(&root.join("commands\\sub\\nested.md"), "c");

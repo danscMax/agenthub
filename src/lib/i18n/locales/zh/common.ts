@@ -43,6 +43,7 @@ export default {
   selectAll: '全选',
   deselectAll: '取消全选',
   selectRow: '选择行',
+  sortBy: '按 {label} 排序',
 
   // Generic words / statuses
   yes: '是',

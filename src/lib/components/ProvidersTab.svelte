@@ -7,7 +7,7 @@
     MyProvider,
     MyProviderInput
   } from '$lib/ipc';
-  import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, type StackProc, type ProviderBalance } from '$lib/ipc';
+  import { updateEngine, checkMyProvider, checkProviderUrl, checkProviderBalance, readStackProcs, freellmapiAuthStatus, gatewayBaseUrl, type StackProc, type ProviderBalance } from '$lib/ipc';
   import { t } from '$lib/i18n';
   import EmptyState from './EmptyState.svelte';
   import { pushToast } from '$lib/toast.svelte';
@@ -17,6 +17,8 @@
   import RouterConnectDialog from './RouterConnectDialog.svelte';
   import StackHealthCard from './StackHealthCard.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import { Plug, Puzzle } from '@lucide/svelte';
+  import SectionHeader from './SectionHeader.svelte';
 
   let {
     engines,
@@ -39,7 +41,8 @@
     onMyProviderAddKey,
     onMyProviderRemoveKey,
     onMyProviderNextKey,
-    onSetFreellmapiAuth
+    onSetFreellmapiAuth,
+    onDeleteFreellmapiAuth
   }: {
     engines: EngineStatus[] | null;
     providers: ProfileProvider[] | null;
@@ -62,6 +65,7 @@
     onMyProviderRemoveKey: (id: string, index: number) => void;
     onMyProviderNextKey: (id: string) => void;
     onSetFreellmapiAuth: (email: string, password: string, token: string) => void;
+    onDeleteFreellmapiAuth: (key: 'email' | 'password' | 'token') => void;
   } = $props();
 
   const busy = $derived(!!running);
@@ -76,6 +80,10 @@
   // Collapsible heavy sections (this screen is long) — open by default.
   let stackOpen = $state(true);
   let enginesOpen = $state(true);
+
+  // F13: resolve freellmapi gateway URL from stack.json at mount; fallback to hardcoded port.
+  let freellmapiUrl = $state('http://localhost:13001');
+  $effect(() => { gatewayBaseUrl().then(u => { if (u) freellmapiUrl = u; }).catch(() => {}); });
 
   // Router-connect dialog (pick model + profile).
   let rcOpen = $state(false);
@@ -180,7 +188,7 @@
   let loginPassword = $state('');
   let loginToken = $state('');
   // Whether email/token are already stored (Credential Manager) — shown when the panel opens.
-  let authStatus = $state<{ hasEmail: boolean; hasToken: boolean } | null>(null);
+  let authStatus = $state<{ hasEmail: boolean; hasPassword: boolean; hasToken: boolean } | null>(null);
   async function toggleLogin() {
     loginOpen = !loginOpen;
     if (loginOpen) {
@@ -499,7 +507,7 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="🔌" description={t('providers.noEngines')} />
+    <EmptyState icon={Plug} description={t('providers.noEngines')} />
   {/if}
   {/if}
   {/if}
@@ -528,7 +536,7 @@
         title={t('myProviders.moreActions')}
         items={[
           { label: t('myProviders.setLogin'), onClick: toggleLogin },
-          { label: t('myProviders.openFreellmapi'), onClick: () => onOpenUrl('http://localhost:13001') }
+          { label: t('myProviders.openFreellmapi'), onClick: () => onOpenUrl(freellmapiUrl) }
         ]}
       />
     </div>
@@ -540,9 +548,13 @@
       <p class="text-sw-xs font-medium text-sw-text-secondary">{t('myProviders.loginTitle')}</p>
       <p class="text-sw-xs text-sw-text-muted">{t('myProviders.loginHint')}</p>
       {#if authStatus}
-        <div class="flex flex-wrap gap-sw-2">
+        <div class="flex flex-wrap items-center gap-sw-2">
           <span class="badge {authStatus.hasEmail ? 'badge-ok' : 'badge-muted'}">{authStatus.hasEmail ? t('myProviders.statusEmail') : t('myProviders.statusNone')}</span>
+          {#if authStatus.hasEmail}<button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onDeleteFreellmapiAuth('email')} title={t('myProviders.deleteAuthTip')} aria-label={t('myProviders.deleteEmail')}>×</button>{/if}
+          <span class="badge {authStatus.hasPassword ? 'badge-ok' : 'badge-muted'}">{authStatus.hasPassword ? t('myProviders.statusPassword') : t('myProviders.statusNone')}</span>
+          {#if authStatus.hasPassword}<button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onDeleteFreellmapiAuth('password')} title={t('myProviders.deleteAuthTip')} aria-label={t('myProviders.deletePassword')}>×</button>{/if}
           <span class="badge {authStatus.hasToken ? 'badge-ok' : 'badge-muted'}">{authStatus.hasToken ? t('myProviders.statusToken') : t('myProviders.statusNone')}</span>
+          {#if authStatus.hasToken}<button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onDeleteFreellmapiAuth('token')} title={t('myProviders.deleteAuthTip')} aria-label={t('myProviders.deleteToken')}>×</button>{/if}
         </div>
       {/if}
       <div class="flex gap-sw-2">
@@ -661,7 +673,7 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="🧩" description={t('myProviders.empty')} />
+    <EmptyState icon={Puzzle} description={t('myProviders.empty')} />
   {/if}
 
   <p class="mt-sw-4 text-sw-xs text-sw-text-muted">

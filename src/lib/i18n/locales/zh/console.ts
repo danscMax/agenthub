@@ -6,6 +6,8 @@ export default {
   live: '● 运行中：{id}',
   lines: '{n} 行',
   cancelRun: '中止当前运行',
+  cancelAll: '全部取消',
+  cancelAllHint: '停止所有：运行、分叉更新、批量插件操作和活动会话（Ctrl+Shift+Backspace）',
   copyHint: '将整个日志复制到剪贴板',
   copiedShort: '✓ 已复制',
   clearHint: '清除日志输出',

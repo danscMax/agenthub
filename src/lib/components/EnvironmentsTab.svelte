@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
+  import { Compass } from '@lucide/svelte';
 
   let {
     data,
@@ -231,6 +232,6 @@
       {/each}
     </div>
   {:else}
-    <EmptyState icon="🧭" title={t('environments.emptyTitle')} description={t('environments.emptyHint')} />
+    <EmptyState icon={Compass} title={t('environments.emptyTitle')} description={t('environments.emptyHint')} />
   {/if}
 </div>

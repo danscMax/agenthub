@@ -6,6 +6,8 @@ export default {
   live: '● идёт: {id}',
   lines: '{n} строк',
   cancelRun: 'Прервать текущий прогон',
+  cancelAll: 'Отменить всё',
+  cancelAllHint: 'Остановить всё: прогон, обновления форков, массовые операции с плагинами и живые сессии (Ctrl+Shift+Backspace)',
   copyHint: 'Скопировать весь лог в буфер обмена',
   copiedShort: '✓ Скопировано',
   clearHint: 'Очистить вывод лога',

@@ -46,11 +46,17 @@
     removeProviderKey,
     nextProviderKey,
     setFreellmapiAuth,
+    deleteFreellmapiAuth,
     listGithubRepos,
+    cloneRepo,
+    pickFolder,
     readStack,
     runStack,
     readOpencode,
     runOpencodeProvider,
+    canonicalSkillsDir,
+    globalSessionCount,
+    quitApp,
     openPath,
     openUrl,
     listPlugins,
@@ -59,9 +65,11 @@
     listPluginUpdates,
     listPluginContents,
     runPlugin,
+    runPluginsBulk,
     readSchedules,
     runSchedule,
     cancelRun,
+    cancelAll,
     readConfig,
     type Component,
     type ForkAction,
@@ -291,10 +299,15 @@
   // as "update available" — a fresh check is the authoritative signal).
   let lastRunMode: 'check' | 'apply' = 'check';
 
-  // True while runBulkPlugins is iterating: the bulk loop owns the run lock and the single
-  // post-loop reload, so the global run-done listener must skip its per-item lifecycle
-  // (clearing `running`, reloading extensions, toasting) for plugin-mgr events.
-  let bulkActive = false;
+  // True while a bulk plugin op is in flight. F17: the bulk run now lives in its OWN backend domain
+  // (run_plugins_bulk), so it does NOT take the global `running` lock — only plugin-tab buttons are
+  // gated (via the derived prop below), leaving backup/forks/etc. usable. The run-done listener still
+  // skips plugin-mgr while this is set (the await drives completion, not the event).
+  let bulkActive = $state(false);
+
+  // F21: any cancellable work in flight (run / fork runs / bulk plugin) — gates the "Cancel all"
+  // button. PTY sessions aren't tracked here (they live in SessionsTab); cancel_all still kills them.
+  const anyActivity = $derived(!!running || bulkActive || Object.values(forkRuns).some((r) => r?.running));
 
   function startRun(id: string, mode: 'check' | 'apply', append = false) {
     if (running) return;
@@ -793,8 +806,44 @@
 
   // --- Home / Overview tab (USE-1): aggregates the other tabs' data ---
   let homeLoaded = $state(false);
+  // F23: Home now shows stack + live-session chips, so refresh those too.
+  let homeSessionCount = $state<number | null>(null);
   async function reloadHome() {
-    await Promise.all([reloadProfiles(), reloadConfigDrift(), reloadSync(), reloadSchedules()]);
+    await Promise.all([
+      reloadProfiles(),
+      reloadConfigDrift(),
+      reloadSync(),
+      reloadSchedules(),
+      reloadStack(),
+      globalSessionCount()
+        .then((n) => (homeSessionCount = n))
+        .catch(() => (homeSessionCount = null))
+    ]);
+  }
+
+  // F23: Home quick actions / per-chip actions → the parent's existing handlers.
+  function onHomeAction(id: string) {
+    switch (id) {
+      case 'check-all':
+        active = 'updates';
+        startRun('all', 'check');
+        break;
+      case 'refresh-forks':
+        onForkAction('check');
+        break;
+      case 'start-stack':
+        onStack('start');
+        break;
+      case 'stop-stack':
+        onStack('stop');
+        break;
+      case 'relink':
+        onSyncDrift('relink');
+        break;
+      case 'clean-conflicts':
+        onProfileAction('clean-conflicts');
+        break;
+    }
   }
   $effect(() => {
     if (active === 'home' && !homeLoaded) {
@@ -1039,6 +1088,15 @@
       .then(() => (log = [...log, t('myProviders.loginSaved')]))
       .catch(toastErr);
   }
+  // C2: clear one stored freellmapi credential. UI fires after a confirm dialog in ProvidersTab.
+  function onDeleteFreellmapiAuth(key: 'email' | 'password' | 'token') {
+    deleteFreellmapiAuth(key)
+      .then(() => {
+        log = [...log, t('myProviders.authDeleted', { key })];
+        reloadProviders();
+      })
+      .catch(toastErr);
+  }
 
   function onRouterInstall() {
     if (running) return;
@@ -1213,6 +1271,26 @@
     }
   });
 
+  // F10: clone a GitHub-only repo locally. Pick a PARENT folder, clone into <parent>/<name>, then
+  // rescan forks so the fresh clone shows up in the local list (verify step).
+  let cloningRepo = $state<string | null>(null);
+  async function onCloneRepo(repo: GithubRepo) {
+    if (cloningRepo) return;
+    const parent = await pickFolder().catch(() => null);
+    if (!parent) return;
+    const target = `${parent.replace(/[\\/]+$/, '')}\\${repo.name}`;
+    cloningRepo = repo.nameWithOwner;
+    try {
+      await cloneRepo(repo.url, target);
+      pushToast({ kind: 'success', title: t('page.clone_done', { name: repo.name }), detail: target });
+      if (!running) startForks('check'); // rescan so the new clone appears in the local repo list
+    } catch (e) {
+      pushToast({ kind: 'error', title: t('page.clone_failed', { name: repo.name }), detail: String(e) });
+    } finally {
+      cloningRepo = null;
+    }
+  }
+
   function startPlugin(action: PluginAction, id: string) {
     if (running) return;
     running = 'plugin-mgr';
@@ -1244,9 +1322,11 @@
     }
   }
 
-  // Bulk plugin ops run sequentially through the single run slot (one op at a time).
+  // F17: one backend call runs the whole bulk in its own domain (sequential there — no config race),
+  // streaming id-tagged lines to the run log. We don't set the global `running` lock, so unrelated
+  // work stays available; only the plugin tab is gated via `bulkActive`.
   async function runBulkPlugins(action: PluginAction, ids: string[]) {
-    if (!ids.length || running) return;
+    if (!ids.length || bulkActive) return;
     const verb =
       action === 'update'
         ? t('page.plugin_verb_update')
@@ -1255,20 +1335,14 @@
           : action === 'remove'
             ? t('page.plugin_verb_remove')
             : t('page.plugin_verb_disable');
-    running = 'plugin-mgr';
     bulkActive = true;
+    log = [t('page.plugin_bulk_log', { n: ids.length, verb })];
     try {
-      for (const id of ids) {
-        log = [...log, t('page.plugin_log', { id, verb })];
-        try {
-          await runPlugin(action, id);
-        } catch (e) {
-          log = [...log, t('page.log_error', { e: String(e) })];
-        }
-      }
+      await runPluginsBulk(action, ids);
+    } catch (e) {
+      log = [...log, t('page.log_error', { e: String(e) })];
     } finally {
       bulkActive = false;
-      running = null;
       reloadExtensions();
     }
   }
@@ -1288,10 +1362,7 @@
   }
 
   function onOpenSkills() {
-    const d = skillsData?.[0]?.dir;
-    if (!d) return;
-    const parent = d.slice(0, Math.max(d.lastIndexOf('\\'), d.lastIndexOf('/')));
-    if (parent) openPath(parent).catch(toastErr);
+    canonicalSkillsDir().then(d => openPath(d)).catch(toastErr);
   }
 
   function onOpenSkill(dir: string) {
@@ -1314,6 +1385,16 @@
   async function cancel() {
     try {
       await cancelRun();
+    } catch (e) {
+      log = [...log, t('page.log_warn', { e: String(e) })];
+    }
+  }
+
+  // F21: kill everything — the active run, every fork run, every PTY session, the bulk plugin sweep.
+  // The backend emits 'cancel-all-done'; the listener resets FE state + toasts.
+  async function cancelAllNow() {
+    try {
+      await cancelAll();
     } catch (e) {
       log = [...log, t('page.log_warn', { e: String(e) })];
     }
@@ -1458,6 +1539,13 @@
     }
     const tgt = e.target as HTMLElement | null;
     const typing = !!tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+    // F21: Ctrl+Shift+Backspace = Cancel all. (The plan named Ctrl+Shift+Esc, but Windows reserves
+    // that combo for Task Manager — the webview never receives it; the tray entry covers discovery.)
+    if (e.ctrlKey && e.shiftKey && e.key === 'Backspace') {
+      e.preventDefault();
+      cancelAllNow();
+      return;
+    }
     // Ctrl+1..9 jumps straight to the Nth tab (the cheatsheet's Alt+number was Sessions-only).
     if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
       const idx = Number(e.key) - 1;
@@ -1528,11 +1616,13 @@
     unlisten.push(
       await listen<{ component: string; code: number }>('run-done', async (e) => {
         log = [...log, t('page.log_done', { code: e.payload.code })].slice(-MAX_LOG);
-        // During a bulk plugin op, runBulkPlugins holds the run lock and does a single
-        // reload/lifecycle after the whole loop — skip the per-item side effects here.
+        // During a bulk plugin op, runBulkPlugins awaits the single backend call and does the reload
+        // itself afterward — skip this handler's per-item lifecycle for the bulk's run-done.
         if (e.payload.component === 'plugin-mgr' && bulkActive) return;
-        running = null;
+        // Only release the lock if THIS event owns it. F17: a bulk run (own domain, never sets
+        // `running`) can emit run-done while an unrelated op holds the lock — don't unlock that op.
         const id = e.payload.component;
+        if (running === id) running = null;
         const code = e.payload.code;
         const wasApply = lastRunMode === 'apply';
         lastRunMode = 'check';
@@ -1631,6 +1721,16 @@
         }
       })
     );
+    unlisten.push(
+      // F21: backend killed everything — reset the FE locks/maps and confirm.
+      await listen('cancel-all-done', () => {
+        running = null;
+        forkRuns = {};
+        bulkActive = false;
+        log = [...log, t('page.cancel_all_done')].slice(-MAX_LOG);
+        pushToast({ kind: 'info', title: t('page.cancel_all_done') });
+      })
+    );
     // Per-repo concurrent fork runs (component = repo path).
     unlisten.push(
       await listen<{ component: string; stream: string; line: string }>('fork-log', (e) => {
@@ -1677,12 +1777,45 @@
         // or emit the diag line for a request we can't honor (silent busy — the active run's own
         // progress/outcome is the feedback).
         if (running) return;
+        // F20: don't yank the user off their current tab (or out of an input mid-type). Only jump to
+        // Updates when they're already there AND not typing; otherwise run in the background + toast.
+        const el = document.activeElement;
+        const typing = !!el && /^(INPUT|TEXTAREA)$/.test(el.tagName);
+        if (active !== 'updates' || typing) {
+          startRun('all', 'check');
+          pushToast({ kind: 'info', title: t('page.bgCheckStarted') });
+          return;
+        }
         // DIAGNOSTIC: this is the ONLY code path that force-switches to Updates. If the tab jumps
         // without you clicking the tray's "Проверить всё", this line will show in the log — proving
         // a spurious tray event is the source.
         log = [...log, `[diag] tray-check-all @ ${new Date().toLocaleTimeString()}`];
         active = 'updates';
         startRun('all', 'check');
+      })
+    );
+    unlisten.push(
+      // F19: tray Quit no longer hard-exits — it asks here first, surfacing how many live sessions die.
+      await listen('tray-quit-request', async () => {
+        const n = await globalSessionCount().catch(() => 0);
+        askConfirm(
+          t('page.quitTitle'),
+          n > 0 ? t('page.quitMsgSessions', { n }) : t('page.quitMsg'),
+          t('page.quitBtn'),
+          () => quitApp(),
+          { danger: true }
+        );
+      })
+    );
+    // F18: extended tray entries → the same handlers the in-app buttons use.
+    unlisten.push(await listen('tray-refresh-forks', () => onForkAction('check')));
+    unlisten.push(await listen('tray-refresh-providers', () => reloadProviders()));
+    unlisten.push(await listen('tray-stack-start', () => onStack('start')));
+    unlisten.push(await listen('tray-stack-stop', () => onStack('stop')));
+    unlisten.push(await listen('tray-cancel-all', () => cancelAllNow()));
+    unlisten.push(
+      await listen<string>('tray-open-tab', (e) => {
+        if (e.payload) active = e.payload;
       })
     );
 
@@ -1745,11 +1878,12 @@
       >
       {#if active === 'home'}
         <HomeTab profiles={profilesData} sync={syncData} drift={driftData} schedules={schedulesData}
-          onOpen={(id) => (active = id)} onRefresh={reloadHome} />
+          stack={stackData} sessionCount={homeSessionCount}
+          onOpen={(id) => (active = id)} onRefresh={reloadHome} onAction={onHomeAction} />
       {:else if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />
       {:else if active === 'forks'}
-        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
+        <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} onClone={onCloneRepo} {cloningRepo} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       {:else if active === 'backup'}
         <BackupTab data={backupData} {running} {log} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} />
       {:else if active === 'profiles'}
@@ -1805,6 +1939,7 @@
           {onMyProviderRemoveKey}
           {onMyProviderNextKey}
           {onSetFreellmapiAuth}
+          {onDeleteFreellmapiAuth}
           onRefresh={() => {
             reloadProviders();
             reloadStack();
@@ -1820,7 +1955,7 @@
           skills={skillsData}
           updates={pluginUpdates}
           contents={pluginContents}
-          {running}
+          running={bulkActive ? 'plugin-mgr' : running}
           onAction={onPluginAction}
           {onBulkPlugin}
           onRefresh={reloadExtensions}
@@ -1857,7 +1992,7 @@
       {/if}
     </main>
 
-    <Console {log} {running} revealSignal={consoleReveal} onClear={() => (log = [])} onCancel={cancel} />
+    <Console {log} {running} busy={anyActivity} revealSignal={consoleReveal} onClear={() => (log = [])} onCancel={cancel} onCancelAll={cancelAllNow} />
   </div>
 </div>
 

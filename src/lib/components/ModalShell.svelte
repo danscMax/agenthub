@@ -15,6 +15,8 @@
     role = 'dialog',
     closeOnBackdrop = true,
     initialFocus = null,
+    labelledBy,
+    describedBy,
     children
   }: {
     open?: boolean;
@@ -26,6 +28,10 @@
     /** CSS selector (within the card) of the element to focus on open; defaults to the card itself.
         Lets a destructive dialog put initial focus on its SAFE choice (Cancel) instead of nothing. */
     initialFocus?: string | null;
+    /** id of the element labelling this dialog (typically the title h3). Screen reader announces it. */
+    labelledBy?: string | null;
+    /** id of the element describing this dialog (typically the message p or the type-to-confirm input). */
+    describedBy?: string | null;
     children: Snippet;
   } = $props();
 
@@ -101,6 +107,8 @@
       style="width: min({WIDTH[size]}, 94vw)"
       {role}
       aria-modal="true"
+      aria-labelledby={labelledBy}
+      aria-describedby={describedBy}
       tabindex="-1"
     >
       {@render children()}

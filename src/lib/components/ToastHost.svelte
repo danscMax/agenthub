@@ -4,22 +4,28 @@
   import { t } from '$lib/i18n';
 </script>
 
-<!-- Hovering or focusing the stack pauses auto-dismiss so a toast can't vanish mid-read / mid-reach. -->
+<!-- Hovering the stack pauses auto-dismiss so a toast can't vanish mid-read / mid-reach.
+     Per-toast focus pauses for keyboard/AT users (host div isn't focusable, so focus handlers
+     moved onto each toast body which IS focusable through its close button). -->
 <div
   class="toast-host"
   role="region"
   aria-label={t('common.notifications')}
   onmouseenter={pauseToasts}
   onmouseleave={resumeToasts}
-  onfocusin={pauseToasts}
-  onfocusout={resumeToasts}
 >
   {#if toastStore.items.length >= 2}
     <button class="dismiss-all" onclick={dismissAll}>{t('common.dismissAll')}</button>
   {/if}
   {#each toastStore.items as toast (toast.id)}
     <!-- Errors/warnings interrupt (assertive); success/info stay polite so a failure is announced. -->
-    <div class="toast {toast.kind}" role={toast.kind === 'error' || toast.kind === 'warn' ? 'alert' : 'status'}>
+    <div
+      class="toast {toast.kind}"
+      role={toast.kind === 'error' || toast.kind === 'warn' ? 'alert' : 'status'}
+      tabindex="-1"
+      onfocusin={pauseToasts}
+      onfocusout={resumeToasts}
+    >
       <div class="body">
         <div class="title">{toast.title}</div>
         {#if toast.detail}<div class="detail">{toast.detail}</div>{/if}

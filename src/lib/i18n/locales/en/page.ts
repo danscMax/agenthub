@@ -23,6 +23,17 @@ export default {
   home_tasks: 'Scheduled',
   home_tasksFailing: '{n} failing',
   home_tasksOff: '{n} disabled',
+  // F23: stack + sessions chips and quick actions
+  home_stack: 'LLM stack',
+  home_stackRunning: '{up}/{total} running',
+  home_stackStart: 'Start stack',
+  home_stackStop: 'Stop stack',
+  home_sessions: 'Sessions',
+  home_sessionsActive: '{n} active',
+  home_checkAll: 'Check all',
+  home_refreshForks: 'Refresh forks',
+  home_relink: 'Relink',
+  home_cleanConflicts: 'Clean up',
   // Wave-4 config-drift / time keys
   drift_log: 'Config drift: {verb}…',
   drift_verb_check: 'checking links',
@@ -57,6 +68,18 @@ export default {
   confirm_apply_title: 'Apply update?',
   confirm_apply_msg: 'Component “{name}” will ACTUALLY be updated (-Apply). Continue?',
   confirm_apply_btn: 'Apply',
+  // F10: clone a GitHub repo locally
+  clone_done: 'Cloned “{name}”',
+  clone_failed: 'Could not clone “{name}”',
+  // F21: cancel-all
+  cancel_all_done: 'Cancelled everything',
+  // F19: tray Quit confirm
+  quitTitle: 'Quit Castellyn?',
+  quitMsg: 'This closes the app completely.',
+  quitMsgSessions: 'This closes the app and ends {n} live terminal session(s).',
+  quitBtn: 'Quit',
+  // F20: background check started from tray (no tab switch)
+  bgCheckStarted: 'Checking all components in the background…',
 
   // Forks
   forks_verb_check: 'checking',
@@ -190,6 +213,7 @@ export default {
   plugin_verb_disable: 'disabling',
   plugin_verb_remove: 'removing',
   plugin_log: '▶ Plugin {id}: {verb}…',
+  plugin_bulk_log: '▶ {n} plugins: {verb}…',
   confirm_plugin_disable_title: 'Disable plugin?',
   confirm_plugin_disable_msg: '“{id}” will be disabled in all profiles. Continue?',
   confirm_plugin_disable_btn: 'Disable',

@@ -6,6 +6,8 @@
   import { chartSeriesColor } from '$lib/statusColor';
   import Sparkline from './Sparkline.svelte';
   import { runHistory, clearRunHistory, type RunRecord } from '$lib/runHistory.svelte';
+  import { BarChart3 } from '@lucide/svelte';
+  import SectionHeader from './SectionHeader.svelte';
 
   let { onOpenProviders }: { onOpenProviders?: () => void } = $props();
 
@@ -407,7 +409,7 @@
       </div>
     {:else}
       <EmptyState
-        icon="📊"
+        icon={BarChart3}
         title={t('analytics.emptyTitle')}
         description={t('analytics.emptyHint')}
         action={onOpenProviders}
@@ -446,17 +448,17 @@
       </div>
       <div class="sw-card">
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.savings')}</p>
-        <p class="mt-1 text-2xl font-semibold text-emerald-500">{money(totals?.estimatedCostSavings ?? 0)}</p>
+        <p class="mt-1 text-2xl font-semibold status-ok">{money(totals?.estimatedCostSavings ?? 0)}</p>
         <p class="mt-1 text-sw-xs text-sw-text-secondary">{t('analytics.savingsHint')}</p>
       </div>
     </div>
 
     <!-- Top-N insight: most frequent + most expensive models (#112) -->
     {#if topReq.length}
-      <div class="card-grid mb-sw-4">
+        <div class="card-grid mb-sw-4">
         <div class="sw-card">
           <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.topRequests')}</p>
-          <ol class="mt-sw-2 flex flex-col gap-1 text-sw-sm">
+          <ol class="mt-sw-2 list-none flex flex-col gap-1 text-sw-sm m-0 p-0">
             {#each topReq as m, i (keyOf(m))}
               <li class="flex justify-between gap-sw-2"><span class="truncate" title={m.displayName}>{i + 1}. {m.displayName}</span><span class="tabular-nums text-sw-text-muted">{fmt(m.requests)}</span></li>
             {/each}
@@ -465,7 +467,7 @@
         {#if topCost.length}
           <div class="sw-card">
             <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.topCost')}</p>
-            <ol class="mt-sw-2 flex flex-col gap-1 text-sw-sm">
+            <ol class="mt-sw-2 list-none flex flex-col gap-1 text-sw-sm m-0 p-0">
               {#each topCost as m, i (keyOf(m))}
                 <li class="flex justify-between gap-sw-2"><span class="truncate" title={m.displayName}>{i + 1}. {m.displayName}</span><span class="tabular-nums text-sw-text-muted">{money(m.estimatedCost)}</span></li>
               {/each}
@@ -507,29 +509,27 @@
     </div>
 
     <!-- Per-model -->
-    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
-      {t('analytics.perModel')}
-    </h2>
+    <SectionHeader title={t('analytics.perModel')} />
     {#if models.length}
       <div class="overflow-x-auto rounded-sw-md border border-sw-border">
         <table class="w-full text-sw-sm">
           <thead>
-            <tr class="border-b border-sw-border text-left text-sw-xs text-sw-text-muted">
-              <th class="px-sw-3 py-sw-2 font-medium">{t('analytics.colModel')}</th>
+            <tr class="border-b border-sw-border text-sw-xs text-sw-text-muted">
+              <th class="px-sw-3 py-sw-2 text-left font-medium">{t('analytics.colModel')}</th>
               <th class="px-sw-3 py-sw-2 text-right font-medium">
-                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('requests')}>{t('analytics.colRequests')}{sortArrow('requests')}</button>
+                <button type="button" class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('requests')}>{t('analytics.colRequests')}{sortArrow('requests')}</button>
               </th>
               <th class="px-sw-3 py-sw-2 text-right font-medium">
-                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('successRate')}>{t('analytics.colSuccess')}{sortArrow('successRate')}</button>
+                <button type="button" class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('successRate')}>{t('analytics.colSuccess')}{sortArrow('successRate')}</button>
               </th>
               <th class="px-sw-3 py-sw-2 text-right font-medium">
-                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('avgLatencyMs')}>{t('analytics.colLatency')}{sortArrow('avgLatencyMs')}</button>
+                <button type="button" class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('avgLatencyMs')}>{t('analytics.colLatency')}{sortArrow('avgLatencyMs')}</button>
               </th>
               <th class="px-sw-3 py-sw-2 text-right font-medium">
-                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('tokens')}>{t('analytics.colTokens')}{sortArrow('tokens')}</button>
+                <button type="button" class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('tokens')}>{t('analytics.colTokens')}{sortArrow('tokens')}</button>
               </th>
               <th class="px-sw-3 py-sw-2 text-right font-medium">
-                <button class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('estimatedCost')}>{t('analytics.colCost')}{sortArrow('estimatedCost')}</button>
+                <button type="button" class="th-sort" title={t('analytics.sortTip')} onclick={() => toggleSort('estimatedCost')}>{t('analytics.colCost')}{sortArrow('estimatedCost')}</button>
               </th>
             </tr>
           </thead>
@@ -538,7 +538,7 @@
               <tr class="border-b border-sw-border last:border-0 {selectedKey === keyOf(m) ? 'row-active' : ''}"
                 aria-selected={selectedKey === keyOf(m)}>
                 <td class="px-sw-3 py-sw-2">
-                  <button class="row-pick" title={t('analytics.rowTip')} onclick={() => toggleSelect(m)}>
+                  <button type="button" class="row-pick" title={t('analytics.rowTip')} onclick={() => toggleSelect(m)}>
                     <span class="block truncate font-medium" title={m.displayName}>{m.displayName}</span>
                     <span class="block truncate font-mono text-[11px] text-sw-text-muted">{m.platform}/{m.modelId}</span>
                   </button>

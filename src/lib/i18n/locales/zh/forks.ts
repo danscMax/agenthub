@@ -58,6 +58,8 @@ export default {
   ghOpen: '在 GitHub 上打开',
   ghOpenShort: 'GitHub ↗',
   ghOpenTip: '在 GitHub 上打开仓库页面',
+  ghCloneShort: '克隆',
+  ghCloneTip: '将此仓库克隆到本地文件夹',
   ghColName: '仓库',
   ghColRepo: 'owner/repo',
   ghColKind: '类型',

@@ -17,12 +17,14 @@
     sessionKill,
     sessionDetach,
     openUrl,
+    openPath,
     openInEditor,
     type SessionTool,
     type MonitorInfo
   } from '$lib/ipc';
   import { getMonitors, openDetached } from '$lib/monitors';
   import DropdownMenu from './DropdownMenu.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import { markMoved, consumeMoved } from '$lib/sessionMove';
   import { MSG_SNIPPETS } from '$lib/sessionPresets';
   import { t } from '$lib/i18n';
@@ -364,6 +366,9 @@
     );
   }
 
+  // F14: relaunch resets the terminal — confirm first so a stray click doesn't wipe the finished
+  // session's scrollback (the only record left once the PTY is gone).
+  let confirmRelaunch = $state(false);
   async function relaunch() {
     unlisteners.forEach((u) => u());
     unlisteners = [];
@@ -587,11 +592,16 @@
       <span class="name" title={onRename ? t('sessions.renameHint') : fullTitle} ondblclick={startRename}>{displayName || label}</span>
     {/if}
     {#if tool === 'claude' && folderName}<span class="folder" title={cwd}>{folderName}</span>{/if}
+    <!-- F12: open the working folder in Explorer. Local panes only — an SSH pane's cwd is a remote path. -->
+    {#if cwd && !sshTarget}
+      <button class="x" onclick={() => openPath(cwd).catch((e) => pushToast({ kind: 'error', title: String(e) }))}
+        title={t('sessions.openCwd')} aria-label={t('sessions.openCwd')}>📁</button>
+    {/if}
     {#if args}<span class="argbadge" title={args}>⚑</span>{/if}
     {#if tool === 'claude' && profile}<ProfileUsageBadge {profile} compact />{/if}
     <span class="spacer"></span>
     {#if exited || error}
-      <button class="x relaunch" onclick={relaunch} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
+      <button class="x relaunch" onclick={() => (confirmRelaunch = true)} title={t('sessions.relaunch')}>↻ {t('sessions.relaunch')}</button>
     {/if}
     <DropdownMenu glyph="❡" title={t('sessions.snippets')} items={snipItems} />
     <button class="x" onclick={openSearch} title={t('sessions.find')} aria-label={t('sessions.find')}>🔍</button>
@@ -640,6 +650,19 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="term" bind:this={host} onwheel={onWheel} oncontextmenu={(e) => { e.preventDefault(); paste(); }}></div>
 </div>
+
+<ConfirmDialog
+  open={confirmRelaunch}
+  title={t('sessions.relaunchConfirmTitle')}
+  message={t('sessions.relaunchConfirmMsg')}
+  confirmLabel={t('sessions.relaunch')}
+  danger
+  onConfirm={() => {
+    confirmRelaunch = false;
+    relaunch();
+  }}
+  onCancel={() => (confirmRelaunch = false)}
+/>
 
 <style>
   .pane {

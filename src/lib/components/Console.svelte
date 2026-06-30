@@ -7,16 +7,21 @@
   let {
     log,
     running,
+    busy = false,
     revealSignal = 0,
     onClear,
-    onCancel
+    onCancel,
+    onCancelAll
   }: {
     log: string[];
     running: string | null;
+    /** F21: any cancellable work in flight (run / forks / bulk plugin) — shows "Cancel all". */
+    busy?: boolean;
     /** Bump this counter to force-expand the console (e.g. a toast's "Open log"). */
     revealSignal?: number;
     onClear: () => void;
     onCancel: () => void;
+    onCancelAll?: () => void;
   } = $props();
 
   let logEl: HTMLDivElement | undefined = $state();
@@ -109,6 +114,11 @@
       {#if running}
         <button class="sw-btn sw-btn-ghost mini" onclick={onCancel} title={t('console.cancelRun')}>
           {t('common.cancelAction')}
+        </button>
+      {/if}
+      {#if busy && onCancelAll}
+        <button class="sw-btn sw-btn-danger mini" onclick={onCancelAll} title={t('console.cancelAllHint')}>
+          {t('console.cancelAll')}
         </button>
       {/if}
       <button

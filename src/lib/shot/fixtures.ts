@@ -159,7 +159,7 @@ const handlers: Record<string, (args: any) => any> = {
   read_config: () => ({ scriptsRoot: 'E:\\Scripts', startHidden: false, closeToTray: true, fetchTimeoutSec: 30, ghTimeoutSec: 20, toggleHotkey: 'Ctrl+Shift+H', shortcuts: { toggle_window: 'Ctrl+Shift+H' }, language: 'en' }),
   read_shortcuts: () => ({ toggle_window: 'Ctrl+Shift+H' }),
   set_shortcuts: () => 0,
-  app_paths: () => ({ scriptsRoot: 'E:\\Scripts', configPath: '%APPDATA%\\castellyn\\config.json', exe: 'castellyn.exe', stackPath: 'E:\\Scripts\\llm-stack\\stack.json' }),
+  app_paths: () => ({ scriptsRoot: 'E:\\Scripts', configPath: '%APPDATA%\\castellyn\\config.json', exe: 'castellyn.exe', stackPath: 'E:\\Scripts\\llm-stack\\stack.json', backupDir: 'E:\\Scripts\\!Настройки и MCP\\ClaudeProfiles\\Backups' }),
   get_autostart: () => true,
   set_language: () => 0,
   list_components: () => ([

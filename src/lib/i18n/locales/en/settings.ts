@@ -10,6 +10,7 @@ export default {
   savedTimeouts: 'Timeouts saved',
   autostartOn: 'Autostart enabled',
   autostartOff: 'Autostart disabled',
+  autostartError: 'Autostart change failed',
   saved: 'Saved',
 
   // View
@@ -93,6 +94,19 @@ export default {
   openConfigFileTip: 'Open the Castellyn settings file',
   openStackFile: 'Open stack.json',
   openStackFileTip: 'Open the LLM stack config',
+  openBackupFolder: 'Open backups folder',
+  openBackupFolderTip: 'Open the Backups folder in Explorer',
+  // C3: auto-update
+  checkUpdates: 'Check for updates',
+  checkUpdatesTip: 'Check GitHub for a newer signed release',
+  checkingUpdates: 'Checking…',
+  upToDate: 'Up to date',
+  downloading: 'Downloading…',
+  downloadingPct: 'Downloading… {pct}%',
+  updateError: 'Update check failed',
+  updateAvailableTitle: 'Update available — {version}',
+  updateAvailableMsg: 'A new version is ready ({from} → {to}). Download and install now? The app will restart.',
+  updateNow: 'Update & restart',
   backupSection: 'Settings backup',
   backupSectionDesc: 'Export/import Castellyn settings (config.json) — to move to another PC',
   exportConfig: 'Export settings',

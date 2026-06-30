@@ -10,6 +10,7 @@ export default {
   savedTimeouts: 'Таймауты сохранены',
   autostartOn: 'Автозапуск включён',
   autostartOff: 'Автозапуск выключен',
+  autostartError: 'Не удалось изменить автозапуск',
   saved: 'Сохранено',
 
   // View
@@ -93,6 +94,19 @@ export default {
   openConfigFileTip: 'Открыть файл настроек Castellyn',
   openStackFile: 'Открыть stack.json',
   openStackFileTip: 'Открыть конфиг LLM-стека',
+  openBackupFolder: 'Открыть папку бекапов',
+  openBackupFolderTip: 'Открыть папку Backups в проводнике',
+  // C3: автообновление
+  checkUpdates: 'Проверить обновления',
+  checkUpdatesTip: 'Проверить на GitHub новый подписанный релиз',
+  checkingUpdates: 'Проверяю…',
+  upToDate: 'Актуальная версия',
+  downloading: 'Загрузка…',
+  downloadingPct: 'Загрузка… {pct}%',
+  updateError: 'Проверка обновлений не удалась',
+  updateAvailableTitle: 'Доступно обновление — {version}',
+  updateAvailableMsg: 'Готова новая версия ({from} → {to}). Скачать и установить сейчас? Приложение перезапустится.',
+  updateNow: 'Обновить и перезапустить',
   backupSection: 'Резервная копия настроек',
   backupSectionDesc: 'Экспорт/импорт настроек Castellyn (config.json) — для переноса на другой ПК',
   exportConfig: 'Экспорт настроек',

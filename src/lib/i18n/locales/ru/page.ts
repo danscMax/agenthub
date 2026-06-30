@@ -23,6 +23,17 @@ export default {
   home_tasks: 'Задачи',
   home_tasksFailing: '{n} с ошибкой',
   home_tasksOff: '{n} выключено',
+  // F23: чипы стека и сессий + быстрые действия
+  home_stack: 'LLM-стек',
+  home_stackRunning: '{up}/{total} запущено',
+  home_stackStart: 'Запустить стек',
+  home_stackStop: 'Остановить стек',
+  home_sessions: 'Сессии',
+  home_sessionsActive: '{n} активных',
+  home_checkAll: 'Проверить всё',
+  home_refreshForks: 'Обновить форки',
+  home_relink: 'Перепривязать',
+  home_cleanConflicts: 'Убрать',
   // Wave-4 config-drift / time keys
   drift_log: 'Дрейф конфига: {verb}…',
   drift_verb_check: 'проверка связей',
@@ -57,6 +68,18 @@ export default {
   confirm_apply_title: 'Применить обновление?',
   confirm_apply_msg: 'Компонент «{name}» будет РЕАЛЬНО обновлён (-Apply). Продолжить?',
   confirm_apply_btn: 'Применить',
+  // F10: клонирование репозитория с GitHub
+  clone_done: 'Клонирован «{name}»',
+  clone_failed: 'Не удалось клонировать «{name}»',
+  // F21: отмена всего
+  cancel_all_done: 'Всё отменено',
+  // F19: подтверждение выхода из трея
+  quitTitle: 'Выйти из Castellyn?',
+  quitMsg: 'Приложение будет полностью закрыто.',
+  quitMsgSessions: 'Приложение закроется и завершит {n} активных сессий терминала.',
+  quitBtn: 'Выйти',
+  // F20: фоновая проверка из трея (без переключения вкладки)
+  bgCheckStarted: 'Проверяю все компоненты в фоне…',
 
   // Forks
   forks_verb_check: 'проверка',
@@ -190,6 +213,7 @@ export default {
   plugin_verb_disable: 'выключение',
   plugin_verb_remove: 'удаление',
   plugin_log: '▶ Плагин {id}: {verb}…',
+  plugin_bulk_log: '▶ {n} плагинов: {verb}…',
   confirm_plugin_disable_title: 'Выключить плагин?',
   confirm_plugin_disable_msg: '«{id}» будет выключен во всех профилях. Продолжить?',
   confirm_plugin_disable_btn: 'Выключить',

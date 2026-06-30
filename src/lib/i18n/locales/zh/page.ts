@@ -23,6 +23,17 @@ export default {
   home_tasks: '计划任务',
   home_tasksFailing: '{n} 个失败',
   home_tasksOff: '{n} 个已禁用',
+  // F23: 技术栈与会话徽标 + 快捷操作
+  home_stack: 'LLM 技术栈',
+  home_stackRunning: '{up}/{total} 运行中',
+  home_stackStart: '启动技术栈',
+  home_stackStop: '停止技术栈',
+  home_sessions: '会话',
+  home_sessionsActive: '{n} 个活动',
+  home_checkAll: '全部检查',
+  home_refreshForks: '刷新分叉',
+  home_relink: '重新链接',
+  home_cleanConflicts: '清理',
   // Wave-4 config-drift / time keys
   drift_log: '配置漂移：{verb}…',
   drift_verb_check: '检查链接',
@@ -57,6 +68,18 @@ export default {
   confirm_apply_title: '应用更新？',
   confirm_apply_msg: '组件「{name}」将被实际更新（-Apply）。是否继续？',
   confirm_apply_btn: '应用',
+  // F10: 克隆 GitHub 仓库到本地
+  clone_done: '已克隆「{name}」',
+  clone_failed: '无法克隆「{name}」',
+  // F21: 取消全部
+  cancel_all_done: '已取消全部',
+  // F19: 托盘退出确认
+  quitTitle: '退出 Castellyn？',
+  quitMsg: '这将完全关闭应用。',
+  quitMsgSessions: '这将关闭应用并结束 {n} 个活动的终端会话。',
+  quitBtn: '退出',
+  // F20: 从托盘后台检查（不切换标签页）
+  bgCheckStarted: '正在后台检查所有组件……',
 
   // Forks
   forks_verb_check: '检查中',
@@ -185,6 +208,7 @@ export default {
   plugin_verb_disable: '禁用',
   plugin_verb_remove: '删除',
   plugin_log: '▶ 插件 {id}：{verb}…',
+  plugin_bulk_log: '▶ {n} 个插件：{verb}…',
   confirm_plugin_disable_title: '禁用插件？',
   confirm_plugin_disable_msg: '「{id}」将在所有配置中被禁用。是否继续？',
   confirm_plugin_disable_btn: '禁用',

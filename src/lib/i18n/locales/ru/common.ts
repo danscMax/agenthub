@@ -43,6 +43,7 @@ export default {
   selectAll: 'Выбрать все',
   deselectAll: 'Снять все',
   selectRow: 'Выбрать строку',
+  sortBy: 'Сортировать по «{label}»',
 
   // Generic words / statuses
   yes: 'Да',

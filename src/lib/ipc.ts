@@ -15,6 +15,8 @@ export const readStatus = (path: string) => invoke<any>('read_status', { path })
 export const runComponent = (id: string, mode: RunMode) =>
   invoke<number>('run_component', { id, mode });
 export const cancelRun = () => invoke('cancel_run');
+// F21: global panic button — kills the active run, all fork runs, all PTY sessions, stops bulk plugin.
+export const cancelAll = () => invoke('cancel_all');
 
 // --- Forks tab ---
 export type ForkAction = 'check' | 'plan' | 'ff' | 'delete' | 'rebase' | 'sync-wip' | 'delete-wip' | 'prune' | 'normalize';
@@ -124,6 +126,8 @@ export type RestoreOpts = {
 };
 
 export const listBackups = () => invoke<BackupList>('list_backups');
+// F9: reveal a weekly archive (weekly-*.zip) selected in Explorer.
+export const revealBackup = (name: string) => invoke('reveal_backup', { name });
 
 export const runBackup = (action: BackupAction, opts: RestoreOpts = {}) =>
   invoke<number>('run_backup', {
@@ -534,8 +538,12 @@ export const deleteMyProvider = (id: string) => invoke('delete_my_provider', { i
 export const connectMyProvider = (id: string) => invoke<number>('connect_my_provider', { id });
 export const setFreellmapiAuth = (email?: string, password?: string, token?: string) =>
   invoke('set_freellmapi_auth', { email, password, token });
+// C2: delete one of {email, password, token} from Credential Manager so a stale or wrong
+// credential can be cleanly retired; set_freellmapi_auth only WRITES.
+export const deleteFreellmapiAuth = (key: 'email' | 'password' | 'token') =>
+  invoke('delete_freellmapi_auth', { key });
 export const freellmapiAuthStatus = () =>
-  invoke<{ hasEmail: boolean; hasToken: boolean }>('freellmapi_auth_status');
+  invoke<{ hasEmail: boolean; hasPassword: boolean; hasToken: boolean }>('freellmapi_auth_status');
 export const checkMyProvider = (id: string) =>
   invoke<{ ok: boolean; detail: string; count?: number }>('check_my_provider', { id });
 // Liveness check for an arbitrary base URL (local engines / stack services — no key).
@@ -750,6 +758,9 @@ export const listPluginContents = () => invoke<PluginContents[]>('list_plugin_co
 export const listPluginReleases = (id: string) => invoke<PluginRelease[]>('list_plugin_releases', { id });
 export const runPlugin = (action: PluginAction, id: string) =>
   invoke<number>('run_plugin', { action, id });
+// F17: bulk plugin op in its own backend domain (sequential inside, off the global run lock).
+export const runPluginsBulk = (action: PluginAction, ids: string[]) =>
+  invoke<number>('run_plugins_bulk', { action, ids });
 
 // --- Settings ---
 export type HubConfig = {
@@ -770,6 +781,7 @@ export type AppPaths = {
   configPath: string | null;
   exe: string | null;
   stackPath?: string | null;
+  backupDir?: string | null;
 };
 
 export const readConfig = () => invoke<HubConfig>('read_config');
@@ -777,7 +789,17 @@ export const writeConfig = (config: HubConfig) => invoke('write_config', { confi
 // Mirror the UI locale into the backend (errors/run-log/tray localize + persist to config).
 export const setLanguage = (lang: string) => invoke('set_language', { lang });
 export const appPaths = () => invoke<AppPaths>('app_paths');
+// F13: freellmapi gateway URL from stack.json — replace hardcoded localhost:13001.
+export const gatewayBaseUrl = () => invoke<string | null>('gateway_base_url');
+// F24: canonical `~/.claude/skills` path, resolved through symlinks.
+export const canonicalSkillsDir = () => invoke<string>('canonical_skills_dir');
+// F16/F19: live PTY session count across all windows (the global SESSION_LIMIT pool).
+export const globalSessionCount = () => invoke<number>('global_session_count');
+// F19: hard-exit the app from the frontend (after the tray-Quit confirm).
+export const quitApp = () => invoke('quit_app');
 export const openPath = (path: string) => invoke('open_path', { path });
+// F10: clone a GitHub repo to a local path via the git CLI (target = full destination dir).
+export const cloneRepo = (url: string, target: string) => invoke('clone_repo', { url, target });
 // Open a web URL in the default browser (opener plugin) — NOT open_path, which is filesystem-only.
 export const openUrl = (url: string) => invoke('open_url', { url });
 // Export/import all settings (#117) — file dialogs from the dialog plugin; backend (de)serializes.

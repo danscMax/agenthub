@@ -1,9 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { BackupList, BackupAction, RestoreOpts } from '$lib/ipc';
+  import { revealBackup } from '$lib/ipc';
   import RestoreDialog from './RestoreDialog.svelte';
   import EmptyState from './EmptyState.svelte';
+  import { Archive } from '@lucide/svelte';
+  import SectionHeader from './SectionHeader.svelte';
   import { t } from '$lib/i18n';
+  import { pushToast } from '$lib/toast.svelte';
   import { formatAbsTime } from '$lib/relativeTime';
 
   let {
@@ -54,6 +58,10 @@
   }
   function fmtSnap(name: string) {
     return snapToReadable(name) ?? name;
+  }
+  // "weekly-2026-06-15.zip" -> "2026-06-15" (falls back to the raw name).
+  function fmtWeekly(name: string): string {
+    return name.match(/^weekly-(\d{4}-\d{2}-\d{2})\.zip$/)?.[1] ?? name;
   }
 
   // Absolute timestamp — see formatAbsTime in $lib/relativeTime (guards the Invalid-Date leak).
@@ -128,9 +136,7 @@
   </div>
 
   <!-- snapshots -->
-  <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
-    {t('backup.snapshotsHeading', { n: snapshots.length })}
-  </h2>
+  <SectionHeader title={t('backup.snapshotsHeading', { n: snapshots.length })} />
   {#if snapshots.length}
     <ul class="flex flex-col gap-sw-2">
       {#each snapshots as snap, i (snap)}
@@ -150,7 +156,30 @@
       {/each}
     </ul>
   {:else}
-    <EmptyState icon="⛁" title={t('backup.emptyTitle')} description={t('backup.emptyHint')} />
+    <EmptyState icon={Archive} title={t('backup.emptyTitle')} description={t('backup.emptyHint')} />
+  {/if}
+
+  <!-- weekly archives (F9): list the weekly-*.zip files the count above only summarised. These are
+       zip archives, not snapshot folders, so the only action offered is reveal-in-Explorer. -->
+  {#if weeklies.length}
+    <div class="mt-sw-6">
+      <SectionHeader title={t('backup.weekliesHeading', { n: weeklies.length })} />
+      <ul class="flex flex-col gap-sw-2">
+        {#each weeklies as wk, i (wk)}
+          <li class="sw-card flex items-center justify-between gap-sw-4 py-sw-2">
+            <div class="flex items-center gap-sw-2">
+              <span class="font-mono text-sw-sm text-sw-text">{fmtWeekly(wk)}</span>
+              {#if i === 0}<span class="badge badge-info">{t('backup.latest')}</span>{/if}
+            </div>
+            <div class="flex shrink-0 gap-sw-2">
+              <button class="sw-btn sw-btn-ghost text-sw-xs"
+                onclick={() => revealBackup(wk).catch((e) => pushToast({ kind: 'error', title: String(e) }))}
+                title={t('backup.revealItemTitle')}>{t('common.open')}</button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    </div>
   {/if}
   {/if}
 </div>

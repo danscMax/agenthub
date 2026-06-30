@@ -1,5 +1,6 @@
 <script lang="ts">
   import { openPath, readDriftDiff, type SyncStatus, type SyncItem, type ConfigDriftStatus, type ConfigDriftAction, type DriftDiff } from '$lib/ipc';
+  import SectionHeader from './SectionHeader.svelte';
   import Toggle from './Toggle.svelte';
   import { t } from '$lib/i18n';
   import { relTime } from '$lib/relativeTime';
@@ -252,7 +253,7 @@
     {/if}
 
     <!-- Item toggles -->
-    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('sync.whatToSync')}</h2>
+    <SectionHeader title={t('sync.whatToSync')} />
     <div class="card-grid">
       {#each ITEMS as item (item.key)}
         <div class="sw-card flex items-start gap-sw-3" title={t('sync.itemTitle', { path: item.path })}>
@@ -273,7 +274,7 @@
         title={t('sync.applyTitle')}>
         {t('common.apply')}
       </button>
-      {#if dirty}<span class="text-sw-xs text-amber-400">{t('sync.unsavedChanges')}</span>{/if}
+      {#if dirty}<span class="text-sw-xs status-warn">{t('sync.unsavedChanges')}</span>{/if}
       {#if !dirty && data.stignoreMatches !== false}<span class="text-sw-xs text-sw-text-muted">{t('sync.allApplied')}</span>{/if}
     </div>
     <p class="mt-sw-2 text-sw-xs text-sw-text-muted">

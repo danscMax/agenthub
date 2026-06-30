@@ -42,7 +42,7 @@
 
   // Low remaining = warn/danger color.
   const color = (r: number | null) =>
-    r == null ? '' : r <= 10 ? 'text-red-400' : r <= 25 ? 'text-amber-400' : 'text-emerald-400';
+    r == null ? '' : r <= 10 ? 'status-bad' : r <= 25 ? 'status-warn' : 'status-ok';
 
   const r5 = $derived(u ? remain(u.fiveHourPct) : null);
   const r7 = $derived(u ? remain(u.sevenDayPct) : null);

@@ -25,6 +25,8 @@
   import { copyText } from '$lib/clipboard';
   import { pushToast } from '$lib/toast.svelte';
   import Toggle from './Toggle.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  import { checkForUpdate, installUpdate, type UpdateInfo } from '$lib/updater';
 
   let {
     theme,
@@ -93,6 +95,42 @@
   let version = $state('');
   let savedMsg = $state('');
   let errMsg = $state('');
+
+  // C3: auto-update flow. 'available' opens the release-notes confirm; 'downloading' shows progress.
+  let updPhase = $state<'idle' | 'checking' | 'none' | 'available' | 'downloading' | 'error'>('idle');
+  let updInfo = $state<UpdateInfo | null>(null);
+  let updErr = $state('');
+  let updPct = $state(0); // 0..100, or -1 when the server reports no content length
+  async function onCheckUpdate() {
+    updPhase = 'checking';
+    updErr = '';
+    try {
+      const info = await checkForUpdate();
+      if (info) {
+        updInfo = info;
+        updPhase = 'available';
+      } else {
+        updPhase = 'none';
+      }
+    } catch (e) {
+      updErr = String(e);
+      updPhase = 'error';
+    }
+  }
+  async function onInstallUpdate() {
+    if (!updInfo) return;
+    updPhase = 'downloading';
+    updPct = 0;
+    try {
+      await installUpdate(updInfo, (pct) => (updPct = pct));
+      // installUpdate relaunches on success, so this rarely runs; reset so the UI isn't stuck on
+      // "downloading" if relaunch is a no-op (e.g. dev build).
+      updPhase = 'idle';
+    } catch (e) {
+      updErr = String(e);
+      updPhase = 'error';
+    }
+  }
   // Terminal scrollback cap (UI-only, localStorage; read per-pane by TerminalPane on open).
   let termScrollback = $state<number | ''>('');
 
@@ -207,9 +245,15 @@
     flash(t('settings.savedTimeouts'));
   }
   async function toggleAutostart(v: boolean) {
-    autostart = v;
-    await setAutostart(v);
-    flash(v ? t('settings.autostartOn') : t('settings.autostartOff'));
+    const prev = autostart;
+    autostart = v; // optimistic
+    try {
+      await setAutostart(v);
+      flash(v ? t('settings.autostartOn') : t('settings.autostartOff'));
+    } catch (e) {
+      autostart = prev; // rollback to match what actually persisted
+      errMsg = `${t('settings.autostartError')}: ${e}`;
+    }
   }
   async function toggleStartHidden(v: boolean) {
     startHidden = v;
@@ -453,7 +497,18 @@
         </div>
       </div>
       <dl class="grid grid-cols-[auto_1fr] gap-x-sw-4 gap-y-1 text-sw-sm">
-        <dt class="text-sw-text-muted">{t('settings.version')}</dt><dd class="text-sw-text">{version || t('common.dash')}</dd>
+        <dt class="text-sw-text-muted">{t('settings.version')}</dt>
+        <dd class="text-sw-text flex items-center gap-sw-3 flex-wrap">
+          <span>{version || t('common.dash')}</span>
+          <!-- C3: check the configured updater endpoint for a newer signed release. -->
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={updPhase === 'checking' || updPhase === 'downloading'}
+            onclick={onCheckUpdate} title={t('settings.checkUpdatesTip')}>
+            {updPhase === 'checking' ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
+          </button>
+          {#if updPhase === 'none'}<span class="text-sw-xs" style="color:var(--sw-success)">{t('settings.upToDate')}</span>{/if}
+          {#if updPhase === 'downloading'}<span class="text-sw-xs text-sw-text-muted">{updPct < 0 ? t('settings.downloading') : t('settings.downloadingPct', { pct: updPct })}</span>{/if}
+          {#if updPhase === 'error'}<span class="text-sw-xs" style="color:var(--sw-danger)" title={updErr}>{t('settings.updateError')}</span>{/if}
+        </dd>
         <dt class="text-sw-text-muted">{t('settings.scripts')}</dt>
         <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.scriptsRoot)} title={t('common.copyPath')}>{paths?.scriptsRoot ?? t('common.dash')}</button></dd>
         <dt class="text-sw-text-muted">{t('settings.config')}</dt>
@@ -474,6 +529,10 @@
           <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath(paths!.stackPath!)}
             title={t('settings.openStackFileTip')}>{t('settings.openStackFile')}</button>
         {/if}
+        {#if paths?.backupDir}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => openPath(paths!.backupDir!)}
+            title={t('settings.openBackupFolderTip')}>{t('settings.openBackupFolder')}</button>
+        {/if}
       </div>
     </div>
     {/if}
@@ -487,6 +546,20 @@
     {/if}
   </div>
 </div>
+
+<!-- C3: release-notes confirm before downloading an update. Notes render as plain lines (raw markdown). -->
+<ConfirmDialog
+  open={updPhase === 'available'}
+  title={t('settings.updateAvailableTitle', { version: updInfo?.version ?? '' })}
+  message={t('settings.updateAvailableMsg', { from: updInfo?.currentVersion ?? '', to: updInfo?.version ?? '' })}
+  details={updInfo?.notes ? updInfo.notes.split('\n').filter((l) => l.trim()) : []}
+  confirmLabel={t('settings.updateNow')}
+  onConfirm={onInstallUpdate}
+  onCancel={() => {
+    updPhase = 'idle';
+    updInfo = null;
+  }}
+/>
 
 <style>
   /* A path/value that copies to the clipboard on click — looks like text, hints on hover. */

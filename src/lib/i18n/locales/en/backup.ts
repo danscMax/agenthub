@@ -26,6 +26,8 @@ export default {
   latest: 'latest',
   restoreItemTitle: 'Restore configs from this snapshot (shows a preview first)',
   deleteItemTitle: 'Permanently delete this snapshot',
+  weekliesHeading: 'Weekly archives ({n})',
+  revealItemTitle: 'Show this archive in Explorer',
   restore: 'Restore',
   emptyTitle: 'No snapshots',
   emptyHint: 'Press “Make backup” to create the first one.',

@@ -40,6 +40,13 @@ const TABLE: &[(&str, [&str; 3])] = &[
     // ── tray ────────────────────────────────────────────────────────────────
     ("tray.show",      ["Показать окно", "Show window", "显示窗口"]),
     ("tray.check_all", ["Проверить всё", "Check all", "全部检查"]),
+    ("tray.refresh_forks", ["Обновить форки", "Refresh forks", "刷新分叉"]),
+    ("tray.refresh_providers", ["Обновить провайдеров", "Refresh providers", "刷新提供商"]),
+    ("tray.stack_start", ["Запустить стек", "Start stack", "启动技术栈"]),
+    ("tray.stack_stop", ["Остановить стек", "Stop stack", "停止技术栈"]),
+    ("tray.open_backup", ["Открыть бэкапы", "Open Backup", "打开备份"]),
+    ("tray.open_settings", ["Открыть настройки", "Open Settings", "打开设置"]),
+    ("tray.cancel_all", ["Отменить всё", "Cancel all", "全部取消"]),
     ("tray.quit",      ["Выход", "Quit", "退出"]),
     ("tray.tooltip_sessions", ["Castellyn — активных сессий: {n}", "Castellyn — active sessions: {n}", "Castellyn — 活动会话: {n}"]),
 
@@ -91,6 +98,7 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("err.provider_not_found", ["провайдер не найден", "provider not found", "未找到提供商"]),
     ("err.key_not_found", ["ключ не найден", "key not found", "未找到密钥"]),
     ("err.freellmapi_creds_needed", ["укажите email+пароль или токен дашборда freellmapi", "provide an email+password or a freellmapi dashboard token", "请提供 email+密码或 freellmapi 仪表板令牌"]),
+    ("err.freellmapi_key_invalid", ["можно удалять только email, password или token", "only email, password, or token can be deleted", "只能删除 email、password 或 token"]),
     ("err.provider_no_apikey", ["для этого провайдера не задан API-ключ", "no API key is set for this provider", "该提供商未设置 API 密钥"]),
     ("err.direct_needs_profile", ["для прямого подключения укажите корректный целевой профиль", "direct connection needs a valid target profile", "直连需要有效的目标配置"]),
     ("err.freellmapi_login_first", ["сначала задайте вход в freellmapi (email+пароль или токен) — кнопка «Вход freellmapi»", "sign in to freellmapi first (email+password or token) — the “freellmapi login” button", "请先登录 freellmapi (email+密码或令牌) — “freellmapi 登录”按钮"]),
@@ -126,6 +134,8 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("err.no_active_run", ["Нет активного прогона", "No active run", "没有正在进行的任务"]),
     ("err.kill_failed", ["Не удалось остановить процесс (возможно, он запущен от администратора): {e}", "Could not stop the process (it may be running elevated): {e}", "无法停止进程（可能以管理员身份运行）：{e}"]),
     ("err.bad_url_scheme", ["Отклонён небезопасный URL (разрешены только http/https): {url}", "Refused an unsafe URL (only http/https are allowed): {url}", "已拒绝不安全的 URL（仅允许 http/https）：{url}"]),
+    ("err.clone_target_exists", ["Папка назначения уже существует: {path}", "Target folder already exists: {path}", "目标文件夹已存在：{path}"]),
+    ("err.git_failed", ["Не удалось запустить git: {e}", "Could not run git: {e}", "无法运行 git：{e}"]),
     ("err.bad_hotkey", ["неверная комбинация: {e}", "invalid shortcut: {e}", "快捷键无效: {e}"]),
     ("err.unknown_tool", ["неизвестный инструмент: {tool}", "unknown tool: {tool}", "未知工具: {tool}"]),
     ("err.session_limit", ["достигнут предел сессий ({max})", "session limit reached ({max})", "已达到会话上限 ({max})"]),
@@ -186,6 +196,7 @@ const TABLE: &[(&str, [&str; 3])] = &[
     ("log.plugin_header", ["=== Плагин: {action} {id} ===", "=== Plugin: {action} {id} ===", "=== 插件: {action} {id} ==="]),
     ("log.plugin_skip", ["  [skip] {p} (нет каталога)", "  [skip] {p} (no directory)", "  [skip] {p} (无目录)"]),
     ("log.done", ["Готово.", "Done.", "完成。"]),
+    ("log.bulk_cancelled", ["Массовая операция отменена.", "Bulk operation cancelled.", "批量操作已取消。"]),
 
     // ── relink (elevated, embedded in a PowerShell Write-Host — keep apostrophe-free) ──
     ("log.relink_start", ["Запуск починки связей от администратора (подтвердите UAC)…", "Running link repair as administrator (confirm UAC)…", "正在以管理员身份修复链接 (请确认 UAC)…"]),
@@ -208,7 +219,11 @@ pub fn tr(key: &str, lang: Lang) -> &'static str {
     for (k, vals) in TABLE {
         if *k == key {
             let v = vals[lang.idx()];
-            return if v.is_empty() { vals[Lang::En.idx()] } else { v };
+            return if v.is_empty() {
+                vals[Lang::En.idx()]
+            } else {
+                v
+            };
         }
     }
     // Leak nothing: return a 'static fallback. The key isn't 'static here, so callers that
@@ -224,7 +239,11 @@ pub fn trv(key: &str, lang: Lang, vars: &[(&str, &dyn std::fmt::Display)]) -> St
     for (k, vals) in TABLE {
         if *k == key {
             let v = vals[lang.idx()];
-            found = Some(if v.is_empty() { vals[Lang::En.idx()] } else { v });
+            found = Some(if v.is_empty() {
+                vals[Lang::En.idx()]
+            } else {
+                v
+            });
             break;
         }
     }

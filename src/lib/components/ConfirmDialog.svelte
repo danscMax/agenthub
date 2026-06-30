@@ -48,9 +48,11 @@
   initialFocus={requireText ? 'input' : danger ? '[data-confirm-cancel]' : null}
   size="sm"
   role="alertdialog"
+  labelledBy="dlg-title"
+  describedBy={requireText ? 'dlg-msg dlg-type' : 'dlg-msg'}
 >
-      <h3>{title}</h3>
-      <p>{message}</p>
+      <h3 id="dlg-title">{title}</h3>
+      <p id="dlg-msg">{message}</p>
       {#if details.length}
         <ul class="details">
           {#each details as d (d)}<li>{d}</li>{/each}
@@ -60,6 +62,7 @@
         <label class="confirm-type">
           <span>{t('common.typeToConfirm', { text: requireText })}</span>
           <input
+            id="dlg-type"
             class="sw-input"
             bind:value={typed}
             placeholder={requireText}
@@ -74,6 +77,7 @@
         <button
           class="sw-btn {danger ? 'sw-btn-danger' : 'sw-btn-primary'}"
           disabled={blocked}
+          aria-describedby={requireText ? 'dlg-type' : undefined}
           onclick={confirm}>{confirmLabel}</button>
       </div>
 </ModalShell>

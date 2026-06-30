@@ -40,6 +40,7 @@ keyring = { version = "3", features = ["windows-native"] }
 # Real PTYs for the parallel-sessions tab: run each profile's `claude` in a true terminal so
 # its TUI renders (xterm.js on the frontend). Output streams as raw bytes over a Tauri channel.
 portable-pty = "0.8"
+tauri-plugin-process = "2"
 
 # Win32 Job Object so PTY child trees (pwsh → claude/node, ssh.exe) die with the app instead of
 # orphaning on a kill/crash. Windows-only; no-op stub elsewhere.
@@ -50,6 +51,9 @@ windows = { version = "0.58", features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
 
 # Release profile: strip symbols + thin LTO + one codegen unit. Measured: exe 16.0->14.2 MB (~10%
 # — Rust release carries no debuginfo for strip to remove, so the real win is LTO/codegen, not size).
