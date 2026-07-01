@@ -73,6 +73,19 @@ describe('deriveOutcome', () => {
     expect(o.title).toContain('актуально');
   });
 
+  // R1: `held` (exit-0, updates pinned) must not read as "up to date".
+  it('held status → info, not success', () => {
+    const o = deriveOutcome({
+      id: 'cargo',
+      name: 'Cargo',
+      code: 0,
+      mode: 'check',
+      status: { status: 'held', counts: { changed: 0, failed: 0 }, durationSec: 2 }
+    });
+    expect(o.kind).toBe('info');
+    expect(o.title).toContain('удержано');
+  });
+
   it('failed count → warn with log action', () => {
     const o = deriveOutcome({
       id: 'plugins',

@@ -30,6 +30,9 @@
   }
 </script>
 
+<!-- U2: Escape closes the panel (click-outside already works via the backdrop). -->
+<svelte:window onkeydown={(e) => e.key === 'Escape' && open && onClose()} />
+
 {#if open}
   <div class="backdrop" onclick={onBackdropClick} role="presentation">
     <div class="panel" role="dialog" aria-label={t('page.notifTitle')}>

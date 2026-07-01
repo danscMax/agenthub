@@ -94,6 +94,12 @@ export function deriveOutcome(input: DeriveInput): Outcome {
     };
   }
 
+  // R1: `held` (updates deliberately pinned/held back) is neither an error nor "up to date" —
+  // without this branch it fell through to the success toast and contradicted the card badge.
+  if (st === 'held') {
+    return { kind: 'info', title: t('page.out_held', { name }), detail: durationText(status) };
+  }
+
   if (mode === 'apply') {
     return { kind: 'success', title: t('page.out_applied', { name }), detail: durationText(status) };
   }

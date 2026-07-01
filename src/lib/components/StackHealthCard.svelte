@@ -96,7 +96,8 @@
       <div>
         <h2 class="font-semibold">{t('health.title')}</h2>
         <p class="text-sw-xs text-sw-text-secondary">
-          {overallLabel}{#if total > 0} · {t('health.summary', { up: ups, total })}{/if}
+          <!-- V10: separator built in the expression — template whitespace before `·` got collapsed -->
+          {overallLabel}{total > 0 ? ` · ${t('health.summary', { up: ups, total })}` : ''}
         </p>
       </div>
     </div>

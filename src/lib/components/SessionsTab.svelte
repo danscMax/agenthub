@@ -44,10 +44,13 @@
     profiles = [],
     visible = true,
     folderReq = null,
+    confirmDestructive = true,
     onFolderReqConsumed
   }: {
     profiles?: string[];
     visible?: boolean;
+    /** R8: mirror the global "confirm destructive actions" toggle (settings #120). */
+    confirmDestructive?: boolean;
     // Deep-link from another tab (e.g. a fork card's terminal menu): prefill the launcher with this
     // folder; when `tool` is set the launcher opens it straight away (profile applies to claude).
     folderReq?: { path: string; tool?: SessionTool; profile?: string } | null;
@@ -289,6 +292,11 @@
   // (project rule: destructive actions confirm before mutating). Each caller passes its own copy + run().
   let confirmAsk = $state<{ title: string; message: string; details?: string[]; run: () => void } | null>(null);
   function askConfirm(opts: { title: string; message: string; details?: string[]; run: () => void }) {
+    // R8: honor the global confirm-destructive toggle — same gate as +page's askConfirm.
+    if (!confirmDestructive) {
+      opts.run();
+      return;
+    }
     confirmAsk = opts;
   }
 

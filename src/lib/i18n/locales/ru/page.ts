@@ -230,6 +230,7 @@ export default {
 
   // Operational toasts
   toast_op_done: '{name}: готово',
+  toast_op_env_error: '{name}: скрипт сообщил об ошибке',
   toast_op_error: '{name}: ошибка (код {code})',
   toast_op_error_detail: 'Подробности — в логе выполнения.',
   toast_open_log: 'Открыть лог',
@@ -255,6 +256,7 @@ export default {
   out_changes_any: '{name}: есть обновления',
   out_changes_detail: 'Нажми «Обновить» на карточке.',
   out_uptodate: '{name}: актуально',
+  out_held: '{name}: обновление удержано (pin)',
   hkTitle: 'Горячие клавиши',
   hkPalette: 'Палитра команд / переход по вкладкам',
   hkNewSession: 'Новая сессия (на вкладке «Сессии»)',

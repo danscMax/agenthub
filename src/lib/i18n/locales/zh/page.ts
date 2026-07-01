@@ -225,6 +225,7 @@ export default {
 
   // Operational toasts
   toast_op_done: '{name}：完成',
+  toast_op_env_error: '{name}：脚本报告了错误',
   toast_op_error: '{name}：错误（代码 {code}）',
   toast_op_error_detail: '详情见运行日志。',
   toast_open_log: '打开日志',
@@ -250,6 +251,7 @@ export default {
   out_changes_any: '{name}：有可用更新',
   out_changes_detail: '在卡片上点击「更新」。',
   out_uptodate: '{name}：已是最新',
+  out_held: '{name}：更新已保留（pin）',
   hkTitle: '键盘快捷键',
   hkPalette: '命令面板 / 跳转标签页',
   hkNewSession: '新建会话（在「会话」标签页）',

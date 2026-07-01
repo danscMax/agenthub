@@ -230,6 +230,7 @@ export default {
 
   // Operational toasts
   toast_op_done: '{name}: done',
+  toast_op_env_error: '{name}: the script reported an error',
   toast_op_error: '{name}: error (code {code})',
   toast_op_error_detail: 'See the run log for details.',
   toast_open_log: 'Open log',
@@ -255,6 +256,7 @@ export default {
   out_changes_any: '{name}: updates available',
   out_changes_detail: 'Press “Update” on the card.',
   out_uptodate: '{name}: up to date',
+  out_held: '{name}: update held (pin)',
   hkTitle: 'Keyboard shortcuts',
   hkPalette: 'Command palette / jump to tab',
   hkNewSession: 'New session (on the Sessions tab)',

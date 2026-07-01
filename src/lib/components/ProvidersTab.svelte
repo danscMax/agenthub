@@ -25,6 +25,7 @@
     providers,
     stack = null,
     running,
+    confirmDestructive = true,
     onEngine,
     onStack,
     onProviderSet,
@@ -48,6 +49,8 @@
     providers: ProfileProvider[] | null;
     stack?: StackService[] | null;
     running: string | null;
+    /** R8: mirror the global "confirm destructive actions" toggle (settings #120). */
+    confirmDestructive?: boolean;
     onEngine: (action: 'start' | 'stop', id: string) => void;
     onStack?: (action: 'start' | 'stop' | 'restart', only?: string) => void;
     onProviderSet: (args: ProviderArgs) => void;
@@ -263,6 +266,11 @@
   // but key removal is local to this surface, so confirm here via the canonical ConfirmDialog.
   let removeKeyTarget = $state<{ id: string; index: number } | null>(null);
   function confirmRemoveKey(id: string, index: number) {
+    // R8: honor the global confirm-destructive toggle.
+    if (!confirmDestructive) {
+      onMyProviderRemoveKey(id, index);
+      return;
+    }
     removeKeyTarget = { id, index };
   }
   function doRemoveKey() {

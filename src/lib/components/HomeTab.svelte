@@ -124,6 +124,8 @@
   });
 
   const issues = $derived(chips.filter((c) => c.level === 'bad' || c.level === 'warn').length);
+  // U4: the quick-action bar shows ONE contextual stack button (like the stack chip), not both.
+  const stackUp = $derived(((stack ?? []).filter((s) => s.enabled && s.running)).length);
   const overall = $derived(
     chips.some((c) => c.level === 'bad' || c.level === 'warn') ? 'warn' : chips.some((c) => c.level === 'ok') ? 'ok' : 'muted'
   );
@@ -144,7 +146,7 @@
   </header>
 
   <div class="mb-sw-4 sw-card flex flex-wrap items-center gap-sw-2">
-    <span class="badge {overall === 'ok' ? 'badge-ok' : 'badge-warn'}">
+    <span class="badge {overall === 'ok' ? 'badge-ok' : overall === 'muted' ? 'badge-muted' : 'badge-warn'}">
       {overall === 'ok' ? t('page.home_allOk') : overall === 'muted' ? t('page.home_noData') : t('page.home_issues', { n: issues })}
     </span>
     {#if onAction}
@@ -152,8 +154,11 @@
       <span class="ml-auto flex flex-wrap gap-sw-2">
         <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('check-all')}>{t('page.home_checkAll')}</button>
         <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('refresh-forks')}>{t('page.home_refreshForks')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('start-stack')}>{t('page.home_stackStart')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('stop-stack')}>{t('page.home_stackStop')}</button>
+        {#if stackUp === 0}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('start-stack')}>{t('page.home_stackStart')}</button>
+        {:else}
+          <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('stop-stack')}>{t('page.home_stackStop')}</button>
+        {/if}
       </span>
     {/if}
   </div>

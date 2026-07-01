@@ -77,7 +77,8 @@
                   <dd class="text-sw-text">
                     {fmtNext(task.lastRun)}
                     {#if task.lastResult === 0}<span class="status-ok">· {t('schedule.lastResultOk')}</span>
-                    {:else if task.lastResult != null}<span class="status-warn">· {t('schedule.lastResultFail', { code: task.lastResult })}</span>{/if}
+                    <!-- U8: prefer the backend's decoded hex HRESULT (status "failed(0x…)") over the raw decimal -->
+                    {:else if task.lastResult != null}<span class="status-warn">· {t('schedule.lastResultFail', { code: task.status?.startsWith('failed(') ? task.status.slice(7, -1) : task.lastResult })}</span>{/if}
                   </dd>
                 </div>
               {/if}

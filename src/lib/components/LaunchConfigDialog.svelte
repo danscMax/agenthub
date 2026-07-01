@@ -54,9 +54,18 @@
     };
   }
 
+  // R7: gate the in-flight save like the sibling measure() does — a double-click used to fire
+  // onSave twice before the dialog closed.
+  let applying = $state(false);
   async function apply() {
-    await onSave(selection());
-    onCancel();
+    if (applying) return;
+    applying = true;
+    try {
+      await onSave(selection());
+      onCancel();
+    } finally {
+      applying = false;
+    }
   }
 
   // Measure always reflects what's on screen: persist the selection first, then measure.
@@ -157,7 +166,7 @@
 
       <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('profiles.lcCancelTip')}>{t('common.cancel')}</button>
-        <button class="sw-btn sw-btn-primary" disabled={!!measuring} onclick={apply} title={t('profiles.lcApplyTip')}>{t('common.apply')}</button>
+        <button class="sw-btn sw-btn-primary" disabled={!!measuring || applying} onclick={apply} title={t('profiles.lcApplyTip')}>{t('common.apply')}</button>
       </div>
   {/if}
 </ModalShell>

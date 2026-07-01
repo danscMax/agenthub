@@ -1563,6 +1563,7 @@
     if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
       paletteOpen = !paletteOpen;
+      notifOpen = false; // U2: don't leave the notification popover hanging under the palette
       return;
     }
     const tgt = e.target as HTMLElement | null;
@@ -1585,7 +1586,7 @@
     }
     // Esc cancels a running operation — but only when no dialog/palette is open (they own their Esc)
     // and the user isn't typing, so it never steals a field's or modal's own Escape.
-    if (e.key === 'Escape' && running && !typing && !paletteOpen && !hotkeyHelpOpen && !confirm.open) {
+    if (e.key === 'Escape' && running && !typing && !paletteOpen && !hotkeyHelpOpen && !confirm.open && !notifOpen) {
       e.preventDefault();
       cancel();
       return;
@@ -1737,7 +1738,25 @@
                 pushToast({ kind: 'error', title: t('page.toast_op_error', { name, code }), detail: t('page.toast_op_error_detail'), action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ } });
               }
             } else if (code === 0) {
-              pushToast({ kind: 'success', title: t('page.toast_op_done', { name }) });
+              // R1: exit-0 is not proof — if this operational run wrote a FRESH status envelope,
+              // trust it over the process code (a script can exit 0 with status:error inside).
+              let env: { status?: string; timestamp?: string; summary?: string; counts?: { failed?: number } } | null = null;
+              try {
+                env = await readStatus(`${id}.last.json`);
+              } catch {
+                /* no envelope for this op — judge by exit code */
+              }
+              const fresh = env?.timestamp ? Date.now() - Date.parse(env.timestamp) < 15 * 60_000 : false;
+              if (env && fresh && (env.status === 'error' || (env.counts?.failed ?? 0) > 0)) {
+                pushToast({
+                  kind: 'error',
+                  title: t('page.toast_op_env_error', { name }),
+                  detail: env.summary ?? t('page.toast_op_error_detail'),
+                  action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ }
+                });
+              } else {
+                pushToast({ kind: 'success', title: t('page.toast_op_done', { name }) });
+              }
             } else {
               pushToast({ kind: 'error', title: t('page.toast_op_error', { name, code }), detail: t('page.toast_op_error_detail'), action: { label: t('page.toast_open_log'), onClick: () => consoleReveal++ } });
             }
@@ -1911,7 +1930,7 @@
       {:else if active === 'forks'}
         <ForksTab status={statuses.forks} {githubRepos} {running} {forkRuns} onAction={onForkAction} {onCancelFork} onCancelCheck={cancel} {onBatchFf} {onOpenUrl} onOpenSession={openSessionFor} onClone={onCloneRepo} {cloningRepo} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} />
       {:else if active === 'backup'}
-        <BackupTab data={backupData} {running} {log} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} onRefresh={reloadBackup} />
+        <BackupTab data={backupData} {running} {log} {confirmDestructive} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} onAction={onBackupAction} onRefresh={reloadBackup} />
       {:else if active === 'profiles'}
         <ProfilesTab
           data={profilesData}
@@ -1948,6 +1967,7 @@
         <ProvidersTab
           engines={enginesData}
           providers={providersData}
+          {confirmDestructive}
           stack={stackData}
           {running}
           onEngine={onEngineAction}
@@ -2011,8 +2031,14 @@
            imported on first open (sessionsEverOpened) instead of shipping in the startup bundle. -->
       {#if sessionsEverOpened}
         <div class="absolute inset-0 {active === 'sessions' ? '' : 'hidden'}">
-          {#await import('$lib/components/SessionsTab.svelte') then { default: SessionsTab }}
-            <SessionsTab visible={active === 'sessions'} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} folderReq={sessionFolderReq} onFolderReqConsumed={() => (sessionFolderReq = null)} />
+          <!-- R6: pending → spinner (the xterm chunk takes a beat on first open); catch → visible
+               error instead of a forever-blank tab (stale asset hash after an in-place update). -->
+          {#await import('$lib/components/SessionsTab.svelte')}
+            <div class="grid h-full place-items-center text-sw-text-muted"><Spinner size={22} /></div>
+          {:then { default: SessionsTab }}
+            <SessionsTab visible={active === 'sessions'} {confirmDestructive} profiles={(profilesData?.profiles ?? []).map((p) => p.name)} folderReq={sessionFolderReq} onFolderReqConsumed={() => (sessionFolderReq = null)} />
+          {:catch e}
+            <div class="m-sw-6 sw-card status-bad">{t('page.load_error', { e: String(e) })}</div>
           {/await}
         </div>
       {/if}

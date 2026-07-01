@@ -16,6 +16,7 @@
     running,
     log = [],
     profiles = [],
+    confirmDestructive = true,
     onAction,
     onRefresh
   }: {
@@ -23,6 +24,8 @@
     running: string | null;
     log?: string[];
     profiles?: string[];
+    /** R8: mirror the global "confirm destructive actions" toggle (settings #120). */
+    confirmDestructive?: boolean;
     onAction: (action: BackupAction, opts?: RestoreOpts) => void;
     onRefresh?: () => void;
   } = $props();
@@ -54,10 +57,20 @@
       wkBusy = false;
     }
   }
-  async function doDeleteWeekly() {
+  // R8: honor the global confirm-destructive toggle — skip the dialog when it's off.
+  function requestDeleteWeekly(name: string) {
+    if (!confirmDestructive) {
+      void deleteWeeklyNow(name);
+      return;
+    }
+    confirmDeleteWeekly = name;
+  }
+  function doDeleteWeekly() {
     const name = confirmDeleteWeekly;
     confirmDeleteWeekly = null;
-    if (!name) return;
+    if (name) void deleteWeeklyNow(name);
+  }
+  async function deleteWeeklyNow(name: string) {
     wkBusy = true;
     try {
       await deleteBackup(name);
@@ -225,7 +238,7 @@
                 onclick={() => revealBackup(wk).catch((e) => pushToast({ kind: 'error', title: String(e) }))}
                 title={t('backup.revealItemTitle')}>{t('common.open')}</button>
               <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={wkBusy}
-                onclick={() => (confirmDeleteWeekly = wk)} title={t('backup.deleteWeeklyTitle')}>{t('common.delete')}</button>
+                onclick={() => requestDeleteWeekly(wk)} title={t('backup.deleteWeeklyTitle')}>{t('common.delete')}</button>
             </div>
           </li>
         {/each}
