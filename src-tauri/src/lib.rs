@@ -7583,8 +7583,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 reveal(app);
                 let _ = app.emit("tray-check-all", ());
             }
-            // F18: the new entries emit an event the frontend handles (mirrors tray-check-all). reveal()
-            // first for the ones that show their result on a tab; cancel_all/stack don't need the window.
+            // F18: the new entries emit an event the frontend handles (mirrors tray-check-all).
+            // reveal() first for everything that talks back through in-window UI: stack_stop opens a
+            // confirm dialog and stack_start reports only via the run log/toasts, so a hidden window
+            // silently swallows both (R3). cancel_all stays headless on purpose — it must never steal
+            // focus and its effect (things stop) needs no dialog.
             "refresh_forks" => {
                 reveal(app);
                 let _ = app.emit("tray-refresh-forks", ());
@@ -7594,9 +7597,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit("tray-refresh-providers", ());
             }
             "stack_start" => {
+                reveal(app);
                 let _ = app.emit("tray-stack-start", ());
             }
             "stack_stop" => {
+                reveal(app);
                 let _ = app.emit("tray-stack-stop", ());
             }
             "open_backup" => {

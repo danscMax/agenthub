@@ -21,6 +21,8 @@ export {
   pSkill,
   pCommand,
   pAgent,
+  pFile,
+  pPlugin,
   forkMode,
   outcomeLabel
 } from './index.svelte';

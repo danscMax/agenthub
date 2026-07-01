@@ -20,7 +20,7 @@ export default {
   colActions: 'Действия',
   removeBtn: 'Удалить',
   removeBtnTip: 'Удалить плагин (claude plugin remove)',
-  summary: '{total} плагинов · {updates} с обновлением · {off} выключено',
+  summary: '{plugins} · {updates} с обновлением · {off} выключено',
   updateAll: 'Обновить всё ({count})',
   updateAllTip: 'Обновить все плагины с доступными обновлениями',
   bulkSelected: 'Выбрано: {count}',

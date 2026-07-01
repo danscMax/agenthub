@@ -149,7 +149,20 @@
   let log = $state<string[]>([]);
   /** Cap the console buffer so a chatty/stuck script can't grow it without bound. */
   const MAX_LOG = 5000;
-  let active = $state('updates');
+  const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'envs', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
+  // R2: restore the saved tab HERE, in the state initializer — the persist $effect below is created
+  // before onMount runs, so restoring in onMount let the effect overwrite the key with the default
+  // first (the app always opened on one tab). U12: default landing tab is the Home overview.
+  let active = $state(
+    (() => {
+      try {
+        const saved = localStorage.getItem('cmh-active-tab');
+        return saved && NAV_IDS.includes(saved) ? saved : 'home';
+      } catch {
+        return 'home';
+      }
+    })()
+  );
   let notifOpen = $state(false);
   let pendingUndo = $state<{ snapshot: string; profiles?: string[]; includeCredentials?: boolean } | null>(null);
   let theme = $state<Theme>('dark');
@@ -243,6 +256,10 @@
   function onSpawnErr(e: unknown) {
     running = null;
     log = [...log, t('page.log_error', { e: String(e) })].slice(-MAX_LOG);
+    // R5: a failed spawn must be visible — the log dock is collapsed by default, so a silent
+    // append reads as "the click did nothing". Toast + reveal the console.
+    toastErr(String(e));
+    consoleReveal++;
   }
 
   // --- First-run onboarding (OU-04) ---
@@ -1453,8 +1470,8 @@
     if (active === 'sessions') sessionsEverOpened = true;
   });
 
-  // Command palette (Ctrl+K): jump to any tab + a few quick actions.
-  const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'envs', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
+  // Command palette (Ctrl+K): jump to any tab + a few quick actions. (NAV_IDS is declared with
+  // `active` above so the saved-tab restore can validate against it.)
   let paletteOpen = $state(false);
   let hotkeyHelpOpen = $state(false);
   // Phase 4.2 — after a palette navigation, briefly scroll to + highlight a specific item in the target tab.
@@ -1598,9 +1615,7 @@
       if (localStorage.getItem('cmh-density') === 'compact') density = 'compact';
       fullWidth = localStorage.getItem('cmh-fullwidth') !== '0';
       confirmDestructive = localStorage.getItem('cmh-confirm-destructive') !== '0';
-      // Restore the last-open tab (validated against the known set).
-      const savedTab = localStorage.getItem('cmh-active-tab');
-      if (savedTab && NAV_IDS.includes(savedTab)) active = savedTab;
+      // (Last-open tab is restored in the `active` state initializer — see R2 note there.)
     } catch {
       /* ignore */
     }
@@ -1869,7 +1884,7 @@
     <main class="relative min-h-0 flex-1 overflow-auto">
       <div class="relative mx-auto w-full {fullWidth ? '' : 'max-w-[1600px]'}">
       {#if loadError}
-        <div class="m-sw-6 sw-card text-red-400">{t('page.load_error', { e: loadError })}</div>
+        <div class="m-sw-6 sw-card status-bad">{t('page.load_error', { e: loadError })}</div>
       {/if}
 
       {#if tabRefreshing}
@@ -1889,7 +1904,7 @@
       >
       {#if active === 'home'}
         <HomeTab profiles={profilesData} sync={syncData} drift={driftData} schedules={schedulesData}
-          stack={stackData} sessionCount={homeSessionCount}
+          stack={stackData} sessionCount={homeSessionCount} busy={!!running}
           onOpen={(id) => (active = id)} onRefresh={reloadHome} onAction={onHomeAction} />
       {:else if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />

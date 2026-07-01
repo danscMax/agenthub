@@ -12,7 +12,6 @@ export default {
   syncNowTip: 'Отзеркалить живой конфиг в источник деплоя (бэкап)',
   relinkBtn: 'Починить связи',
   relinkTip: 'Заново установить symlink общего конфига (нужен админ)',
-  conflictsBadge: '{n} конфликтов',
   conflictsDesc: 'Обнаружены конфликт-файлы Syncthing.',
   cleanConflictsBtn: 'Очистить',
   cleanConflictsTip: 'Удалить файлы *.sync-conflict-*',

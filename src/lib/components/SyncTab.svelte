@@ -2,7 +2,7 @@
   import { openPath, readDriftDiff, type SyncStatus, type SyncItem, type ConfigDriftStatus, type ConfigDriftAction, type DriftDiff } from '$lib/ipc';
   import SectionHeader from './SectionHeader.svelte';
   import Toggle from './Toggle.svelte';
-  import { t } from '$lib/i18n';
+  import { t, pConflict } from '$lib/i18n';
   import { relTime } from '$lib/relativeTime';
 
   let {
@@ -235,7 +235,7 @@
   <!-- Sync conflicts (USE-8) -->
   {#if conflictCount > 0}
       <div class="sw-card mb-sw-4 flex items-center gap-sw-2 border border-amber-500/40 text-sw-sm">
-        <span class="badge badge-warn">{t('sync.conflictsBadge', { n: conflictCount })}</span>
+        <span class="badge badge-warn">{conflictCount} {pConflict(conflictCount)}</span>
         <span class="text-sw-text-secondary">{t('sync.conflictsDesc')}</span>
         {#if onCleanConflicts}
           <button class="sw-btn sw-btn-ghost ml-auto" disabled={busy} onclick={onCleanConflicts}

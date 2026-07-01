@@ -12,7 +12,6 @@ export default {
   syncNowTip: 'Mirror live config to the deploy source (backup)',
   relinkBtn: 'Repair links',
   relinkTip: 'Re-establish shared config symlinks (needs admin)',
-  conflictsBadge: '{n} conflicts',
   conflictsDesc: 'Syncthing conflict files detected.',
   cleanConflictsBtn: 'Clean',
   cleanConflictsTip: 'Delete the *.sync-conflict-* files',

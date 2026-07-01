@@ -20,7 +20,7 @@ export default {
   colActions: 'Actions',
   removeBtn: 'Remove',
   removeBtnTip: 'Uninstall the plugin (claude plugin remove)',
-  summary: '{total} plugins · {updates} with updates · {off} disabled',
+  summary: '{plugins} · {updates} with updates · {off} disabled',
   updateAll: 'Update all ({count})',
   updateAllTip: 'Update every plugin that has an available update',
   bulkSelected: 'Selected: {count}',

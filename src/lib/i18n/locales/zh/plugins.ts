@@ -20,7 +20,7 @@ export default {
   colActions: '操作',
   removeBtn: '删除',
   removeBtnTip: '卸载插件（claude plugin remove）',
-  summary: '{total} 个插件 · {updates} 个可更新 · {off} 个已禁用',
+  summary: '{plugins} · {updates} 个可更新 · {off} 个已禁用',
   updateAll: '全部更新（{count}）',
   updateAllTip: '更新所有有可用更新的插件',
   bulkSelected: '已选择：{count}',

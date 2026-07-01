@@ -20,8 +20,7 @@ export default {
   scriptsBody:
     'Castellyn запускает ваши PowerShell-скрипты обслуживания. Выберите папку, в которой они лежат (внутри неё есть подпапка Castellyn).',
   scriptsLabel: 'Папка Scripts',
-  scriptsPlaceholder: 'E:\\Scripts',
-  scriptsSaved: 'Сохранено',
+  scriptsPlaceholder: 'например: E:\\Scripts',
   scriptsNeeded: 'Выберите папку, чтобы продолжить.',
 
   // Step 3 — profile

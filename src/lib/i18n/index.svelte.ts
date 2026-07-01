@@ -170,6 +170,8 @@ export const pRepo = pluralOf('repo');
 export const pSkill = pluralOf('skill');
 export const pCommand = pluralOf('command');
 export const pAgent = pluralOf('agent');
+export const pFile = pluralOf('file');
+export const pPlugin = pluralOf('plugin');
 
 /** fork-sync mode string -> localized label. */
 export function forkMode(m?: string): string {

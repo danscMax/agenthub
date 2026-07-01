@@ -20,8 +20,7 @@ export default {
   scriptsBody:
     'Castellyn 会运行你的 PowerShell 维护脚本。请选择存放这些脚本的文件夹（其中包含 Castellyn 子文件夹）。',
   scriptsLabel: 'Scripts 根目录',
-  scriptsPlaceholder: 'E:\\Scripts',
-  scriptsSaved: '已保存',
+  scriptsPlaceholder: '例如：E:\\Scripts',
   scriptsNeeded: '请选择一个文件夹以继续。',
 
   // Step 3 — profile

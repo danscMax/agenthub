@@ -505,9 +505,9 @@
             onclick={onCheckUpdate} title={t('settings.checkUpdatesTip')}>
             {updPhase === 'checking' ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
           </button>
-          {#if updPhase === 'none'}<span class="text-sw-xs" style="color:var(--sw-success)">{t('settings.upToDate')}</span>{/if}
+          {#if updPhase === 'none'}<span class="text-sw-xs status-ok">{t('settings.upToDate')}</span>{/if}
           {#if updPhase === 'downloading'}<span class="text-sw-xs text-sw-text-muted">{updPct < 0 ? t('settings.downloading') : t('settings.downloadingPct', { pct: updPct })}</span>{/if}
-          {#if updPhase === 'error'}<span class="text-sw-xs" style="color:var(--sw-danger)" title={updErr}>{t('settings.updateError')}</span>{/if}
+          {#if updPhase === 'error'}<span class="text-sw-xs status-bad" title={updErr}>{t('settings.updateError')}</span>{/if}
         </dd>
         <dt class="text-sw-text-muted">{t('settings.scripts')}</dt>
         <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.scriptsRoot)} title={t('common.copyPath')}>{paths?.scriptsRoot ?? t('common.dash')}</button></dd>

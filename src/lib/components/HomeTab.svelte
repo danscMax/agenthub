@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/i18n';
+  import { t, plural, pFile } from '$lib/i18n';
   import { statusTextClass } from '$lib/statusColor';
   import type { SyncStatus, ConfigDriftStatus, ProfilesStatus, SchedulesStatus, StackService } from '$lib/ipc';
 
@@ -13,6 +13,7 @@
     schedules = null,
     stack = null,
     sessionCount = null,
+    busy = false,
     onOpen,
     onRefresh,
     onAction
@@ -23,6 +24,8 @@
     schedules: SchedulesStatus | null;
     stack?: StackService[] | null;
     sessionCount?: number | null;
+    /** U3: the global run lock is held — quick actions would be silent no-ops, so disable them. */
+    busy?: boolean;
     onOpen: (id: string) => void;
     onRefresh?: () => void;
     onAction?: (id: string) => void;
@@ -64,7 +67,7 @@
       const broken = profiles.profiles.filter((p) => !p.linksIntact).length;
       out.push({
         key: 'profiles', tab: 'profiles', title: t('page.home_profiles'),
-        value: broken > 0 ? t('page.home_profilesBroken', { n: broken }) : t('page.home_profilesOk', { n: profiles.profiles.length }),
+        value: broken > 0 ? `${broken} ${plural(broken, t('page.home_brokenLink_one'), t('page.home_brokenLink_few'), t('page.home_brokenLink_many'))}` : t('page.home_profilesOk', { n: profiles.profiles.length }),
         level: broken > 0 ? 'bad' : 'ok',
         // F23: one-click repair of every broken profile's links (parent loops the repair script).
         action: broken > 0 ? { id: 'repair-profiles', label: t('page.home_repairAll') } : undefined
@@ -74,7 +77,7 @@
     const conf = profiles?.syncConflicts?.count ?? 0;
     if (conf > 0) {
       out.push({
-        key: 'conflicts', tab: 'sync', title: t('page.home_conflicts'), value: t('page.home_conflictsN', { n: conf }), level: 'warn',
+        key: 'conflicts', tab: 'sync', title: t('page.home_conflicts'), value: `${conf} ${pFile(conf)}`, level: 'warn',
         action: { id: 'clean-conflicts', label: t('page.home_cleanConflicts') }
       });
     }
@@ -147,10 +150,10 @@
     {#if onAction}
       <!-- F23: quick actions — run the same parent handlers the dedicated tabs use. -->
       <span class="ml-auto flex flex-wrap gap-sw-2">
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onAction('check-all')}>{t('page.home_checkAll')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onAction('refresh-forks')}>{t('page.home_refreshForks')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onAction('start-stack')}>{t('page.home_stackStart')}</button>
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onAction('stop-stack')}>{t('page.home_stackStop')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('check-all')}>{t('page.home_checkAll')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('refresh-forks')}>{t('page.home_refreshForks')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('start-stack')}>{t('page.home_stackStart')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} title={busy ? t('page.home_busy') : undefined} onclick={() => onAction('stop-stack')}>{t('page.home_stackStop')}</button>
       </span>
     {/if}
   </div>

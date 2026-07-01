@@ -54,6 +54,7 @@
     scriptsSaved = false;
   });
 
+  let saveErr = $state('');
   async function saveScripts() {
     const root = scriptsRoot.trim();
     if (!root) return;
@@ -78,8 +79,19 @@
     return true; // step 0 (welcome) and step 2 (profile — optional) never block
   });
 
-  function next() {
+  async function next() {
     if (!canNext) return;
+    // R4: "Next" is the natural click — it must persist a typed-but-unsaved Scripts root instead
+    // of discarding it (the separate Save button used to be the only writer).
+    if (stepIdx === 1 && scriptsRoot.trim() && !scriptsSaved) {
+      saveErr = '';
+      try {
+        await saveScripts();
+      } catch (e) {
+        saveErr = String(e);
+        return; // stay on the step — the path was NOT persisted
+      }
+    }
     if (stepIdx < TOTAL - 1) stepIdx += 1;
   }
   function back() {
@@ -105,12 +117,9 @@
         <span>{t('onboarding.scriptsLabel')}</span>
         <div class="ob-row">
           <FolderField bind:value={scriptsRoot} placeholder={t('onboarding.scriptsPlaceholder')} />
-          <button class="sw-btn sw-btn-primary" disabled={!scriptsRoot.trim()} onclick={saveScripts}>
-            {t('common.save')}
-          </button>
         </div>
-        {#if scriptsSaved}
-          <span class="ob-ok">{t('onboarding.scriptsSaved')}</span>
+        {#if saveErr}
+          <span class="dlg-warn">{saveErr}</span>
         {:else if !scriptsRoot.trim()}
           <span class="dlg-hint">{t('onboarding.scriptsNeeded')}</span>
         {/if}
@@ -197,12 +206,6 @@
   .ob-grow {
     flex: 1;
     min-width: 0;
-  }
-  .ob-ok {
-    display: block;
-    margin-top: 4px;
-    font-size: var(--sw-text-xs);
-    color: var(--sw-accent-text);
   }
   .ob-link {
     align-self: flex-start;

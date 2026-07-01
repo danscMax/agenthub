@@ -20,8 +20,7 @@ export default {
   scriptsBody:
     'Castellyn drives your PowerShell maintenance scripts. Choose the folder that holds them (it contains the Castellyn subfolder).',
   scriptsLabel: 'Scripts root',
-  scriptsPlaceholder: 'E:\\Scripts',
-  scriptsSaved: 'Saved',
+  scriptsPlaceholder: 'e.g. E:\\Scripts',
   scriptsNeeded: 'Pick a folder to continue.',
 
   // Step 3 — profile

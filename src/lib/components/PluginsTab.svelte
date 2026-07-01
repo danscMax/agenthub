@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PluginInfo, SkillInfo, PluginAction, PluginUpdate, PluginContents, PluginRelease } from '$lib/ipc';
   import { listPluginReleases } from '$lib/ipc';
-  import { t, pSkill, pCommand, pAgent } from '$lib/i18n';
+  import { t, pSkill, pCommand, pAgent, pPlugin } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
   import Spinner from './Spinner.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
@@ -238,7 +238,7 @@
   {:else}
   <!-- Plugins -->
   <div class="dt-summary mb-sw-2">
-    {t('plugins.summary', { total: pluginList.length, updates: updateIds.length, off: disabledCount })}
+    {t('plugins.summary', { plugins: `${pluginList.length} ${pPlugin(pluginList.length)}`, updates: updateIds.length, off: disabledCount })}
   </div>
   {#if pluginList.length}
     <DataTable

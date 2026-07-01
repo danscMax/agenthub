@@ -12,7 +12,6 @@ export default {
   syncNowTip: '将实时配置镜像到部署源（备份）',
   relinkBtn: '修复链接',
   relinkTip: '重新建立共享配置符号链接（需要管理员）',
-  conflictsBadge: '{n} 个冲突',
   conflictsDesc: '检测到 Syncthing 冲突文件。',
   cleanConflictsBtn: '清理',
   cleanConflictsTip: '删除 *.sync-conflict-* 文件',
