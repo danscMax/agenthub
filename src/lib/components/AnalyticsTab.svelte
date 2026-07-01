@@ -20,6 +20,8 @@
   ];
 
   let rangeHours = $state(168);
+  // V9: the trend sparkline stretches to its card (was fixed 680px — half the card sat empty).
+  let trendW = $state(0);
   let data = $state<FreellmapiAnalytics | null>(null);
   let loading = $state(false);
   let loaded = '';
@@ -501,8 +503,10 @@
         <p class="text-sw-xs text-sw-text-muted">{grainLabel}</p>
       </div>
       {#if trend.length >= 2}
-        <Sparkline points={trend} labels={trendLabels} width={680} height={56} title={t('analytics.trend')}
-          peakLabel={trend.length ? `↑ ${fmt(Math.max(...trend))}` : ''} />
+        <div class="w-full" bind:clientWidth={trendW}>
+          <Sparkline points={trend} labels={trendLabels} width={Math.max(320, trendW || 680)} height={56} title={t('analytics.trend')}
+            peakLabel={trend.length ? `↑ ${fmt(Math.max(...trend))}` : ''} />
+        </div>
       {:else}
         <p class="text-sw-sm text-sw-text-muted">{t('analytics.trendEmpty')}</p>
       {/if}

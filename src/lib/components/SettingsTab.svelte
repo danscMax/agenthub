@@ -67,7 +67,7 @@
       [t('settings.launch'), t('settings.startWithWindows'), t('settings.startHidden'), t('settings.closeToTray'), t('settings.confirmDestructive'), t('settings.toggleHotkey'), t('settings.shortcutsSection')],
       [t('settings.timeouts'), t('settings.timeoutsDesc')],
       [t('settings.backupSection'), t('settings.exportConfig'), t('settings.importConfig')],
-      [t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config')]
+      [t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'), t('settings.checkUpdates'), t('settings.openScriptsFolder'), t('settings.openConfigFile'), t('settings.openStackFile'), t('settings.openBackupFolder')]
     ];
     return !groups.some((g) => g.some((l) => l.toLowerCase().includes(q)));
   });
@@ -486,7 +486,8 @@
     {/if}
 
     <!-- About -->
-    {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'))}
+    <!-- U10: the About card's ACTIONS are searchable too (check updates / open folders) -->
+    {#if show(t('settings.about'), t('settings.version'), t('settings.scripts'), t('settings.config'), t('settings.checkUpdates'), t('settings.openScriptsFolder'), t('settings.openConfigFile'), t('settings.openStackFile'), t('settings.openBackupFolder'))}
     <div class="sw-card flex flex-col gap-sw-2" data-highlight-id="settings:about">
       <div class="font-medium">{t('settings.about')}</div>
       <div class="flex items-center gap-sw-3 pb-sw-1">
@@ -515,6 +516,16 @@
         <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.configPath)} title={t('common.copyPath')}>{paths?.configPath ?? t('common.dash')}</button></dd>
         <dt class="text-sw-text-muted">{t('settings.app')}</dt>
         <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.exe)} title={t('common.copyPath')}>{paths?.exe ?? t('common.dash')}</button></dd>
+        <!-- V15: stack/backup paths are visible & copyable like the rest (the open-buttons below
+             were the only trace of them) -->
+        {#if paths?.stackPath}
+          <dt class="text-sw-text-muted">{t('settings.openStackFile')}</dt>
+          <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.stackPath)} title={t('common.copyPath')}>{paths.stackPath}</button></dd>
+        {/if}
+        {#if paths?.backupDir}
+          <dt class="text-sw-text-muted">{t('settings.backupSection')}</dt>
+          <dd class="min-w-0"><button class="copyable" onclick={() => copyPath(paths?.backupDir)} title={t('common.copyPath')}>{paths.backupDir}</button></dd>
+        {/if}
       </dl>
       <div class="flex flex-wrap gap-sw-2 pt-sw-1">
         {#if paths?.scriptsRoot}

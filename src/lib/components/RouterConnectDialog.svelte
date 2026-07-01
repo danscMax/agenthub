@@ -56,6 +56,12 @@
   });
 
   const canSubmit = $derived(!!model.trim() && !!profile);
+  // U11: Enter submits like in the sibling form dialogs (self-guards on validity).
+  function submit() {
+    if (!canSubmit) return;
+    onSubmit({ model: model.trim(), profile, key: apiKey.trim() });
+    apiKey = '';
+  }
   // Anthropic-native engines (LM Studio, GLM router) bind straight to the profile — no ccr.
   const direct = $derived(!!engine && engine.protocol === 'anthropic' && !engine.router);
   // opencode is OpenAI-native → offered as a target only for openai-compatible engines.
@@ -67,7 +73,7 @@
   ]);
 </script>
 
-<ModalShell open={open && !!engine} onClose={onCancel} size="md">
+<ModalShell open={open && !!engine} onClose={onCancel} onEnter={submit} size="md">
     {#if engine}
       <h3 class="dlg-h sub-gap">
         {#if isOpencode}{t('providers.rcOpencodeTitle', { name: engine.name })}
@@ -106,7 +112,7 @@
 
       <div class="dlg-row">
         <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
-        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={() => { onSubmit({ model: model.trim(), profile, key: apiKey.trim() }); apiKey = ''; }}
+        <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}
           title={isOpencode ? t('providers.rcOpencodeTip') : direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
           {isOpencode ? t('providers.rcOpencodeBtn') : direct ? t('providers.rcBind') : t('providers.rcConnect')}
         </button>

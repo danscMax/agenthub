@@ -267,11 +267,17 @@ export default {
   hkTabJump: 'Переход на вкладку 1–9',
   hkCancel: 'Отменить выполняющуюся операцию',
   hkHelp: 'Эта справка',
+  hkCancelAll: 'Отменить всё (прогоны, форки, сессии)',
+  hkScopeGlobal: 'Глобальные',
+  hkScopeSessions: 'На вкладке «Сессии»',
+  hkScopeTerminal: 'В фокусе терминала',
   // Команды-действия в палитре
   cmd_check_all: 'Проверить все обновления',
   cmd_refresh_forks: 'Обновить форки',
   cmd_backup_now: 'Сделать бэкап',
   cmd_open_log: 'Открыть журнал выполнения',
+  cmd_cancel_all: 'Отменить всё (прогоны, форки, сессии)',
+  cmd_new_session: 'Новая сессия',
   cmd_stack_start: 'Запустить LLM-стек',
   cmd_stack_stop: 'Остановить LLM-стек',
 

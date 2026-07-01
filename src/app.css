@@ -232,6 +232,21 @@
     filter: brightness(1.08);
     box-shadow: 0 0 16px rgba(220, 38, 38, 0.4);
   }
+  /* U7: outlined danger — destructive actions that must stay reachable without being the
+     loudest control on the tab. Text colours follow the .status-bad canon (red-400 dark,
+     red-700 light for WCAG contrast on near-white cards). */
+  .sw-btn-danger-ghost {
+    @apply text-red-400;
+    background: transparent;
+    border: 1px solid rgba(220, 38, 38, 0.45);
+  }
+  .light .sw-btn-danger-ghost {
+    @apply text-red-700;
+    border-color: rgba(185, 28, 28, 0.5);
+  }
+  .sw-btn-danger-ghost:not(:disabled):hover {
+    background: rgba(220, 38, 38, 0.12);
+  }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-sw-xs font-medium;
   }
@@ -362,6 +377,12 @@
   .dlg-fld {
     display: block;
     margin-bottom: var(--sw-space-3);
+  }
+  /* V3: dialog form fields fill the modal width — .sw-input has no intrinsic width, so bare
+     inputs collapsed to browser-default ~20ch and truncated their own placeholders (Base URL).
+     Flex rows inside a field still constrain naturally. */
+  .dlg-fld .sw-input {
+    width: 100%;
   }
   /* Field label = the field's first span only; trailing .dlg-hint/.dlg-warn spans style themselves. */
   .dlg-fld > span:first-child {

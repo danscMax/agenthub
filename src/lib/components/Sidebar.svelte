@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { navOrder, previewNavOrder, setNavOrder } from '$lib/navOrder.svelte';
   import type { Attention } from '$lib/attention';
   import { t } from '$lib/i18n';
   import Spinner from './Spinner.svelte';
@@ -65,33 +66,16 @@
     { id: 'settings', labelKey: 'nav.settings', tipKey: 'nav.settingsTip', icon: ICONS.settings, enabled: true }
   ];
 
-  // Collapsed rail + user tab order, both persisted.
+  // Collapsed rail persisted here; the tab ORDER lives in the shared navOrder module (U1) so the
+  // Ctrl+1..9 jumps and the palette hints always match the rendered order.
   const COLL_KEY = 'cmh-sidebar-collapsed';
-  const ORD_KEY = 'cmh-sidebar-order';
-  const ORD_VER_KEY = 'cmh-sidebar-order-ver';
-  // Bump whenever the default `items` order above changes — re-seeds everyone to the new default
-  // once (overriding a stale saved order), while still letting later manual reorders persist.
-  const ORD_VER = '4';
   let collapsed = $state(false);
-  let order = $state<string[]>(items.map((i) => i.id));
   const orderedItems = $derived(
-    order.map((id) => items.find((i) => i.id === id)).filter((i): i is (typeof items)[number] => !!i)
+    navOrder.ids.map((id) => items.find((i) => i.id === id)).filter((i): i is (typeof items)[number] => !!i)
   );
   onMount(() => {
     try {
       collapsed = localStorage.getItem(COLL_KEY) === '1';
-      const saved = JSON.parse(localStorage.getItem(ORD_KEY) ?? '[]');
-      // Honor the saved order only if it was stamped with the current default version; otherwise
-      // re-seed from the new default and stamp it.
-      if (localStorage.getItem(ORD_VER_KEY) === ORD_VER && Array.isArray(saved) && saved.length) {
-        const valid = saved.filter((id: string) => items.some((i) => i.id === id));
-        const missing = items.map((i) => i.id).filter((id) => !valid.includes(id));
-        order = [...valid, ...missing];
-      } else {
-        order = items.map((i) => i.id);
-        localStorage.setItem(ORD_KEY, JSON.stringify(order));
-        localStorage.setItem(ORD_VER_KEY, ORD_VER);
-      }
     } catch {
       /* first run */
     }
@@ -116,23 +100,15 @@
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     if (!dragId || dragId === targetId) return;
-    const cur = [...order];
+    const cur = [...navOrder.ids];
     const from = cur.indexOf(dragId);
     const to = cur.indexOf(targetId);
     if (from < 0 || to < 0) return;
     cur.splice(to, 0, cur.splice(from, 1)[0]);
-    order = cur;
-  }
-  function persistOrder() {
-    try {
-      localStorage.setItem(ORD_KEY, JSON.stringify(order));
-      localStorage.setItem(ORD_VER_KEY, ORD_VER);
-    } catch {
-      /* ignore */
-    }
+    previewNavOrder(cur);
   }
   function onDrop() {
-    persistOrder();
+    setNavOrder(navOrder.ids);
     dragId = null;
   }
 
@@ -141,14 +117,13 @@
   // on the moved item by re-focusing its button after the DOM updates.
   function moveItem(e: KeyboardEvent, id: string) {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-    const cur = [...order];
+    const cur = [...navOrder.ids];
     const from = cur.indexOf(id);
     const to = from + (e.key === 'ArrowUp' ? -1 : 1);
     if (from < 0 || to < 0 || to >= cur.length) return;
     e.preventDefault();
     cur.splice(to, 0, cur.splice(from, 1)[0]);
-    order = cur;
-    persistOrder();
+    setNavOrder(cur);
     const btn = e.currentTarget as HTMLButtonElement;
     requestAnimationFrame(() => btn.focus());
   }

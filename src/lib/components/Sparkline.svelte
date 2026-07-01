@@ -62,6 +62,15 @@
       : ''
   );
   const last = $derived(coords.length ? coords[coords.length - 1] : null);
+  // V9: anchor the peak label at the peak itself (clamped to the box) — a fixed top-right label
+  // overlapped the line whenever the series was high on the right edge.
+  const peak = $derived.by(() => {
+    if (!coords.length) return null;
+    let idx = 0;
+    for (let i = 1; i < points.length; i++) if (points[i] > points[idx]) idx = i;
+    return coords[idx] ?? null;
+  });
+  const peakAnchor = $derived(!peak ? 'middle' : peak.x < 40 ? 'start' : peak.x > width - 40 ? 'end' : 'middle');
 
   // Accessible summary: screen readers get magnitude (min / max / last value) instead of just the
   // title, since the visual y-scale is otherwise only legible on hover. Kept tiny, no redesign.
@@ -92,8 +101,9 @@
       stroke-linecap="round"
     />
     {#if last}<circle cx={last.x} cy={last.y} r="2" fill="currentColor" />{/if}
-    {#if peakLabel}
-      <text x={width} y="9" text-anchor="end" font-size="10" fill="currentColor" opacity="0.7">{peakLabel}</text>
+    {#if peakLabel && peak}
+      <text x={Math.min(Math.max(peak.x, 2), width - 2)} y={Math.max(9, peak.y - 5)}
+        text-anchor={peakAnchor} font-size="10" fill="currentColor" opacity="0.7">{peakLabel}</text>
     {/if}
     {#if coords.length}
       {#each coords as c, i (i)}

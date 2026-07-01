@@ -87,7 +87,8 @@
   }
 </script>
 
-<ModalShell {open} onClose={onCancel} size="md">
+<!-- U11: onEnter like the sibling form dialogs (submit self-guards on canSubmit) -->
+<ModalShell {open} onClose={onCancel} onEnter={submit} size="md">
       <h3 class="dlg-h">{current?.id ? t('myProviders.editTitle') : t('myProviders.addTitle')}</h3>
 
       <label class="dlg-fld">

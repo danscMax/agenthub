@@ -610,7 +610,8 @@
     <button class="x" onclick={() => zoom(-1)} title={t('sessions.zoomOut')} aria-label={t('sessions.zoomOut')}>A−</button>
     <button class="x" onclick={() => zoom(1)} title={t('sessions.zoomIn')} aria-label={t('sessions.zoomIn')}>A+</button>
     {#if !attachId && id && !exited && monitors.length > 1}
-      <DropdownMenu label="⬈" title={t('sessions.toMonitorTip')} items={monItems} />
+      <!-- U6: glyph (not label) so the accessible name comes from title, not the «⬈» symbol -->
+      <DropdownMenu glyph="⬈" title={t('sessions.toMonitorTip')} items={monItems} />
     {/if}
     {#if onDuplicate}
       <button class="x" onclick={onDuplicate} title={t('sessions.duplicate')} aria-label={t('sessions.duplicate')}>⧉</button>

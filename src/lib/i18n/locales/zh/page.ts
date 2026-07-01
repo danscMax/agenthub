@@ -262,11 +262,17 @@ export default {
   hkTabJump: '跳转到标签页 1–9',
   hkCancel: '取消正在进行的操作',
   hkHelp: '本帮助',
+  hkCancelAll: '全部取消（运行、分叉、会话）',
+  hkScopeGlobal: '全局',
+  hkScopeSessions: '「会话」标签页',
+  hkScopeTerminal: '终端聚焦时',
   // 命令面板动作
   cmd_check_all: '检查全部更新',
   cmd_refresh_forks: '刷新分叉',
   cmd_backup_now: '立即备份',
   cmd_open_log: '打开运行日志',
+  cmd_cancel_all: '全部取消（运行、分叉、会话）',
+  cmd_new_session: '新会话',
   cmd_stack_start: '启动 LLM 堆栈',
   cmd_stack_stop: '停止 LLM 堆栈',
 

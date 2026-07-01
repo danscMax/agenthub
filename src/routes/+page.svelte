@@ -113,6 +113,7 @@
   import { getTheme, applyTheme, type Theme } from '$lib/theme';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import Spinner from '$lib/components/Spinner.svelte';
+  import { navOrder } from '$lib/navOrder.svelte';
   import Console from '$lib/components/Console.svelte';
   import UpdatesTab from '$lib/components/UpdatesTab.svelte';
   import ForksTab from '$lib/components/ForksTab.svelte';
@@ -1493,7 +1494,8 @@
   });
   const paletteCommands = $derived([
     // Mirror the Ctrl+1..9 jumps (first 9 tabs) as visible hints so the shortcuts are discoverable.
-    ...NAV_IDS.map((id, i) => ({
+    // U1: both follow the SIDEBAR's live order (navOrder), so the numbers match what's on screen.
+    ...navOrder.ids.map((id, i) => ({
       id: `tab:${id}`,
       label: t(`nav.${id}`),
       hint: i < 9 ? `Ctrl+${i + 1}` : undefined,
@@ -1517,6 +1519,11 @@
     { id: 'act:stack_start', label: t('page.cmd_stack_start'), run: () => onStack('start') },
     { id: 'act:stack_stop', label: t('page.cmd_stack_stop'), run: () => onStack('stop') },
     { id: 'act:log', label: t('page.cmd_open_log'), run: () => consoleReveal++ },
+    // U9: the palette could start runs but not stop them; new-session was likewise unreachable.
+    { id: 'act:cancel_all', label: t('page.cmd_cancel_all'), run: () => cancelAllNow() },
+    { id: 'act:new_session', label: t('page.cmd_new_session'), run: () => (active = 'sessions') },
+    // U5: the cheatsheet is reachable from the palette too, not only via the «?» key.
+    { id: 'act:hotkeys', label: t('page.hkTitle'), run: () => (hotkeyHelpOpen = true) },
     // Per-component check/apply so "check rtk" / "apply plugins" are one Ctrl+K away, not a tab hunt.
     ...components.flatMap((c) => {
       const verbs = [
@@ -1575,12 +1582,12 @@
       cancelAllNow();
       return;
     }
-    // Ctrl+1..9 jumps straight to the Nth tab (the cheatsheet's Alt+number was Sessions-only).
+    // Ctrl+1..9 jumps straight to the Nth VISIBLE tab (U1: follows the sidebar's live order).
     if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
       const idx = Number(e.key) - 1;
-      if (idx < NAV_IDS.length) {
+      if (idx < navOrder.ids.length) {
         e.preventDefault();
-        active = NAV_IDS[idx];
+        active = navOrder.ids[idx];
       }
       return;
     }

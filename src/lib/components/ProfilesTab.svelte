@@ -353,7 +353,8 @@
         title={t('profiles.addProfileTip')}>
         {t('profiles.addProfile')}
       </button>
-      <button class="sw-btn sw-btn-danger" disabled={busy} onclick={() => onAction('reinstall')}
+      <!-- U7: outlined, not solid red — the most destructive action must not be the tab's loudest CTA -->
+      <button class="sw-btn sw-btn-danger-ghost" disabled={busy} onclick={() => onAction('reinstall')}
         title={t('profiles.reinstallTip')}>
         {t('profiles.reinstall')}
       </button>

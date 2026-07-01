@@ -267,11 +267,17 @@ export default {
   hkTabJump: 'Jump to tab 1–9',
   hkCancel: 'Cancel the running operation',
   hkHelp: 'This help',
+  hkCancelAll: 'Cancel everything (runs, forks, sessions)',
+  hkScopeGlobal: 'Global',
+  hkScopeSessions: 'On the Sessions tab',
+  hkScopeTerminal: 'With a terminal focused',
   // Command-palette action verbs
   cmd_check_all: 'Check all for updates',
   cmd_refresh_forks: 'Refresh forks',
   cmd_backup_now: 'Backup now',
   cmd_open_log: 'Open the run log',
+  cmd_cancel_all: 'Cancel everything (runs, forks, sessions)',
+  cmd_new_session: 'New session',
   cmd_stack_start: 'Start the LLM stack',
   cmd_stack_stop: 'Stop the LLM stack',
 

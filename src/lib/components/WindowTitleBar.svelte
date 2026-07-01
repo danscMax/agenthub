@@ -41,9 +41,10 @@
     <img class="logo" src="{base}/favicon.png" alt="" data-tauri-drag-region width="18" height="18" />
     <span class="title" data-tauri-drag-region>{t('titlebar.title')}</span>
     {#if runningStore.op}
-      <span class="running" title={opName(runningStore.op)}>
-        <span class="running-dot"></span>
-        <span class="running-label">{opName(runningStore.op)}</span>
+      <!-- V13: the indicator is not interactive — keep it a drag region like the rest of the bar -->
+      <span class="running" data-tauri-drag-region title={opName(runningStore.op)}>
+        <span class="running-dot" data-tauri-drag-region></span>
+        <span class="running-label" data-tauri-drag-region>{opName(runningStore.op)}</span>
       </span>
     {/if}
   </div>

@@ -181,10 +181,6 @@
                   {:else}
                     <button class="badge badge-muted" onclick={onOpenMcp} title={t('environments.openMcpTip')}>{t('environments.none')}</button>
                   {/if}
-                  {#if e.id === 'opencode'}
-                    <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
-                      onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitle')}>{t('environments.deployMcp')}</button>
-                  {/if}
                 </div>
               </div>
 
@@ -205,6 +201,15 @@
                 </div>
               </div>
             </div>
+
+            <!-- V7: card actions live BELOW the metric strip — an inline button used to inflate
+                 the MCP column and misalign the 4-column grid against sibling cards -->
+            {#if e.id === 'opencode'}
+              <div class="flex flex-wrap gap-sw-2">
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                  onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitle')}>{t('environments.deployMcp')}</button>
+              </div>
+            {/if}
 
             {#if !e.configOk}
               <span class="badge badge-warn w-fit" title={e.configPath}>{t('environments.errorRead')}</span>

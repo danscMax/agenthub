@@ -29,14 +29,23 @@
   let open = $state(false);
   let root = $state<HTMLElement | undefined>();
   let menuEl = $state<HTMLElement | undefined>();
+  let triggerEl = $state<HTMLButtonElement | undefined>();
 
   function toggle() {
     if (disabled) return;
     open = !open;
   }
+  // U6 (WAI-ARIA menu-button): closing via Escape or item activation returns focus to the
+  // trigger — focus used to die on the unmounted menu item and fall to <body>. Click-outside
+  // deliberately does NOT restore (the user focused something else on purpose).
+  function closeRestoring() {
+    if (!open) return;
+    open = false;
+    triggerEl?.focus();
+  }
   function pick(it: Item) {
     if (it.disabled) return;
-    open = false;
+    closeRestoring();
     it.onClick();
   }
   // Outside-press dismissal is handled by the `anchored` action (onOutside) — one shared impl.
@@ -64,10 +73,11 @@
   });
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && closeRestoring()} />
 
 <div class="dd" bind:this={root}>
   <button
+    bind:this={triggerEl}
     class="sw-btn text-sw-xs {variant === 'primary' ? '' : 'sw-btn-ghost'}"
     {disabled}
     onclick={toggle}
