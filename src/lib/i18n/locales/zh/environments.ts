@@ -62,5 +62,9 @@ export default {
   deployInstrTitle:
     '将规范规则文件（config\\CLAUDE.md、RTK.md）按路径加入 opencode.json 的 instructions[]——不复制内容（幂等）',
   deployInstrDone: '已接入指令到 OpenCode：{n}',
-  deployInstrError: '接入指令到 OpenCode 失败'
+  deployInstrError: '接入指令到 OpenCode 失败',
+  deployMcpTitleCodex:
+    '通过官方 `codex mcp add` 将规范 .mcp.json 中的 MCP 服务器写入 Codex（幂等，不改动用户自加的服务器）',
+  deployMcpDoneCodex: '已部署 MCP 到 Codex：{n}',
+  deployMcpErrorCodex: '部署 MCP 到 Codex 失败'
 };

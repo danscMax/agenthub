@@ -6246,7 +6246,7 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
 /// Translates each Claude-format server (`command` + `args` [+ `env`]) to OpenCode's local-server
 /// shape (`{type:"local", command:[…], enabled:true, environment}`). Merge-patch: overwrites the
 /// canonical names, preserves any user-added servers. Returns the count written. Atomic write + .bak.
-/// (Codex MCP fan-out is deferred — its config.toml MCP loading is historically flaky, openai/codex#3441.)
+/// (Codex has its own fan-out via `run_codex_mcp` — the official `codex mcp add` CLI.)
 #[tauri::command]
 fn run_opencode_mcp() -> Result<usize, String> {
     use serde_json::{json, Value};
@@ -6455,6 +6455,79 @@ fn run_opencode_providers() -> Result<usize, String> {
     Ok(count)
 }
 
+/// Build the `codex mcp add` argv (after `cmd /C codex`) for one canonical .mcp.json server.
+/// Returns None for entries without a launchable command. `codex mcp add` is an upsert, so
+/// re-deploying overwrites the canonical names and never touches user-added servers.
+fn codex_mcp_add_args(name: &str, def: &serde_json::Value) -> Option<Vec<String>> {
+    let command = def.get("command").and_then(|c| c.as_str()).unwrap_or_default();
+    if command.is_empty() || name.is_empty() {
+        return None;
+    }
+    let mut argv = vec!["mcp".into(), "add".into(), name.to_string()];
+    if let Some(env) = def.get("env").and_then(|e| e.as_object()) {
+        for (k, v) in env {
+            if let Some(val) = v.as_str() {
+                argv.push("--env".into());
+                argv.push(format!("{k}={val}"));
+            }
+        }
+    }
+    argv.push("--".into());
+    argv.push(command.to_string());
+    if let Some(args) = def.get("args").and_then(|a| a.as_array()) {
+        for a in args {
+            if let Some(s) = a.as_str() {
+                argv.push(s.to_string());
+            }
+        }
+    }
+    Some(argv)
+}
+
+/// Fan out the canonical MCP servers (.mcp.json) into Codex via the official `codex mcp add`
+/// CLI — Codex owns its config.toml format/validation, so we never hand-edit TOML. Verified
+/// live 2026-07-02 (upstream #3441 is closed): servers registered this way load in a session
+/// and their tools resolve via Codex's tool search. Returns the count added.
+#[tauri::command]
+fn run_codex_mcp() -> Result<usize, String> {
+    use std::os::windows::process::CommandExt;
+    let home = std::env::var("USERPROFILE")
+        .map_err(|_| tr("err.no_userprofile", cur_lang()).to_string())?;
+    let src = std::fs::read_to_string(abs(MCP_CONFIG_REL))
+        .map_err(|e| trv("err.mcp_read", cur_lang(), &[("e", &e)]))?
+        .replace("{{USERPROFILE_FWD}}", &home.replace('\\', "/"));
+    let canonical = parse_json_bom(&src).map_err(|e| trv("err.mcp_parse", cur_lang(), &[("e", &e)]))?;
+    let servers = canonical
+        .get("mcpServers")
+        .and_then(|m| m.as_object())
+        .ok_or_else(|| tr("err.mcp_no_servers", cur_lang()).to_string())?;
+
+    let mut count = 0usize;
+    let mut errs: Vec<String> = Vec::new();
+    for (name, def) in servers {
+        let Some(argv) = codex_mcp_add_args(name, def) else {
+            continue;
+        };
+        // codex is an npm .cmd shim on Windows — must go through cmd /C. Simple canonical
+        // args (npx/urls/paths) survive cmd's re-parse; cmd metacharacters would not.
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.arg("/C").arg("codex").args(&argv);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        match cmd.output() {
+            Ok(o) if o.status.success() => count += 1,
+            Ok(o) => errs.push(format!(
+                "{name}: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            )),
+            Err(e) => errs.push(format!("{name}: {e}")),
+        }
+    }
+    if !errs.is_empty() {
+        return Err(errs.join(" · "));
+    }
+    Ok(count)
+}
+
 /// Canonical rule files fanned into OpenCode's `instructions` array (paths, not copies —
 /// OpenCode reads them in place, so edits propagate without a re-deploy).
 const CANON_RULES_REL: [&str; 2] = [
@@ -6536,6 +6609,24 @@ mod opencode_fanout_tests {
     fn provider_entry_rejects_unusable_names() {
         assert!(super::opencode_provider_entry(&json!({ "name": "имя с пробелом", "baseUrl": "https://x" })).is_none());
         assert!(super::opencode_provider_entry(&json!({ "name": "ok", "baseUrl": "" })).is_none());
+    }
+
+    #[test]
+    fn codex_add_args_shape_env_and_separator() {
+        let def = json!({
+            "command": "npx",
+            "args": ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://localhost:9222"],
+            "env": { "FOO": "C:/Users/User/x.json" }
+        });
+        let argv = super::codex_mcp_add_args("chrome-devtools", &def).expect("valid");
+        assert_eq!(argv[..3], ["mcp", "add", "chrome-devtools"].map(String::from));
+        // env flags come BEFORE the `--` separator, server args after it
+        let sep = argv.iter().position(|a| a == "--").expect("separator");
+        assert!(argv[..sep].contains(&"FOO=C:/Users/User/x.json".to_string()));
+        assert_eq!(argv[sep + 1], "npx");
+        assert_eq!(*argv.last().unwrap(), "http://localhost:9222");
+        // no command → no invocation
+        assert!(super::codex_mcp_add_args("bad", &json!({ "args": ["x"] })).is_none());
     }
 
     #[test]
@@ -9132,6 +9223,7 @@ pub fn run() {
             run_opencode_mcp,
             run_opencode_providers,
             run_opencode_instructions,
+            run_codex_mcp,
             list_plugin_updates,
             list_plugin_contents,
             list_plugin_releases,

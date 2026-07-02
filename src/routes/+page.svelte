@@ -142,7 +142,7 @@
   import { pushRun } from '$lib/runHistory.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t, locale } from '$lib/i18n';
-  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, runOpencodeProviders, runOpencodeInstructions, type EnvInfo, type SkillRow } from '$lib/ipc';
+  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, runOpencodeProviders, runOpencodeInstructions, runCodexMcp, type EnvInfo, type SkillRow } from '$lib/ipc';
 
   let components = $state<Component[]>([]);
   let statuses = $state<Record<string, any>>({});
@@ -771,8 +771,8 @@
     }
   }
 
-  // One shape for every OpenCode fan-out button: run, toast the count, refresh the cards.
-  async function deployToOpencode(run: () => Promise<number>, doneKey: string, errKey: string) {
+  // One shape for every harness fan-out button: run, toast the count, refresh the cards.
+  async function deployToHarness(run: () => Promise<number>, doneKey: string, errKey: string) {
     try {
       const n = await run();
       pushToast({ kind: 'success', title: t(doneKey, { n }) });
@@ -783,15 +783,17 @@
   }
   const onDeployMcp = (id: string) => {
     if (id === 'opencode')
-      void deployToOpencode(runOpencodeMcp, 'environments.deployMcpDone', 'environments.deployMcpError');
+      void deployToHarness(runOpencodeMcp, 'environments.deployMcpDone', 'environments.deployMcpError');
+    else if (id === 'codex')
+      void deployToHarness(runCodexMcp, 'environments.deployMcpDoneCodex', 'environments.deployMcpErrorCodex');
   };
   const onDeployProviders = (id: string) => {
     if (id === 'opencode')
-      void deployToOpencode(runOpencodeProviders, 'environments.deployProvidersDone', 'environments.deployProvidersError');
+      void deployToHarness(runOpencodeProviders, 'environments.deployProvidersDone', 'environments.deployProvidersError');
   };
   const onDeployInstructions = (id: string) => {
     if (id === 'opencode')
-      void deployToOpencode(runOpencodeInstructions, 'environments.deployInstrDone', 'environments.deployInstrError');
+      void deployToHarness(runOpencodeInstructions, 'environments.deployInstrDone', 'environments.deployInstrError');
   };
 
   // Share skills into ~/.agents/skills (additive junctions) so OpenCode + Codex see them all.

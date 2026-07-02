@@ -62,5 +62,9 @@ export default {
   deployInstrTitle:
     'Add the canonical rule files (config\\CLAUDE.md, RTK.md) to instructions[] in opencode.json — by path, no copying (idempotent)',
   deployInstrDone: 'Instructions attached to OpenCode: {n}',
-  deployInstrError: 'Failed to attach instructions to OpenCode'
+  deployInstrError: 'Failed to attach instructions to OpenCode',
+  deployMcpTitleCodex:
+    'Write MCP servers from the canonical .mcp.json into Codex via the official `codex mcp add` (idempotent, user-added servers untouched)',
+  deployMcpDoneCodex: 'MCP deployed to Codex: {n}',
+  deployMcpErrorCodex: 'Failed to deploy MCP to Codex'
 };

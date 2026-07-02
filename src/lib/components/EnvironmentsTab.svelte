@@ -217,6 +217,11 @@
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
                   onclick={() => onDeployInstructions(e.id)} title={t('environments.deployInstrTitle')}>{t('environments.deployInstr')}</button>
               </div>
+            {:else if e.id === 'codex'}
+              <div class="flex flex-wrap gap-sw-2">
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                  onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitleCodex')}>{t('environments.deployMcp')}</button>
+              </div>
             {/if}
 
             {#if !e.configOk}

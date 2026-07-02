@@ -757,6 +757,8 @@ export const runOpencodeMcp = () => invoke<number>('run_opencode_mcp');
 export const runOpencodeProviders = () => invoke<number>('run_opencode_providers');
 // Attach canonical rule files (config CLAUDE.md/RTK.md) to OpenCode's `instructions` array.
 export const runOpencodeInstructions = () => invoke<number>('run_opencode_instructions');
+// Fan out canonical .mcp.json servers into Codex via the official `codex mcp add` CLI.
+export const runCodexMcp = () => invoke<number>('run_codex_mcp');
 // Delete a skill directory (guarded server-side to ~/.claude/skills).
 export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
 export type PluginRelease = {

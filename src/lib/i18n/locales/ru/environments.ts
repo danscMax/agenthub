@@ -62,5 +62,9 @@ export default {
   deployInstrTitle:
     'Добавить канонические файлы правил (config\\CLAUDE.md, RTK.md) в instructions[] opencode.json — по пути, без копирования (идемпотентно)',
   deployInstrDone: 'Инструкции подключены к OpenCode: {n}',
-  deployInstrError: 'Не удалось подключить инструкции к OpenCode'
+  deployInstrError: 'Не удалось подключить инструкции к OpenCode',
+  deployMcpTitleCodex:
+    'Записать MCP-серверы из канонического .mcp.json в Codex через официальный `codex mcp add` (идемпотентно, свои серверы не трогаются)',
+  deployMcpDoneCodex: 'MCP развёрнуты в Codex: {n}',
+  deployMcpErrorCodex: 'Не удалось развернуть MCP в Codex'
 };
