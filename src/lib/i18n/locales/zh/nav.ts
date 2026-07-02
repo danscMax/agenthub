@@ -36,5 +36,8 @@ export default {
   extensionsTip: 'Claude Code 插件与技能：更新、启用和禁用',
   scheduleTip: '按计划自动运行维护（Windows 计划任务程序）',
   envsTip: '各编码工具：在所有工具中统一技能、提供商和 RTK',
-  settingsTip: '应用设置：主题、语言、路径、开机自启'
+  settingsTip: '应用设置：主题、语言、路径、开机自启',
+  gWork: '工作',
+  gSetup: '集成',
+  gMaintain: '维护'
 };

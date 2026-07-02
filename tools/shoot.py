@@ -14,11 +14,12 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5173"
 OUT = Path(__file__).resolve().parent.parent / "docs" / "img"
 
-# Sidebar default order (navOrder.svelte.ts ORD_VER 4) -> .nav-item index per tab.
+# Sidebar default order (navOrder.svelte.ts ORD_VER 5, grouped) -> .nav-item index per tab.
+# INIT below opens every sidebar group so the index always addresses a rendered item.
 NAV_INDEX = {
     "home": 0, "sessions": 1, "profiles": 2, "providers": 3, "mcp": 4,
-    "envs": 5, "extensions": 6, "schedule": 7, "analytics": 8, "sync": 9,
-    "updates": 10, "forks": 11, "backup": 12, "settings": 13,
+    "envs": 5, "extensions": 6, "updates": 7, "forks": 8, "backup": 9,
+    "sync": 10, "schedule": 11, "analytics": 12, "settings": 13,
 }
 
 # tab id -> output filename stem
@@ -38,7 +39,8 @@ INIT = """
 localStorage.setItem('cmh-theme', 'dark');
 localStorage.setItem('cmh-language', 'en');
 localStorage.setItem('cmh-onboarded', '1');
-localStorage.setItem('cmh-sidebar-order-ver', '4');
+localStorage.setItem('cmh-sidebar-order-ver', '5');
+localStorage.setItem('cmh-sidebar-groups-closed', '{}');
 // Force xterm onto its DOM renderer (disable WebGL): the WebGL canvas renderer does not reliably
 // paint programmatically-written content into headless screenshots; the DOM renderer does.
 const _gc = HTMLCanvasElement.prototype.getContext;

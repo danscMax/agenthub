@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { navOrder, previewNavOrder, setNavOrder } from '$lib/navOrder.svelte';
+  import { navOrder, previewNavOrder, setNavOrder, NAV_GROUPS, groupOf } from '$lib/navOrder.svelte';
   import type { Attention } from '$lib/attention';
   import { t } from '$lib/i18n';
   import Spinner from './Spinner.svelte';
@@ -70,9 +70,6 @@
   // Ctrl+1..9 jumps and the palette hints always match the rendered order.
   const COLL_KEY = 'cmh-sidebar-collapsed';
   let collapsed = $state(false);
-  const orderedItems = $derived(
-    navOrder.ids.map((id) => items.find((i) => i.id === id)).filter((i): i is (typeof items)[number] => !!i)
-  );
   onMount(() => {
     try {
       collapsed = localStorage.getItem(COLL_KEY) === '1';
@@ -89,6 +86,48 @@
     }
   }
 
+  // Sections (NAV_GROUPS): headers + per-group collapse, so 14 flat rows become 3 short scannable
+  // blocks. "Maintain" starts closed — it's the rarely-visited half of the app. A closed group
+  // still surfaces its aggregated attention on the header, and the group holding the ACTIVE tab
+  // is always rendered open (palette/hotkey jumps must never land on a hidden item).
+  const GROUPS_KEY = 'cmh-sidebar-groups-closed';
+  let closedGroups = $state<Record<string, boolean>>({ maintain: true });
+  onMount(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? 'null');
+      if (saved && typeof saved === 'object') closedGroups = saved;
+    } catch {
+      /* first run */
+    }
+  });
+  function toggleGroup(gid: string) {
+    closedGroups = { ...closedGroups, [gid]: !closedGroups[gid] };
+    try {
+      localStorage.setItem(GROUPS_KEY, JSON.stringify(closedGroups));
+    } catch {
+      /* ignore */
+    }
+  }
+  const sections = $derived(
+    NAV_GROUPS.map((g) => {
+      const its = navOrder.ids
+        .filter((id) => g.ids.includes(id))
+        .map((id) => items.find((i) => i.id === id))
+        .filter((i): i is (typeof items)[number] => !!i);
+      const closed = !!closedGroups[g.id] && !its.some((i) => i.id === active);
+      // Aggregated attention for a closed header: total count + the highest level present.
+      let attCount = 0;
+      let attLevel: string | null = null;
+      for (const i of its) {
+        const a = attention[i.id];
+        if (!a) continue;
+        attCount += a.count ?? 0;
+        if (attLevel !== 'warn') attLevel = a.level;
+      }
+      return { ...g, items: its, closed, attCount, attLevel };
+    })
+  );
+
   // Drag a nav item over another to reorder (live), persisted on drop.
   let dragId = $state<string | null>(null);
   function onDragStart(e: DragEvent, id: string) {
@@ -100,6 +139,8 @@
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     if (!dragId || dragId === targetId) return;
+    // Items live inside their section — reorder only within the same group.
+    if (groupOf(dragId) !== groupOf(targetId)) return;
     const cur = [...navOrder.ids];
     const from = cur.indexOf(dragId);
     const to = cur.indexOf(targetId);
@@ -121,6 +162,7 @@
     const from = cur.indexOf(id);
     const to = from + (e.key === 'ArrowUp' ? -1 : 1);
     if (from < 0 || to < 0 || to >= cur.length) return;
+    if (groupOf(cur[to]) !== groupOf(id)) return; // stay within the section
     e.preventDefault();
     cur.splice(to, 0, cur.splice(from, 1)[0]);
     setNavOrder(cur);
@@ -137,37 +179,56 @@
       title={`${collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')} · ${t('nav.reorderHint')}`}
       aria-label={collapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')}>{collapsed ? '»' : '«'}</button>
   </div>
-  {#each orderedItems as it (it.id)}
-    <button
-      class="nav-item"
-      class:active={active === it.id}
-      class:dragging={dragId === it.id}
-      aria-current={active === it.id ? 'page' : undefined}
-      disabled={!it.enabled}
-      title={collapsed ? t(it.labelKey) : t(it.tipKey)}
-      draggable="true"
-      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-      ondragstart={(e) => onDragStart(e, it.id)}
-      ondragover={(e) => onDragOver(e, it.id)}
-      ondrop={onDrop}
-      onkeydown={(e) => moveItem(e, it.id)}
-      onclick={() => it.enabled && onSelect(it.id)}
-    >
-      <span class="nav-icon">{@html it.icon}</span>
-      <span class="nav-label">{t(it.labelKey)}</span>
-      {#if !it.enabled}<span class="soon">{t('nav.soon')}</span>{/if}
-      {#if loading[it.id]}
-        <span class="spin-wrap" title={t('common.refreshing')}><Spinner size={13} /></span>
-      {:else if attention[it.id]}
-        {@const att = attention[it.id]}
-        {#if att?.count}
-          <span class="att att-{att.level}" title={t('nav.attentionCount', { count: att.count })}>{att.count}</span>
-        {:else}
-          <span class="att-dot att-{att?.level}" title={t('nav.attention')}></span>
-        {/if}
+  <div class="nav-scroll">
+    {#each sections as g (g.id)}
+      {#if g.labelKey && !collapsed}
+        <button class="group-head" onclick={() => toggleGroup(g.id)} aria-expanded={!g.closed}>
+          <span class="group-chev" class:closed={g.closed}>▾</span>
+          <span class="group-label">{t(g.labelKey)}</span>
+          {#if g.closed && g.attCount}
+            <span class="att att-{g.attLevel ?? 'info'}">{g.attCount}</span>
+          {:else if g.closed && g.attLevel}
+            <span class="att-dot att-{g.attLevel}"></span>
+          {/if}
+        </button>
+      {:else if collapsed && g.id !== 'work'}
+        <div class="group-sep" role="separator"></div>
       {/if}
-    </button>
-  {/each}
+      {#if !g.closed || collapsed}
+        {#each g.items as it (it.id)}
+          <button
+            class="nav-item"
+            class:active={active === it.id}
+            class:dragging={dragId === it.id}
+            aria-current={active === it.id ? 'page' : undefined}
+            disabled={!it.enabled}
+            title={collapsed ? t(it.labelKey) : t(it.tipKey)}
+            draggable="true"
+            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+            ondragstart={(e) => onDragStart(e, it.id)}
+            ondragover={(e) => onDragOver(e, it.id)}
+            ondrop={onDrop}
+            onkeydown={(e) => moveItem(e, it.id)}
+            onclick={() => it.enabled && onSelect(it.id)}
+          >
+            <span class="nav-icon">{@html it.icon}</span>
+            <span class="nav-label">{t(it.labelKey)}</span>
+            {#if !it.enabled}<span class="soon">{t('nav.soon')}</span>{/if}
+            {#if loading[it.id]}
+              <span class="spin-wrap" title={t('common.refreshing')}><Spinner size={13} /></span>
+            {:else if attention[it.id]}
+              {@const att = attention[it.id]}
+              {#if att?.count}
+                <span class="att att-{att.level}" title={t('nav.attentionCount', { count: att.count })}>{att.count}</span>
+              {:else}
+                <span class="att-dot att-{att?.level}" title={t('nav.attention')}></span>
+              {/if}
+            {/if}
+          </button>
+        {/each}
+      {/if}
+    {/each}
+  </div>
   <div class="notif-area">
     <button class="notif-btn" onclick={onToggleNotif} title={t('common.notifications')} aria-label={t('common.notifications')}>
       <span class="nav-icon">{@html NOTIF_ICON}</span>
@@ -249,6 +310,55 @@
   }
   .nav-item.dragging {
     opacity: 0.5;
+  }
+  .nav-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--sw-space-3);
+    padding: 3px 14px 3px 10px;
+    border: none;
+    background: transparent;
+    color: var(--sw-text-muted);
+    font-family: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: var(--sw-radius-sm, 6px);
+    text-align: left;
+  }
+  .group-head:hover {
+    color: var(--sw-text-secondary);
+  }
+  .group-head:first-child {
+    margin-top: 0;
+  }
+  .group-label {
+    flex: 1;
+  }
+  .group-chev {
+    font-size: 0.6rem;
+    transition: transform 0.15s ease;
+  }
+  .group-chev.closed {
+    transform: rotate(-90deg);
+  }
+  .group-sep {
+    height: 1px;
+    background: var(--sw-border);
+    margin: var(--sw-space-2) 8px;
+    flex-shrink: 0;
   }
   .brand-dot {
     width: 10px;
