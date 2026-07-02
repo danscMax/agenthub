@@ -65,7 +65,9 @@ block at the bottom of `lib.rs` (~80 commands; frontend calls them via typed wra
   Windows-safe OpenCode RTK plugin), plus one-click canonical fan-outs: `run_opencode_mcp`
   (.mcp.json → opencode.json `mcp`), `run_opencode_providers` (myproviders.json → `provider`,
   keys as `{env:…}` refs only), `run_opencode_instructions` (canonical CLAUDE.md/RTK.md paths →
-  `instructions[]`), `run_codex_mcp` (.mcp.json → Codex via the official `codex mcp add` CLI)
+  `instructions[]`), `run_codex_mcp` (.mcp.json → Codex via the official `codex mcp add` CLI),
+  `run_codex_providers` (freellmapi gateway → Codex `[model_providers]`+`[profiles]` via toml_edit —
+  gateway-only because Codex is Responses-API-only; also mirrors the gateway key into the user env)
 - **schedules** — `read_schedules`, `run_schedule`
 - **sessions** (PTY) — `session_spawn`, `session_write`, `session_resize`, `session_kill`
 - **config / shell** — `read_config`, `write_config`, `export_config`, `import_config`, `app_paths`,
