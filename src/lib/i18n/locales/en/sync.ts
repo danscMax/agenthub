@@ -13,6 +13,11 @@ export default {
   relinkBtn: 'Repair links',
   relinkTip: 'Re-establish shared config symlinks (needs admin)',
   conflictsDesc: 'Syncthing conflict files detected.',
+  fstateOk: 'ok',
+  fstateLinked: 'linked',
+  fstateMaster: 'source',
+  fstateDrifted: 'drifted',
+  fstateUnlinked: 'not linked',
   cleanConflictsBtn: 'Clean',
   cleanConflictsTip: 'Delete the *.sync-conflict-* files',
   // Header

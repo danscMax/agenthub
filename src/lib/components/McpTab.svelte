@@ -97,9 +97,12 @@
 
   const COLS: DTColumn[] = $derived([
     { key: 'name', label: t('mcp.colName'), grow: true, sortable: true },
-    { key: 'command', label: t('mcp.colCommand'), width: '300px' },
+    // V1: budget the fixed columns to the real content — profiles (6 chips / the plugin note)
+    // needs the room the truncating monospace command column was hogging; at the old widths the
+    // note and the last chip clipped against the actions column on a 1440px window.
+    { key: 'command', label: t('mcp.colCommand'), width: '200px' },
     { key: 'deployed', label: t('mcp.colDeployed'), width: '100px', align: 'center', sortable: true },
-    { key: 'profiles', label: t('mcp.colProfiles'), width: '220px', interactive: true },
+    { key: 'profiles', label: t('mcp.colProfiles'), width: '300px', interactive: true },
     { key: 'actions', label: '', width: '130px', align: 'right', interactive: true }
   ]);
   type Srv = (typeof sortedSource)[number];
@@ -173,7 +176,7 @@
           {/if}
         {:else if col.key === 'profiles'}
           {#if isPlugin(srv.name)}
-            <span class="text-sw-xs text-sw-text-muted">{t('mcp.pluginNote')}</span>
+            <span class="text-sw-xs text-sw-text-muted" title={t('mcp.pluginNote')}>{t('mcp.pluginNote')}</span>
           {:else}
             <div class="flex flex-wrap gap-sw-1">
               {#each ALL_PROFILES as p (p)}

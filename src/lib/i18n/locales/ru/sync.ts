@@ -13,6 +13,11 @@ export default {
   relinkBtn: 'Починить связи',
   relinkTip: 'Заново установить symlink общего конфига (нужен админ)',
   conflictsDesc: 'Обнаружены конфликт-файлы Syncthing.',
+  fstateOk: 'ок',
+  fstateLinked: 'связан',
+  fstateMaster: 'источник',
+  fstateDrifted: 'разошёлся',
+  fstateUnlinked: 'без ссылки',
   cleanConflictsBtn: 'Очистить',
   cleanConflictsTip: 'Удалить файлы *.sync-conflict-*',
   // Header

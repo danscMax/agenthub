@@ -3,6 +3,7 @@
   import { pickFolder, listSubdirs } from '$lib/ipc';
   import { anchored } from '$lib/floating';
   import { t } from '$lib/i18n';
+  import { FolderOpen, Star } from '@lucide/svelte';
 
   // A folder input with a quick-pick dropdown: favourites + recent + a projects root's subfolders,
   // plus native browse and a "set projects root" action. Favourites/root persist; recent is shared
@@ -67,14 +68,15 @@
 <div class="ff" bind:this={rootEl}>
   <input class="sw-input inp text-sw-xs" bind:value {placeholder} spellcheck="false" autocomplete="off" />
   <button class="icon" onclick={() => (open ? (open = false) : openMenu())} title={t('sessions.folderMenu')} aria-label={t('sessions.folderMenu')}>▾</button>
-  <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}>📁</button>
-  <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}>★</button>
+  <!-- V6: SVG icons (one icon language) instead of the 📁 color emoji / ★ glyph -->
+  <button class="icon" onclick={browse} title={t('sessions.browse')} aria-label={t('sessions.browse')}><FolderOpen size={14} aria-hidden="true" /></button>
+  <button class="icon star" class:on={isFav} onclick={toggleFav} title={t('sessions.fav')} aria-label={t('sessions.fav')}><Star size={14} fill={isFav ? 'currentColor' : 'none'} aria-hidden="true" /></button>
   {#if open}
     <div class="menu" use:anchored={{ anchor: rootEl!, align: 'left', onOutside: () => (open = false) }}>
       {#if favorites.length}
         <div class="sec">{t('sessions.favorites')}</div>
         {#each favorites as f (f)}
-          <button class="row" onclick={() => choose(f)} title={f}><span class="b">★ {base(f)}</span><span class="p">{f}</span></button>
+          <button class="row" onclick={() => choose(f)} title={f}><span class="b"><Star size={11} fill="currentColor" aria-hidden="true" /> {base(f)}</span><span class="p">{f}</span></button>
         {/each}
       {/if}
       {#if recent.length}

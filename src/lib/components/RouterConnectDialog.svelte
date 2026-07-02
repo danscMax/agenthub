@@ -111,7 +111,7 @@
       {/if}
 
       <div class="dlg-row">
-        <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
+        <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}
           title={isOpencode ? t('providers.rcOpencodeTip') : direct ? t('providers.rcBindTip') : t('providers.rcConnectTip')}>
           {isOpencode ? t('providers.rcOpencodeBtn') : direct ? t('providers.rcBind') : t('providers.rcConnect')}

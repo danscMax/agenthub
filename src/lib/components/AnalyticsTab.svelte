@@ -22,6 +22,18 @@
   let rangeHours = $state(168);
   // V9: the trend sparkline stretches to its card (was fixed 680px — half the card sat empty).
   let trendW = $state(0);
+  // L1: envelope statuses are internal enum words — show localized labels (same canon as the
+  // Updates cards; 'changes' gets its own noun since there's no per-run count here).
+  const runStatusLabel = (s: string): string =>
+    s === 'ok'
+      ? t('updates.healthUpToDate')
+      : s === 'error'
+        ? t('updates.healthError')
+        : s === 'held'
+          ? t('updates.healthHeld')
+          : s === 'changes'
+            ? t('analytics.statusChanges')
+            : s;
   let data = $state<FreellmapiAnalytics | null>(null);
   let loading = $state(false);
   let loaded = '';
@@ -324,7 +336,7 @@
   <section class="sw-card mb-sw-6">
     <div class="mb-sw-2 flex items-center justify-between gap-sw-2">
       <div>
-        <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.scriptMetrics')}</p>
+        <p class="section-title">{t('analytics.scriptMetrics')}</p>
         <p class="text-sw-xs text-sw-text-muted">{t('analytics.scriptMetricsDesc')}</p>
       </div>
       <div class="flex shrink-0 items-center gap-sw-2">
@@ -355,14 +367,14 @@
             class="hist-bar-row"
             class:expanded={expandedDay === day.dateKey}
             onclick={() => (expandedDay = expandedDay === day.dateKey ? null : day.dateKey)}
-            title={day.items.length > 1 ? 'Click to expand' : ''}>
+            title={day.items.length > 1 ? t('analytics.expandTip') : ''}>
             <span class="hist-day-label">{day.label}</span>
             <span class="hist-bar-track">
               <span class="hist-bar" style="width: {histMode === 'duration' ? day.durPct : day.countPct}%"></span>
             </span>
             <span class="hist-value">
               {histMode === 'duration'
-                ? `${day.durationSec.toFixed(0)}s`
+                ? `${day.durationSec.toFixed(0)} ${t('analytics.unitS')}`
                 : `${day.count}`}
               {#if histMode === 'duration' && day.count > 1}
                 <span class="text-sw-text-muted">· {day.count}</span>
@@ -383,9 +395,10 @@
                   {#each day.items as run (run.timestamp)}
                     <tr class="border-b border-sw-border last:border-0">
                       <td class="px-sw-2 py-sw-1 font-medium">{run.component}</td>
-                      <td class="px-sw-2 py-sw-1 text-right tabular-nums">{run.durationSec.toFixed(1)}s</td>
+                      <td class="px-sw-2 py-sw-1 text-right tabular-nums">{run.durationSec.toFixed(1)} {t('analytics.unitS')}</td>
                       <td class="px-sw-2 py-sw-1 text-right">
-                        <span class="badge badge-{run.status === 'ok' ? 'ok' : run.status === 'changes' ? 'warn' : run.status === 'error' ? 'err' : 'muted'}">{run.status}</span>
+                        <!-- L1: localized status label instead of the raw envelope word -->
+                        <span class="badge badge-{run.status === 'ok' ? 'ok' : run.status === 'changes' ? 'warn' : run.status === 'error' ? 'err' : 'muted'}">{runStatusLabel(run.status)}</span>
                       </td>
                     </tr>
                   {/each}
@@ -459,7 +472,7 @@
     {#if topReq.length}
         <div class="card-grid mb-sw-4">
         <div class="sw-card">
-          <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.topRequests')}</p>
+          <p class="section-title">{t('analytics.topRequests')}</p>
           <ol class="mt-sw-2 list-none flex flex-col gap-1 text-sw-sm m-0 p-0">
             {#each topReq as m, i (keyOf(m))}
               <li class="flex justify-between gap-sw-2"><span class="truncate" title={m.displayName}>{i + 1}. {m.displayName}</span><span class="tabular-nums text-sw-text-muted">{fmt(m.requests)}</span></li>
@@ -468,7 +481,7 @@
         </div>
         {#if topCost.length}
           <div class="sw-card">
-            <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.topCost')}</p>
+            <p class="section-title">{t('analytics.topCost')}</p>
             <ol class="mt-sw-2 list-none flex flex-col gap-1 text-sw-sm m-0 p-0">
               {#each topCost as m, i (keyOf(m))}
                 <li class="flex justify-between gap-sw-2"><span class="truncate" title={m.displayName}>{i + 1}. {m.displayName}</span><span class="tabular-nums text-sw-text-muted">{money(m.estimatedCost)}</span></li>
@@ -482,7 +495,7 @@
     <!-- Cost breakdown by model as a stacked bar (#23); hidden when all usage is free. -->
     {#if costSegs.length}
       <div class="sw-card mb-sw-4">
-        <p class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.costByModel')}</p>
+        <p class="mb-sw-2 section-title">{t('analytics.costByModel')}</p>
         <div class="costbar">
           {#each costSegs as s (s.name)}
             <div class="seg" style="width:{s.pct}%;background:{s.color}" title="{s.name}: {money(s.cost)} ({s.pct.toFixed(1)}%)"></div>
@@ -499,7 +512,7 @@
     <!-- Trend -->
     <div class="sw-card mb-sw-6">
       <div class="mb-sw-2 flex items-baseline justify-between gap-sw-2">
-        <p class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('analytics.trend')}</p>
+        <p class="section-title">{t('analytics.trend')}</p>
         <p class="text-sw-xs text-sw-text-muted">{grainLabel}</p>
       </div>
       {#if trend.length >= 2}

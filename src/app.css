@@ -282,6 +282,12 @@
   .light .badge-info {
     @apply text-sky-700;
   }
+  /* V8: canonical section heading text — one definition instead of N copies of the utility
+     string. SectionHeader.svelte uses it; standalone headings apply the class directly. */
+  .section-title {
+    @apply text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted;
+    margin: 0;
+  }
   /* Status TEXT colours (shared via lib/statusColor.ts → statusTextClass). Same canon as the
      badges: *-400 in dark, darkened to *-600/700 in light so normal text clears WCAG 4.5:1 on
      the near-white card (dark *-400 is ~1.7-2.9:1 there). Dark values are unchanged. */

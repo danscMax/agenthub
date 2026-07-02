@@ -32,14 +32,7 @@
   .section-header {
     gap: var(--sw-space-3);
   }
-  .section-title {
-    margin: 0;
-    font-size: var(--sw-text-xs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--sw-text-muted);
-  }
+  /* .section-title itself is global (app.css) — V8: one canonical definition. */
   .section-subtitle {
     font-size: var(--sw-text-sm);
     color: var(--sw-text-secondary);

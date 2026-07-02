@@ -184,7 +184,7 @@
       {/if}
 
       <div class="dlg-row">
-        <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('myProviders.cancel')}</button>
+        <button class="sw-btn sw-btn-ghost" onclick={onCancel}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit}>{t('myProviders.save')}</button>
       </div>
 </ModalShell>

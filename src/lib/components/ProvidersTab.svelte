@@ -337,7 +337,7 @@
         <button class="flex min-w-0 items-center gap-sw-2 border-0 bg-transparent p-0 text-left" onclick={() => (stackOpen = !stackOpen)}>
           <span class="text-sw-text-muted transition-transform" class:rotate-90={stackOpen}>▸</span>
           <span class="min-w-0">
-            <span class="block text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.stackHeading')}</span>
+            <span class="block section-title">{t('providers.stackHeading')}</span>
             <span class="block text-sw-xs text-sw-text-muted">{t('providers.stackSub')}</span>
           </span>
         </button>
@@ -411,7 +411,7 @@
   <div class="mb-sw-2 flex items-center justify-between gap-sw-2">
     <button class="flex min-w-0 items-center gap-sw-2 border-0 bg-transparent p-0 text-left" onclick={() => (enginesOpen = !enginesOpen)}>
       <span class="text-sw-text-muted transition-transform" class:rotate-90={enginesOpen}>▸</span>
-      <span class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('providers.enginesHeading')}</span>
+      <span class="section-title">{t('providers.enginesHeading')}</span>
     </button>
     {#if engineList.length}
       <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy || !runningDashboards.length}
@@ -460,7 +460,7 @@
               </div>
               <div class="mt-sw-2 flex gap-sw-2">
                 <button class="sw-btn text-sw-xs" onclick={saveEdit} title={t('providers.saveEngineTitle')}>{t('providers.save')}</button>
-                <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (editId = null)} title={t('providers.cancelEditTip')}>{t('providers.cancel')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (editId = null)} title={t('providers.cancelEditTip')}>{t('common.cancel')}</button>
               </div>
             </div>
           {/if}
@@ -523,7 +523,7 @@
   <!-- Provider per profile lives on the Profiles tab (single source of truth) — no duplicate
        controls here, just a jump. -->
   <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
-    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+    <h2 class="section-title">
       {t('providers.providerPerProfileHeading')}
     </h2>
     {#if onOpenProfiles}
@@ -535,7 +535,7 @@
 
   <!-- Custom provider registry (own list; keys in Credential Manager) -->
   <div class="mb-sw-2 mt-sw-6 flex items-center justify-between gap-sw-2">
-    <h2 class="text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">{t('myProviders.title')}</h2>
+    <h2 class="section-title">{t('myProviders.title')}</h2>
     <div class="flex shrink-0 items-center gap-sw-2">
       <button class="sw-btn sw-btn-primary text-sw-xs" disabled={busy} onclick={mpAdd} title={t('myProviders.addTitle')}>
         {t('myProviders.add')}
@@ -571,7 +571,7 @@
       </div>
       <input class="sw-input" type="password" bind:value={loginToken} autocomplete="off" placeholder={t('myProviders.loginTokenOpt')} />
       <div class="flex justify-end gap-sw-2">
-        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (loginOpen = false)}>{t('myProviders.cancel')}</button>
+        <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (loginOpen = false)}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary text-sw-xs" disabled={!loginEmail.trim() && !loginToken.trim()} onclick={saveLogin}>{t('myProviders.save')}</button>
       </div>
     </div>

@@ -4,7 +4,7 @@
   import { t } from '$lib/i18n';
   import Toggle from './Toggle.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
-  import { Compass } from '@lucide/svelte';
+  import { Compass, Check, X } from '@lucide/svelte';
 
   let {
     data,
@@ -127,7 +127,7 @@
             {#if r.shareable}<span class="badge badge-warn ml-sw-2 text-sw-xs">{t('environments.matrixShareable')}</span>{/if}
           {:else}
             {@const ok = (r as any)[col.key] as boolean}
-            <span class="badge {ok ? 'badge-ok' : 'badge-muted'}" title={ok ? '✓' : '✗'}>{ok ? '✓' : '✗'}</span>
+            <span class="badge {ok ? 'badge-ok' : 'badge-muted'}">{#if ok}<Check size={12} aria-hidden="true" />{:else}<X size={12} aria-hidden="true" />{/if}</span>
           {/if}
         {/snippet}
       </DataTable>
@@ -157,7 +157,7 @@
                   </span>
                   <span class={e.pluginSkillsVisible ? 'text-sw-text-secondary' : 'text-sw-text-muted'}
                     title={e.pluginSkillsVisible ? t('environments.pluginSkillsOk') : t('environments.pluginSkillsMissing')}>
-                    {e.pluginSkillsVisible ? '✓' : '✗'}
+                    {#if e.pluginSkillsVisible}<Check size={12} aria-hidden="true" />{:else}<X size={12} aria-hidden="true" />{/if}
                   </span>
                 </div>
               </div>

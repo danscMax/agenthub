@@ -29,7 +29,6 @@ export default {
   cancelEditTip: '关闭编辑器，不将更改写入 engines.json',
   saveEngineTitle: '保存到 engines.json',
   save: '保存',
-  cancel: '取消',
 
   // Engine actions
   installCcrTitle: '安装 claude-code-router（npm）。只需一次。',

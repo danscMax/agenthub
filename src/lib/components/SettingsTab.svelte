@@ -26,6 +26,8 @@
   import { pushToast } from '$lib/toast.svelte';
   import Toggle from './Toggle.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import EmptyState from './EmptyState.svelte';
+  import { Search } from '@lucide/svelte';
   import { checkForUpdate, installUpdate, type UpdateInfo } from '$lib/updater';
 
   let {
@@ -547,13 +549,9 @@
       </div>
     </div>
     {/if}
+    <!-- V6/S4: the shared EmptyState primitive (SVG icon) instead of a hand-rolled 🔍 block -->
     {#if noResults}
-      <div class="grid place-items-center py-sw-6 text-center text-sw-text-muted">
-        <div>
-          <div class="mb-sw-2 text-2xl">🔍</div>
-          <div class="text-sw-sm">{t('settings.noResults', { query: query.trim() })}</div>
-        </div>
-      </div>
+      <EmptyState icon={Search} description={t('settings.noResults', { query: query.trim() })} />
     {/if}
   </div>
 </div>

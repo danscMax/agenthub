@@ -29,7 +29,6 @@ export default {
   cancelEditTip: 'Close the editor without writing changes to engines.json',
   saveEngineTitle: 'Save to engines.json',
   save: 'Save',
-  cancel: 'Cancel',
 
   // Engine actions
   installCcrTitle: 'Install claude-code-router (npm). Needed once.',

@@ -176,7 +176,7 @@
       </div>
 
       <div class="dlg-row">
-        <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('providers.cancel')}</button>
+        <button class="sw-btn sw-btn-ghost" onclick={onCancel} title={t('providers.dialogCancelTip')}>{t('common.cancel')}</button>
         <button class="sw-btn sw-btn-primary" disabled={!canSubmit} onclick={submit} title={t('providers.applyProviderTip')}>{t('providers.apply')}</button>
       </div>
 </ModalShell>

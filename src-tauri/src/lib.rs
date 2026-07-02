@@ -5243,7 +5243,7 @@ fn read_mcp_doc() -> Result<serde_json::Value, String> {
 
 fn write_mcp_doc(doc: &serde_json::Value) -> Result<(), String> {
     let json = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
-    write_json_atomic(&abs(MCP_CONFIG_REL), &json).map_err(|e| format!("write .mcp.json: {e}"))
+    write_json_atomic(&abs(MCP_CONFIG_REL), &json).map_err(|e| trv("err.mcp_write", cur_lang(), &[("e", &e)]))
 }
 
 /// Add or replace one server in the canonical config\.mcp.json. `definition` is the server's JSON
@@ -5253,11 +5253,11 @@ fn mcp_upsert_server(name: String, definition: String) -> Result<(), String> {
     let _guard = MCP_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let name = name.trim();
     if name.is_empty() {
-        return Err("MCP server name is required".to_string());
+        return Err(tr("err.mcp_name_required", cur_lang()).to_string());
     }
-    let def = parse_json_bom(&definition).map_err(|e| format!("invalid server JSON: {e}"))?;
+    let def = parse_json_bom(&definition).map_err(|e| trv("err.mcp_invalid_json", cur_lang(), &[("e", &e)]))?;
     if !def.is_object() {
-        return Err("server definition must be a JSON object".to_string());
+        return Err(tr("err.mcp_def_not_object", cur_lang()).to_string());
     }
     let mut doc = read_mcp_doc()?;
     if !doc
@@ -6082,7 +6082,7 @@ struct ShareResult {
 /// Never deletes a real directory or a still-valid link; mklink /J needs no admin. Claude is untouched.
 #[tauri::command]
 fn share_skills() -> Result<ShareResult, String> {
-    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    let home = std::env::var("USERPROFILE").map_err(|_| tr("err.no_userprofile", cur_lang()).to_string())?;
     let target_dir = format!("{home}\\.agents\\skills");
     std::fs::create_dir_all(&target_dir).map_err(|e| format!("create {target_dir}: {e}"))?;
 
@@ -6209,21 +6209,21 @@ fn resolve_rtk_path(home: &str) -> Option<String> {
 /// Reversible (disable just deletes the file); never touches Claude's RTK hook.
 #[tauri::command]
 fn run_opencode_rtk(action: String) -> Result<bool, String> {
-    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    let home = std::env::var("USERPROFILE").map_err(|_| tr("err.no_userprofile", cur_lang()).to_string())?;
     let plugins_dir = format!("{home}\\.config\\opencode\\plugins");
     let plugin_file = format!("{plugins_dir}\\rtk.ts");
     match action.as_str() {
         "enable" => {
             let rtk = resolve_rtk_path(&home)
-                .ok_or_else(|| "rtk binary not found (install rtk first)".to_string())?;
+                .ok_or_else(|| tr("err.rtk_not_found", cur_lang()).to_string())?;
             std::fs::create_dir_all(&plugins_dir)
-                .map_err(|e| format!("create {plugins_dir}: {e}"))?;
+                .map_err(|e| trv("err.fs_create", cur_lang(), &[("path", &plugins_dir), ("e", &e)]))?;
             // serde_json renders the path as a safe JS string literal (escapes \, ", ${, backtick).
             let rtk_json = serde_json::to_string(&rtk).map_err(|e| e.to_string())?;
             let content = OPENCODE_RTK_PLUGIN.replace("{{RTK_JSON}}", &rtk_json);
             // Atomic temp+rename + .bak of any prior rtk.ts (incl. a hand-authored one) — crash-safe.
             write_json_atomic(&plugin_file, &content)
-                .map_err(|e| format!("write {plugin_file}: {e}"))?;
+                .map_err(|e| trv("err.fs_write", cur_lang(), &[("path", &plugin_file), ("e", &e)]))?;
             Ok(true)
         }
         "disable" => {
@@ -6231,14 +6231,14 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
             match std::fs::read_to_string(&plugin_file) {
                 Ok(c) if c.contains("Managed by Castellyn") => {
                     std::fs::remove_file(&plugin_file)
-                        .map_err(|e| format!("remove {plugin_file}: {e}"))?
+                        .map_err(|e| trv("err.fs_remove", cur_lang(), &[("path", &plugin_file), ("e", &e)]))?
                 }
-                Ok(_) => return Err("rtk.ts is not Castellyn-managed — left untouched".to_string()),
+                Ok(_) => return Err(tr("err.rtk_not_managed", cur_lang()).to_string()),
                 Err(_) => {} // not present → already disabled
             }
             Ok(false)
         }
-        _ => Err(format!("unknown action: {action}")),
+        _ => Err(trv("err.unknown_action", cur_lang(), &[("action", &action)])),
     }
 }
 
@@ -6250,26 +6250,26 @@ fn run_opencode_rtk(action: String) -> Result<bool, String> {
 #[tauri::command]
 fn run_opencode_mcp() -> Result<usize, String> {
     use serde_json::{json, Value};
-    let home = std::env::var("USERPROFILE").map_err(|_| "USERPROFILE not set".to_string())?;
+    let home = std::env::var("USERPROFILE").map_err(|_| tr("err.no_userprofile", cur_lang()).to_string())?;
     // Canonical source, placeholders expanded (same as write_temp_mcp_config).
     let src = std::fs::read_to_string(abs(MCP_CONFIG_REL))
-        .map_err(|e| format!("read .mcp.json: {e}"))?
+        .map_err(|e| trv("err.mcp_read", cur_lang(), &[("e", &e)]))?
         .replace("{{USERPROFILE_FWD}}", &home.replace('\\', "/"));
-    let canonical = parse_json_bom(&src).map_err(|e| format!("parse .mcp.json: {e}"))?;
+    let canonical = parse_json_bom(&src).map_err(|e| trv("err.mcp_parse", cur_lang(), &[("e", &e)]))?;
     let servers = canonical
         .get("mcpServers")
         .and_then(|m| m.as_object())
-        .ok_or_else(|| "no mcpServers in .mcp.json".to_string())?;
+        .ok_or_else(|| tr("err.mcp_no_servers", cur_lang()).to_string())?;
 
     let cfg_path = opencode_config_path();
     let mut cfg: Value = match std::fs::read_to_string(&cfg_path) {
         Ok(ref c) if !c.trim().is_empty() => {
-            parse_json_bom(c).map_err(|e| format!("parse opencode.json: {e}"))?
+            parse_json_bom(c).map_err(|e| trv("err.opencode_parse", cur_lang(), &[("e", &e)]))?
         }
-        _ => return Err("opencode.json not found (is OpenCode installed?)".to_string()),
+        _ => return Err(tr("err.opencode_missing", cur_lang()).to_string()),
     };
     let Some(obj) = cfg.as_object_mut() else {
-        return Err("opencode.json is not a JSON object".to_string());
+        return Err(tr("err.opencode_not_object", cur_lang()).to_string());
     };
     obj.entry("$schema")
         .or_insert_with(|| json!("https://opencode.ai/config.json"));

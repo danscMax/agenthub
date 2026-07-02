@@ -1,6 +1,8 @@
 <script lang="ts">
   import { toastStore, markNotifRead, clearHistory, dismissFromHistory } from '$lib/toast.svelte';
   import { t } from '$lib/i18n';
+  import { Check, TriangleAlert, X, Info } from '@lucide/svelte';
+  import type { Component } from 'svelte';
 
   let { open = false, onClose }: { open: boolean; onClose: () => void } = $props();
 
@@ -14,11 +16,12 @@
     if (open) markNotifRead();
   });
 
-  const kindIcon: Record<string, string> = {
-    success: '✓',
-    warn: '⚠',
-    error: '✗',
-    info: 'ℹ'
+  // V6: SVG icons (one icon language) instead of the ✓⚠✗ℹ text glyphs.
+  const kindIcon: Record<string, Component> = {
+    success: Check,
+    warn: TriangleAlert,
+    error: X,
+    info: Info
   };
 
   function fmtRel(ts: number): string {
@@ -50,8 +53,9 @@
       {:else}
         <div class="list">
           {#each history.items as item, i (item.timestamp)}
+            {@const Icon = kindIcon[item.kind]}
             <div class="entry {item.kind}">
-              <span class="icon" class:icon-success={item.kind === 'success'} class:icon-warn={item.kind === 'warn'} class:icon-error={item.kind === 'error'} class:icon-info={item.kind === 'info'}>{kindIcon[item.kind]}</span>
+              <span class="icon" class:icon-success={item.kind === 'success'} class:icon-warn={item.kind === 'warn'} class:icon-error={item.kind === 'error'} class:icon-info={item.kind === 'info'}><Icon size={11} aria-hidden="true" /></span>
               <div class="body">
                 <div class="entry-title">{item.title}</div>
                 {#if item.detail}<div class="entry-detail">{item.detail}</div>{/if}

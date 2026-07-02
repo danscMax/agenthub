@@ -69,6 +69,16 @@
     return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
   }
 
+  // L3: config-file drift states are internal enum words — show localized labels.
+  const FILE_STATE_KEYS: Record<string, string> = {
+    ok: 'sync.fstateOk',
+    linked: 'sync.fstateLinked',
+    master: 'sync.fstateMaster',
+    drifted: 'sync.fstateDrifted',
+    unlinked: 'sync.fstateUnlinked'
+  };
+  const fileStateLabel = (s: string) => (FILE_STATE_KEYS[s] ? t(FILE_STATE_KEYS[s]) : s);
+
   function stateLabel(s?: string) {
     if (s === 'idle') return t('sync.stateIdle');
     if (s === 'syncing') return t('sync.stateSyncing');
@@ -196,7 +206,7 @@
           {#each driftData.items as item (item.name)}
             <div class="flex items-center gap-sw-2 rounded bg-sw-surface px-sw-3 py-1.5 text-sw-sm">
               <code class="font-mono flex-1 truncate">{item.name}</code>
-              <span class="badge badge-{item.state === 'ok' || item.state === 'linked' || item.state === 'master' ? 'ok' : 'warn'}">{item.state}</span>
+              <span class="badge badge-{item.state === 'ok' || item.state === 'linked' || item.state === 'master' ? 'ok' : 'warn'}">{fileStateLabel(item.state)}</span>
               {#if item.state === 'drifted'}
                 <button class="sw-btn sw-btn-ghost text-sw-xs shrink-0" onclick={() => toggleDiff(item.name)}
                   title={t('sync.diffTitle')}>

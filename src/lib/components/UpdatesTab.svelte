@@ -53,13 +53,13 @@
   <!-- Group by update status (#110): components with an available update float to the top, the
        rest collapse under an "up to date" heading. When nothing has an update, one flat grid. -->
   {#if withUpdates.length}
-    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+    <h2 class="mb-sw-2 section-title">
       {t('updates.groupHasUpdate', { count: withUpdates.length })}
     </h2>
     <div class="group-grid mb-sw-6">
       {#each withUpdates as c (c.id)}{@render card(c)}{/each}
     </div>
-    <h2 class="mb-sw-2 text-sw-xs font-semibold uppercase tracking-wide text-sw-text-muted">
+    <h2 class="mb-sw-2 section-title">
       {t('updates.groupUpToDate', { count: upToDate.length })}
     </h2>
     <div class="group-grid">

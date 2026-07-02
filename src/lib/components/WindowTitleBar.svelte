@@ -11,11 +11,22 @@
   // maximize, overlapping squares = restore) — Windows convention.
   let maximized = $state(false);
   const syncMax = () => appWin.isMaximized().then((v) => (maximized = v)).catch(() => {});
+  // V14: dim the custom chrome when the window loses focus (native Windows titlebars do) —
+  // otherwise an inactive window looks active. Tauri's focus event covers OS-level focus.
+  let winFocused = $state(true);
   onMount(() => {
     syncMax();
     let unlisten: (() => void) | undefined;
+    let unlistenFocus: (() => void) | undefined;
     appWin.onResized(syncMax).then((u) => (unlisten = u)).catch(() => {});
-    return () => unlisten?.();
+    appWin
+      .onFocusChanged(({ payload }) => (winFocused = payload))
+      .then((u) => (unlistenFocus = u))
+      .catch(() => {});
+    return () => {
+      unlisten?.();
+      unlistenFocus?.();
+    };
   });
 
   async function minimize() {
@@ -36,7 +47,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="titlebar" data-tauri-drag-region ondblclick={toggleMaximize}>
+<div class="titlebar" class:inactive={!winFocused} data-tauri-drag-region ondblclick={toggleMaximize}>
   <div class="brand" data-tauri-drag-region>
     <img class="logo" src="{base}/favicon.png" alt="" data-tauri-drag-region width="18" height="18" />
     <span class="title" data-tauri-drag-region>{t('titlebar.title')}</span>
@@ -105,6 +116,14 @@
     border-radius: 5px;
     flex-shrink: 0;
     object-fit: contain;
+  }
+  /* V14: inactive-window chrome dims like a native Windows titlebar. */
+  .titlebar.inactive .title,
+  .titlebar.inactive :global(.running) {
+    color: var(--sw-text-muted);
+  }
+  .titlebar.inactive .logo {
+    opacity: 0.6;
   }
   .title {
     font-size: var(--sw-text-xs);

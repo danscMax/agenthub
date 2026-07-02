@@ -47,7 +47,6 @@ export default {
   smallModel: 'Быстрая модель',
   smallModelPlaceholder: '(необязательно)',
   smallModelHint: 'Для мелких задач (заголовки чата и т.п.). Пусто = та же модель.',
-  cancel: 'Отмена',
   save: 'Сохранить',
   dialogClose: 'Закрыть диалог',
   hasKey: 'Ключ сохранён в Credential Manager',

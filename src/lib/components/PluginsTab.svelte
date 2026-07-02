@@ -5,6 +5,7 @@
   import Toggle from './Toggle.svelte';
   import Spinner from './Spinner.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
+  import { Puzzle, SquareSlash, Bot } from '@lucide/svelte';
 
   let {
     plugins,
@@ -167,10 +168,12 @@
 
   const PLUGIN_COLS: DTColumn[] = $derived([
     { key: 'name', label: t('plugins.colName'), sortable: true, grow: true },
-    { key: 'market', label: t('plugins.colMarket'), sortable: true, width: '140px' },
-    { key: 'version', label: t('plugins.colVersion'), sortable: true, width: '130px' },
-    { key: 'desc', label: t('plugins.skillColDesc'), width: '300px' },
-    { key: 'contents', label: t('plugins.colContents'), width: '140px' },
+    // V2: the fixed columns summed past the content width at 1440px → horizontal scroll with the
+    // status/actions columns clipped. Trimmed to real content; name (grow) + spacer absorb slack.
+    { key: 'market', label: t('plugins.colMarket'), sortable: true, width: '110px' },
+    { key: 'version', label: t('plugins.colVersion'), sortable: true, width: '110px' },
+    { key: 'desc', label: t('plugins.skillColDesc'), width: '240px' },
+    { key: 'contents', label: t('plugins.colContents'), width: '110px' },
     { key: 'status', label: t('plugins.colStatus'), sortable: true, align: 'center', width: '74px', interactive: true },
     { key: 'actions', label: '', align: 'right', width: '90px', interactive: true }
   ]);
@@ -295,10 +298,11 @@
         {:else if col.key === 'contents'}
           {@const c = contentMap.get(p.id)}
           {#if c && hasContents(p.id)}
+            <!-- V6: SVG icons instead of 🧩 / mac-⌘ / 🤖 emoji (⌘ is a macOS key on a Windows app) -->
             <span class="comp">
-              {#if c.skills.length}<span title={pSkill(c.skills.length)}>🧩 {c.skills.length}</span>{/if}
-              {#if c.commands.length}<span title={pCommand(c.commands.length)}>⌘ {c.commands.length}</span>{/if}
-              {#if c.agents.length}<span title={pAgent(c.agents.length)}>🤖 {c.agents.length}</span>{/if}
+              {#if c.skills.length}<span title={pSkill(c.skills.length)}><Puzzle size={12} aria-hidden="true" /> {c.skills.length}</span>{/if}
+              {#if c.commands.length}<span title={pCommand(c.commands.length)}><SquareSlash size={12} aria-hidden="true" /> {c.commands.length}</span>{/if}
+              {#if c.agents.length}<span title={pAgent(c.agents.length)}><Bot size={12} aria-hidden="true" /> {c.agents.length}</span>{/if}
             </span>
           {:else}<span class="ph">—</span>{/if}
         {:else if col.key === 'status'}
@@ -322,10 +326,11 @@
         {@const c = contentMap.get(p.id)}
         {#if c}
           <div class="detail">
-            {#each [{ label: t('plugins.catSkills'), items: c.skills, icon: '🧩' }, { label: t('plugins.catCommands'), items: c.commands, icon: '⌘' }, { label: t('plugins.catAgents'), items: c.agents, icon: '🤖' }] as cat (cat.label)}
+            {#each [{ label: t('plugins.catSkills'), items: c.skills, icon: Puzzle }, { label: t('plugins.catCommands'), items: c.commands, icon: SquareSlash }, { label: t('plugins.catAgents'), items: c.agents, icon: Bot }] as cat (cat.label)}
               {#if cat.items.length}
+                {@const CatIcon = cat.icon}
                 <div class="detgroup">
-                  <p class="detlabel">{cat.icon} {cat.label} <span class="ph">{cat.items.length}</span></p>
+                  <p class="detlabel"><CatIcon size={12} aria-hidden="true" /> {cat.label} <span class="ph">{cat.items.length}</span></p>
                   <div class="chips">
                     {#each cat.items as item (item)}<span class="chip">{item}</span>{/each}
                   </div>
@@ -405,7 +410,7 @@
     <div class="cl-modal" role="dialog" aria-label={t('plugins.changelogTitle')} tabindex="-1" onclick={(e) => e.stopPropagation()} ontouchstart={(e) => e.stopPropagation()}>
       <div class="cl-header">
         <h2 class="cl-title">{t('plugins.changelogTitle')} — {changelogPlugin}</h2>
-        <button class="iconbtn" onclick={closeChangelog} aria-label="Close">✕</button>
+        <button class="iconbtn" onclick={closeChangelog} aria-label={t('common.close')}>✕</button>
       </div>
       <div class="cl-body">
         {#if changelogLoading}

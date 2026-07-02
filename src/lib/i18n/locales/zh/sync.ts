@@ -13,6 +13,11 @@ export default {
   relinkBtn: '修复链接',
   relinkTip: '重新建立共享配置符号链接（需要管理员）',
   conflictsDesc: '检测到 Syncthing 冲突文件。',
+  fstateOk: '正常',
+  fstateLinked: '已链接',
+  fstateMaster: '源',
+  fstateDrifted: '已漂移',
+  fstateUnlinked: '未链接',
   cleanConflictsBtn: '清理',
   cleanConflictsTip: '删除 *.sync-conflict-* 文件',
   // Header

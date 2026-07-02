@@ -47,7 +47,6 @@ export default {
   smallModel: 'Fast model',
   smallModelPlaceholder: '(optional)',
   smallModelHint: 'For small tasks (chat titles, etc.). Empty = same model.',
-  cancel: 'Cancel',
   save: 'Save',
   dialogClose: 'Close dialog',
   hasKey: 'Key stored in Credential Manager',

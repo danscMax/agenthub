@@ -48,7 +48,7 @@
 <div class="detached">
   <div class="bar" data-tauri-drag-region>
     <span class="ttl">{panes.length === 1 ? panes[0].title : `Castellyn · ${panes.length}`}</span>
-    <button class="x" onclick={closeWin} aria-label="close" title={t('common.close')}>✕</button>
+    <button class="x" onclick={closeWin} aria-label={t('common.close')} title={t('common.close')}>✕</button>
   </div>
   <div class="body">
     {#if loaded && panes.length}

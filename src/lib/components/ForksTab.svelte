@@ -6,7 +6,7 @@
   import ForkRepoCard from './ForkRepoCard.svelte';
   import EmptyState from './EmptyState.svelte';
   import DataTable, { type DTColumn } from './DataTable.svelte';
-  import { GitFork } from '@lucide/svelte';
+  import { GitFork, ArrowUpDown } from '@lucide/svelte';
 
   let {
     status,
@@ -151,12 +151,15 @@
   type Gh = GithubRepo;
   const GH_COLS: DTColumn[] = $derived([
     { key: 'name', label: t('forks.ghColName'), grow: true, sortable: true },
-    { key: 'full', label: t('forks.ghColRepo'), width: '240px', sortable: true },
-    { key: 'language', label: t('forks.ghColLang'), width: '110px', sortable: true },
-    { key: 'stars', label: t('forks.ghColStars'), width: '90px', align: 'right', sortable: true },
-    { key: 'updated', label: t('forks.ghColUpdated'), width: '120px', sortable: true },
-    { key: 'kind', label: t('forks.ghColKind'), width: '150px' },
-    { key: 'actions', label: t('forks.ghColActions'), width: '110px', align: 'right', interactive: true }
+    // V2: the actions cell holds TWO buttons (~190px) — its old 110px pushed the table into a
+    // horizontal scroll on a 1440px window and clipped «Клонировать». Secondary columns are
+    // trimmed to their real content so everything fits without scrolling down to 1280px.
+    { key: 'full', label: t('forks.ghColRepo'), width: '180px', sortable: true },
+    { key: 'language', label: t('forks.ghColLang'), width: '80px', sortable: true },
+    { key: 'stars', label: t('forks.ghColStars'), width: '56px', align: 'right', sortable: true },
+    { key: 'updated', label: t('forks.ghColUpdated'), width: '100px', sortable: true },
+    { key: 'kind', label: t('forks.ghColKind'), width: '110px' },
+    { key: 'actions', label: t('forks.ghColActions'), width: '190px', align: 'right', interactive: true }
   ]);
   function ghSort(g: Gh, key: string): string | number {
     if (key === 'full') return g.nameWithOwner.toLowerCase();
@@ -247,7 +250,7 @@
       </div>
       <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => (sortBy = sortBy === 'name' ? 'behind' : 'name')}
         title={t('forks.sortTip')}>
-        ⇅ {sortBy === 'behind' ? t('forks.sortBehind') : t('forks.sortName')}
+        <ArrowUpDown size={12} aria-hidden="true" /> {sortBy === 'behind' ? t('forks.sortBehind') : t('forks.sortName')}
       </button>
     </div>
     <div class="card-grid">
