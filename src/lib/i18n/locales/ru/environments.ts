@@ -52,5 +52,15 @@ export default {
   deployMcp: 'Развернуть MCP',
   deployMcpTitle: 'Записать MCP-серверы из канонического .mcp.json в opencode.json (идемпотентно, с бэкапом)',
   deployMcpDone: 'MCP развёрнуты в OpenCode: {n}',
-  deployMcpError: 'Не удалось развернуть MCP в OpenCode'
+  deployMcpError: 'Не удалось развернуть MCP в OpenCode',
+  deployProviders: 'Развернуть провайдеры',
+  deployProvidersTitle:
+    'Записать провайдеров из реестра (myproviders.json) в opencode.json. Ключи — только {env:…}-ссылки; вручную привязанные ключи не трогаются',
+  deployProvidersDone: 'Провайдеры развёрнуты в OpenCode: {n}',
+  deployProvidersError: 'Не удалось развернуть провайдеров в OpenCode',
+  deployInstr: 'Подключить инструкции',
+  deployInstrTitle:
+    'Добавить канонические файлы правил (config\\CLAUDE.md, RTK.md) в instructions[] opencode.json — по пути, без копирования (идемпотентно)',
+  deployInstrDone: 'Инструкции подключены к OpenCode: {n}',
+  deployInstrError: 'Не удалось подключить инструкции к OpenCode'
 };

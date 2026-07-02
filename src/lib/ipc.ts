@@ -753,6 +753,10 @@ export const runOpencodeRtk = (action: 'enable' | 'disable') =>
   invoke<boolean>('run_opencode_rtk', { action });
 // Fan out canonical .mcp.json servers into OpenCode's opencode.json `mcp`. Returns count written.
 export const runOpencodeMcp = () => invoke<number>('run_opencode_mcp');
+// Fan out the myproviders.json registry into OpenCode's `provider` block (keys stay env-refs only).
+export const runOpencodeProviders = () => invoke<number>('run_opencode_providers');
+// Attach canonical rule files (config CLAUDE.md/RTK.md) to OpenCode's `instructions` array.
+export const runOpencodeInstructions = () => invoke<number>('run_opencode_instructions');
 // Delete a skill directory (guarded server-side to ~/.claude/skills).
 export const deleteSkill = (dir: string) => invoke('delete_skill', { dir });
 export type PluginRelease = {

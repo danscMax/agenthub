@@ -52,5 +52,15 @@ export default {
   deployMcp: 'Deploy MCP',
   deployMcpTitle: 'Write MCP servers from the canonical .mcp.json into opencode.json (idempotent, with backup)',
   deployMcpDone: 'MCP deployed to OpenCode: {n}',
-  deployMcpError: 'Failed to deploy MCP to OpenCode'
+  deployMcpError: 'Failed to deploy MCP to OpenCode',
+  deployProviders: 'Deploy providers',
+  deployProvidersTitle:
+    'Write providers from the registry (myproviders.json) into opencode.json. Keys are {env:…} references only; manually bound keys are left untouched',
+  deployProvidersDone: 'Providers deployed to OpenCode: {n}',
+  deployProvidersError: 'Failed to deploy providers to OpenCode',
+  deployInstr: 'Attach instructions',
+  deployInstrTitle:
+    'Add the canonical rule files (config\\CLAUDE.md, RTK.md) to instructions[] in opencode.json — by path, no copying (idempotent)',
+  deployInstrDone: 'Instructions attached to OpenCode: {n}',
+  deployInstrError: 'Failed to attach instructions to OpenCode'
 };

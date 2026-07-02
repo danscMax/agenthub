@@ -6307,6 +6307,258 @@ fn run_opencode_mcp() -> Result<usize, String> {
     Ok(count)
 }
 
+/// Translate one myproviders.json registry entry into an (id, desired-shape) pair for
+/// OpenCode's `provider` block. Returns None when the entry lacks a usable name/baseUrl.
+/// Refs-only by design: `apiKey` is an `{env:<NAME>_API_KEY}` reference — the real key lives
+/// only in the Credential Manager and is never copied into opencode.json.
+fn opencode_provider_entry(e: &serde_json::Value) -> Option<(String, serde_json::Value)> {
+    use serde_json::json;
+    let display = e.get("name")?.as_str()?.trim();
+    let id = display.to_lowercase();
+    let base = e.get("baseUrl")?.as_str()?.trim();
+    if base.is_empty() || !valid_profile_name(&id) {
+        return None;
+    }
+    // Anthropic-protocol endpoints ride the official SDK (x-api-key auth); everything else
+    // is OpenAI-compatible (bearer).
+    let npm = if e.get("protocol").and_then(|x| x.as_str()) == Some("anthropic") {
+        "@ai-sdk/anthropic"
+    } else {
+        "@ai-sdk/openai-compatible"
+    };
+    let env_var: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // Registry `model`/`smallModel` are free text, possibly `;`-separated / with a stray `;`.
+    let mut models = serde_json::Map::new();
+    for field in ["model", "smallModel"] {
+        if let Some(s) = e.get(field).and_then(|x| x.as_str()) {
+            for m in s.split(';').map(str::trim).filter(|m| !m.is_empty()) {
+                models.entry(m.to_string()).or_insert(json!({}));
+            }
+        }
+    }
+    let mut shape = json!({
+        "npm": npm,
+        "name": display,
+        "options": { "baseURL": base, "apiKey": format!("{{env:{env_var}_API_KEY}}") },
+    });
+    if !models.is_empty() {
+        shape
+            .as_object_mut()
+            .unwrap()
+            .insert("models".into(), serde_json::Value::Object(models));
+    }
+    Some((id, shape))
+}
+
+/// Merge the desired provider shape into an existing opencode.json `provider.<id>` object.
+/// Overwrites npm/name/baseURL (canonical wins), but PRESERVES an existing `options.apiKey`
+/// (a key the user already bound manually beats our env reference) and existing model entries.
+fn merge_opencode_provider(target: &mut serde_json::Value, shape: serde_json::Value) {
+    if !target.is_object() {
+        *target = serde_json::json!({});
+    }
+    let t = target.as_object_mut().unwrap();
+    let s = match shape {
+        serde_json::Value::Object(m) => m,
+        _ => return,
+    };
+    for (k, v) in s {
+        match k.as_str() {
+            "options" => {
+                if !t.get("options").map(|x| x.is_object()).unwrap_or(false) {
+                    t.insert("options".into(), serde_json::json!({}));
+                }
+                let to = t.get_mut("options").unwrap().as_object_mut().unwrap();
+                if let serde_json::Value::Object(so) = v {
+                    for (ok, ov) in so {
+                        if ok == "apiKey" {
+                            to.entry(ok).or_insert(ov);
+                        } else {
+                            to.insert(ok, ov);
+                        }
+                    }
+                }
+            }
+            "models" => {
+                if !t.get("models").map(|x| x.is_object()).unwrap_or(false) {
+                    t.insert("models".into(), serde_json::json!({}));
+                }
+                let tm = t.get_mut("models").unwrap().as_object_mut().unwrap();
+                if let serde_json::Value::Object(sm) = v {
+                    for (mk, mv) in sm {
+                        tm.entry(mk).or_insert(mv);
+                    }
+                }
+            }
+            _ => {
+                t.insert(k, v);
+            }
+        }
+    }
+}
+
+/// Fan out the custom-provider registry (myproviders.json) into OpenCode's `provider` block.
+/// Batch counterpart of the single-provider `run_opencode_provider` bind. Merge-patch preserves
+/// user-added providers and manually bound keys; secrets never leave the Credential Manager
+/// (apiKey is written as an `{env:…}` reference the user populates). Returns the count written.
+#[tauri::command]
+fn run_opencode_providers() -> Result<usize, String> {
+    use serde_json::{json, Value};
+    let src = std::fs::read_to_string(abs(MYPROVIDERS_CONFIG_REL))
+        .map_err(|e| trv("err.myproviders_read", cur_lang(), &[("e", &e)]))?;
+    let reg = parse_json_bom(&src).map_err(|e| trv("err.myproviders_parse", cur_lang(), &[("e", &e)]))?;
+    let entries: Vec<Value> = reg
+        .get("providers")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if entries.is_empty() {
+        return Err(tr("err.no_providers", cur_lang()).to_string());
+    }
+
+    let cfg_path = opencode_config_path();
+    let mut cfg: Value = match std::fs::read_to_string(&cfg_path) {
+        Ok(ref c) if !c.trim().is_empty() => {
+            parse_json_bom(c).map_err(|e| trv("err.opencode_parse", cur_lang(), &[("e", &e)]))?
+        }
+        _ => return Err(tr("err.opencode_missing", cur_lang()).to_string()),
+    };
+    let Some(obj) = cfg.as_object_mut() else {
+        return Err(tr("err.opencode_not_object", cur_lang()).to_string());
+    };
+    obj.entry("$schema")
+        .or_insert_with(|| json!("https://opencode.ai/config.json"));
+    if !obj.get("provider").map(|p| p.is_object()).unwrap_or(false) {
+        obj.insert("provider".into(), json!({}));
+    }
+    let providers = obj.get_mut("provider").unwrap().as_object_mut().unwrap();
+
+    let mut count = 0usize;
+    for e in &entries {
+        if let Some((id, shape)) = opencode_provider_entry(e) {
+            merge_opencode_provider(providers.entry(id).or_insert(json!({})), shape);
+            count += 1;
+        }
+    }
+
+    let serialized = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    write_json_atomic(&cfg_path, &serialized).map_err(|e| format!("write opencode.json: {e}"))?;
+    Ok(count)
+}
+
+/// Canonical rule files fanned into OpenCode's `instructions` array (paths, not copies —
+/// OpenCode reads them in place, so edits propagate without a re-deploy).
+const CANON_RULES_REL: [&str; 2] = [
+    "!Настройки и MCP\\ClaudeProfiles\\config\\CLAUDE.md",
+    "!Настройки и MCP\\ClaudeProfiles\\config\\RTK.md",
+];
+
+/// Attach the canonical rule files to OpenCode's `instructions` array (idempotent merge,
+/// existing user entries preserved). Returns how many canonical paths are connected after
+/// the merge — 0 means none of the files exist on disk.
+#[tauri::command]
+fn run_opencode_instructions() -> Result<usize, String> {
+    use serde_json::{json, Value};
+    let paths: Vec<String> = CANON_RULES_REL
+        .iter()
+        .map(|rel| abs(rel).replace('\\', "/"))
+        .filter(|p| std::path::Path::new(p).is_file())
+        .collect();
+    if paths.is_empty() {
+        return Err(tr("err.canon_rules_missing", cur_lang()).to_string());
+    }
+
+    let cfg_path = opencode_config_path();
+    let mut cfg: Value = match std::fs::read_to_string(&cfg_path) {
+        Ok(ref c) if !c.trim().is_empty() => {
+            parse_json_bom(c).map_err(|e| trv("err.opencode_parse", cur_lang(), &[("e", &e)]))?
+        }
+        _ => return Err(tr("err.opencode_missing", cur_lang()).to_string()),
+    };
+    let Some(obj) = cfg.as_object_mut() else {
+        return Err(tr("err.opencode_not_object", cur_lang()).to_string());
+    };
+    obj.entry("$schema")
+        .or_insert_with(|| json!("https://opencode.ai/config.json"));
+    if !obj
+        .get("instructions")
+        .map(|i| i.is_array())
+        .unwrap_or(false)
+    {
+        obj.insert("instructions".into(), json!([]));
+    }
+    let list = obj.get_mut("instructions").unwrap().as_array_mut().unwrap();
+    for p in &paths {
+        if !list.iter().any(|v| v.as_str() == Some(p)) {
+            list.push(json!(p));
+        }
+    }
+
+    let serialized = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    write_json_atomic(&cfg_path, &serialized).map_err(|e| format!("write opencode.json: {e}"))?;
+    Ok(paths.len())
+}
+
+#[cfg(test)]
+mod opencode_fanout_tests {
+    use serde_json::json;
+
+    #[test]
+    fn provider_entry_translates_protocol_models_and_env_ref() {
+        let e = json!({
+            "name": "minimax", "baseUrl": "https://api.minimax.chat/v1",
+            "protocol": "openai", "model": "MiniMax-M3;", "smallModel": "MiniMax-M3;"
+        });
+        let (id, shape) = super::opencode_provider_entry(&e).expect("valid entry");
+        assert_eq!(id, "minimax");
+        assert_eq!(shape["npm"], "@ai-sdk/openai-compatible");
+        assert_eq!(shape["options"]["apiKey"], "{env:MINIMAX_API_KEY}");
+        // stray `;` in the registry model must not produce an empty model key
+        assert_eq!(shape["models"].as_object().unwrap().len(), 1);
+        assert!(shape["models"].get("MiniMax-M3").is_some());
+
+        let a = json!({ "name": "aerolink", "baseUrl": "https://capi.aerolink.lat", "protocol": "anthropic" });
+        let (_, shape) = super::opencode_provider_entry(&a).expect("valid entry");
+        assert_eq!(shape["npm"], "@ai-sdk/anthropic");
+        assert!(shape.get("models").is_none());
+    }
+
+    #[test]
+    fn provider_entry_rejects_unusable_names() {
+        assert!(super::opencode_provider_entry(&json!({ "name": "имя с пробелом", "baseUrl": "https://x" })).is_none());
+        assert!(super::opencode_provider_entry(&json!({ "name": "ok", "baseUrl": "" })).is_none());
+    }
+
+    #[test]
+    fn merge_preserves_manual_api_key_and_user_models() {
+        let mut target = json!({
+            "options": { "apiKey": "{env:MY_REAL_KEY}", "timeout": 5 },
+            "models": { "user-model": { "name": "kept" } }
+        });
+        let (_, shape) = super::opencode_provider_entry(&json!({
+            "name": "minimax", "baseUrl": "https://api.minimax.chat/v1", "model": "MiniMax-M3"
+        }))
+        .unwrap();
+        super::merge_opencode_provider(&mut target, shape);
+        // manual key + unrelated option survive, canonical baseURL/npm win, models union
+        assert_eq!(target["options"]["apiKey"], "{env:MY_REAL_KEY}");
+        assert_eq!(target["options"]["timeout"], 5);
+        assert_eq!(target["options"]["baseURL"], "https://api.minimax.chat/v1");
+        assert_eq!(target["npm"], "@ai-sdk/openai-compatible");
+        assert!(target["models"].get("user-model").is_some());
+        assert!(target["models"].get("MiniMax-M3").is_some());
+    }
+}
+
 #[cfg(test)]
 mod opencode_rtk_plugin_tests {
     /// A path containing backtick / `${` / quote must render as a single valid JS string literal,
@@ -8878,6 +9130,8 @@ pub fn run() {
             share_skills,
             run_opencode_rtk,
             run_opencode_mcp,
+            run_opencode_providers,
+            run_opencode_instructions,
             list_plugin_updates,
             list_plugin_contents,
             list_plugin_releases,

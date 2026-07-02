@@ -17,6 +17,8 @@
     onOpenProviders,
     onOpenMcp,
     onDeployMcp,
+    onDeployProviders,
+    onDeployInstructions,
     onOpenUrl,
     onLoadMatrix
   }: {
@@ -30,6 +32,8 @@
     onOpenProviders: () => void;
     onOpenMcp: () => void;
     onDeployMcp: (id: string) => void;
+    onDeployProviders: (id: string) => void;
+    onDeployInstructions: (id: string) => void;
     onOpenUrl: (url: string) => void;
     onLoadMatrix: () => void;
   } = $props();
@@ -208,6 +212,10 @@
               <div class="flex flex-wrap gap-sw-2">
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
                   onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitle')}>{t('environments.deployMcp')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                  onclick={() => onDeployProviders(e.id)} title={t('environments.deployProvidersTitle')}>{t('environments.deployProviders')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                  onclick={() => onDeployInstructions(e.id)} title={t('environments.deployInstrTitle')}>{t('environments.deployInstr')}</button>
               </div>
             {/if}
 

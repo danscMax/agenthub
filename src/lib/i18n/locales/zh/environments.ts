@@ -52,5 +52,15 @@ export default {
   deployMcp: '部署 MCP',
   deployMcpTitle: '将规范 .mcp.json 中的 MCP 服务器写入 opencode.json（幂等，带备份）',
   deployMcpDone: '已部署 MCP 到 OpenCode：{n}',
-  deployMcpError: '部署 MCP 到 OpenCode 失败'
+  deployMcpError: '部署 MCP 到 OpenCode 失败',
+  deployProviders: '部署提供商',
+  deployProvidersTitle:
+    '将注册表（myproviders.json）中的提供商写入 opencode.json。密钥仅为 {env:…} 引用；手动绑定的密钥不会被改动',
+  deployProvidersDone: '已部署提供商到 OpenCode：{n}',
+  deployProvidersError: '部署提供商到 OpenCode 失败',
+  deployInstr: '接入指令',
+  deployInstrTitle:
+    '将规范规则文件（config\\CLAUDE.md、RTK.md）按路径加入 opencode.json 的 instructions[]——不复制内容（幂等）',
+  deployInstrDone: '已接入指令到 OpenCode：{n}',
+  deployInstrError: '接入指令到 OpenCode 失败'
 };
