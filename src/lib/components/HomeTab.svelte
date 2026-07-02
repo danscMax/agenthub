@@ -14,6 +14,8 @@
     stack = null,
     sessionCount = null,
     busy = false,
+    components = null,
+    statuses = null,
     onOpen,
     onRefresh,
     onAction
@@ -26,6 +28,9 @@
     sessionCount?: number | null;
     /** U3: the global run lock is held — quick actions would be silent no-ops, so disable them. */
     busy?: boolean;
+    /** Redesign 2A: manifest components + their last-run envelopes feed the recent-runs strip. */
+    components?: { id: string; name: string }[] | null;
+    statuses?: Record<string, any> | null;
     onOpen: (id: string) => void;
     onRefresh?: () => void;
     onAction?: (id: string) => void;
@@ -123,12 +128,37 @@
     return out;
   });
 
-  const issues = $derived(chips.filter((c) => c.level === 'bad' || c.level === 'warn').length);
+  // Cockpit split (spec §4): problem chips get their own "needs attention" list with inline
+  // actions; the healthy/informational rest stays a compact grid.
+  const attention = $derived(chips.filter((c) => c.level === 'bad' || c.level === 'warn'));
+  const calm = $derived(chips.filter((c) => c.level !== 'bad' && c.level !== 'warn'));
+  const issues = $derived(attention.length);
   // U4: the quick-action bar shows ONE contextual stack button (like the stack chip), not both.
   const stackUp = $derived(((stack ?? []).filter((s) => s.enabled && s.running)).length);
   const overall = $derived(
     chips.some((c) => c.level === 'bad' || c.level === 'warn') ? 'warn' : chips.some((c) => c.level === 'ok') ? 'ok' : 'muted'
   );
+
+  // Recent runs (spec §4): the freshest *.last.json envelopes, newest first. Data the Updates
+  // tab already loads — pure re-aggregation, no new backend.
+  type Run = { id: string; name: string; level: Level; when: string; summary: string };
+  const runs = $derived.by<Run[]>(() => {
+    if (!statuses) return [];
+    const names = new Map((components ?? []).map((c) => [c.id, c.name]));
+    return Object.entries(statuses)
+      .map(([id, s]) => ({ id, s, ts: Date.parse(s?.timestamp ?? s?.generatedAt ?? '') }))
+      .filter((x) => x.s && Number.isFinite(x.ts))
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 6)
+      .map(({ id, s, ts }) => ({
+        id,
+        name: names.get(id) ?? id,
+        level: (s.status === 'error' ? 'bad' : s.status === 'held' || s.status === 'changes' ? 'warn' : 'ok') as Level,
+        when: ageStr((Date.now() - ts) / 3_600_000),
+        summary: typeof s.summary === 'string' ? s.summary : ''
+      }));
+  });
+  const lastRun = $derived(runs[0] ?? null);
 
   // Theme-aware status text colour (shared source; light theme darkens to meet WCAG contrast).
   const color = (level: Level) => statusTextClass(level);
@@ -145,10 +175,14 @@
     {/if}
   </header>
 
-  <div class="mb-sw-4 sw-card flex flex-wrap items-center gap-sw-2">
+  <!-- Status strip (spec §4): overall verdict + freshest run + quick actions in one line. -->
+  <div class="mb-sw-4 sw-card flex flex-wrap items-center gap-sw-3">
     <span class="badge {overall === 'ok' ? 'badge-ok' : overall === 'muted' ? 'badge-muted' : 'badge-warn'}">
       {overall === 'ok' ? t('page.home_allOk') : overall === 'muted' ? t('page.home_noData') : t('page.home_issues', { n: issues })}
     </span>
+    {#if lastRun}
+      <span class="text-sw-sm text-sw-text-muted">{t('page.home_lastMaint', { time: lastRun.when })}</span>
+    {/if}
     {#if onAction}
       <!-- F23: quick actions — run the same parent handlers the dedicated tabs use. -->
       <span class="ml-auto flex flex-wrap gap-sw-2">
@@ -163,17 +197,97 @@
     {/if}
   </div>
 
+  {#if overall === 'muted'}
+    <!-- First run: no data yet → a 3-step orientation instead of an empty grid. -->
+    <div class="sw-card mb-sw-4">
+      <h2 class="section-title mb-sw-3">{t('page.home_firstSteps')}</h2>
+      <ol class="flex flex-col gap-sw-2 text-sw-sm text-sw-text-secondary">
+        <li><button class="link-btn" onclick={() => onOpen('settings')}>1. {t('page.home_step1')}</button></li>
+        <li><button class="link-btn" disabled={busy} onclick={() => onAction?.('check-all')}>2. {t('page.home_step2')}</button></li>
+        <li><button class="link-btn" onclick={() => onOpen('sessions')}>3. {t('page.home_step3')}</button></li>
+      </ol>
+    </div>
+  {/if}
+
+  {#if attention.length}
+    <!-- Needs attention: only the problems, each with its inline fix + deep-link. -->
+    <h2 class="section-title mb-sw-2">{t('page.home_attention')}</h2>
+    <div class="mb-sw-4 flex flex-col gap-sw-2">
+      {#each attention as c (c.key)}
+        <div class="sw-card flex flex-wrap items-center gap-sw-3 !py-sw-2">
+          <span class="text-sw-xs uppercase tracking-wide text-sw-text-muted w-28 shrink-0">{c.title}</span>
+          <span class="font-medium {color(c.level)}">{c.value}</span>
+          <span class="ml-auto flex gap-sw-2">
+            {#if c.action && onAction}
+              <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy} onclick={() => onAction(c.action!.id)}>{c.action.label}</button>
+            {/if}
+            <button class="sw-btn sw-btn-ghost text-sw-xs" onclick={() => onOpen(c.tab)}>{t('common.open')}</button>
+          </span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <div class="card-grid">
-    {#each chips as c (c.key)}
+    {#each calm as c (c.key)}
       <div class="sw-card flex flex-col gap-1">
         <button class="flex flex-col gap-1 text-left" onclick={() => onOpen(c.tab)} title={t('common.open')}>
           <span class="text-sw-xs uppercase tracking-wide text-sw-text-muted">{c.title}</span>
           <span class="font-medium {color(c.level)}">{c.value}</span>
         </button>
         {#if c.action && onAction}
-          <button class="sw-btn sw-btn-ghost text-sw-xs self-start" onclick={() => onAction(c.action!.id)}>{c.action.label}</button>
+          <button class="sw-btn sw-btn-ghost text-sw-xs self-start" disabled={busy} onclick={() => onAction(c.action!.id)}>{c.action.label}</button>
         {/if}
       </div>
     {/each}
   </div>
+
+  {#if runs.length}
+    <!-- Recent runs: the freshest envelopes, one line each, deep-linking to the owner tab. -->
+    <h2 class="section-title mt-sw-6 mb-sw-2">{t('page.home_recentRuns')}</h2>
+    <div class="flex flex-col gap-sw-1">
+      {#each runs as r (r.id)}
+        <button class="run-row" onclick={() => onOpen(r.id === 'forks' ? 'forks' : 'updates')}>
+          <span class="{color(r.level)} font-medium">{r.level === 'ok' ? '✓' : r.level === 'bad' ? '✗' : '•'}</span>
+          <span class="font-medium">{r.name}</span>
+          <span class="text-sw-text-muted text-sw-sm">{r.when}</span>
+          {#if r.summary}<span class="truncate text-sw-sm text-sw-text-secondary">{r.summary}</span>{/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
+
+<style>
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .link-btn:hover:not(:disabled) {
+    color: var(--sw-text-primary);
+    text-decoration: underline;
+  }
+  .run-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sw-space-3);
+    padding: var(--sw-space-2) var(--sw-space-3);
+    border: none;
+    border-radius: var(--sw-radius-sm);
+    background: transparent;
+    color: var(--sw-text-primary);
+    font-family: inherit;
+    font-size: var(--sw-text-base);
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+  }
+  .run-row:hover {
+    background: var(--sw-bg-hover);
+  }
+</style>

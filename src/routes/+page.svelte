@@ -1956,7 +1956,7 @@
       >
       {#if active === 'home'}
         <HomeTab profiles={profilesData} sync={syncData} drift={driftData} schedules={schedulesData}
-          stack={stackData} sessionCount={homeSessionCount} busy={!!running}
+          stack={stackData} sessionCount={homeSessionCount} busy={!!running} {components} {statuses}
           onOpen={(id) => (active = id)} onRefresh={reloadHome} onAction={onHomeAction} />
       {:else if active === 'updates'}
         <UpdatesTab {components} {statuses} {running} {onCheck} {onApply} onOpenTab={(id) => (active = id)} />

@@ -171,7 +171,18 @@ const handlers: Record<string, (args: any) => any> = {
     { id: 'opencode', name: 'opencode', group: 'agents', lastJson: 'opencode.last.json', supportsApply: true },
     { id: 'cargo', name: 'Cargo bins', group: 'tools', lastJson: 'cargo.last.json', supportsApply: true }
   ]),
-  read_status: (a) => (typeof a?.path === 'string' && a.path.toLowerCase().includes('fork') ? forkStatus : null),
+  read_status: (a) => {
+    const p = typeof a?.path === 'string' ? a.path.toLowerCase() : '';
+    if (p.includes('fork')) return forkStatus;
+    // Last-run envelopes for the Home recent-runs feed (schema = tools/ScriptKit.ps1 Write-StatusJson).
+    const env = (component: string, status: string, timestamp: string, durationSec: number, changed: number, summary: string) =>
+      ({ schemaVersion: 1, component, status, timestamp, mode: 'apply', durationSec, counts: { changed, failed: 0, total: changed }, summary });
+    if (p.includes('plugins')) return env('plugins', 'ok', '2026-06-25T08:40:00Z', 41, 3, '3 plugins updated, 2 already current');
+    if (p.includes('rtk')) return env('rtk', 'ok', '2026-06-25T08:35:00Z', 12, 1, 'rtk 0.9.4 -> 0.9.5');
+    if (p.includes('opencode')) return env('opencode', 'changes', '2026-06-25T08:30:00Z', 8, 1, 'update available: 1.17.9 -> 1.17.11');
+    if (p.includes('cargo')) return env('cargo', 'ok', '2026-06-24T03:10:00Z', 95, 0, 'all 12 binaries current');
+    return null;
+  },
 
   // --- Profiles ---
   read_profiles: () => ({
