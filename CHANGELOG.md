@@ -3,7 +3,21 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] — 2026-07-02
+## [0.6.1] — 2026-07-02
+
+A same-day hotfix for v0.6.0 plus the Codex fan-outs that complete the multi-environment story.
+
+### Fixed
+- **Terminal panes were broken in v0.6.0** — the Unicode-11 width addon (new in 0.6.0) requires xterm's `allowProposedApi` flag; without it the addon threw during pane setup and aborted the whole mount, leaving every session pane empty and unresponsive. If you are on 0.6.0, update.
+
+### Added
+- **MCP fan-out to Codex** — one click writes the canonical `.mcp.json` servers into Codex via the official `codex mcp add` CLI (upsert; user-added servers untouched). Verified live: registered servers load in a session and their tools resolve through Codex tool search.
+- **Connect the freellmapi gateway to Codex** — writes `[model_providers.freellmapi]` + a `[profiles.freellmapi]` into `~/.codex/config.toml` (format-preserving, your default model untouched) and mirrors the gateway's API key into the `FREELLMAPI_API_KEY` user variable, so `codex --profile freellmapi` runs your local free models with zero manual setup. The raw provider registry is deliberately not fanned out: Codex speaks only the Responses wire API, and chat-completions/anthropic endpoints would silently fail.
+
+### Docs
+- **README showcases the Environments tab** (screenshot + feature row, en/ru/zh) and all screenshots are refreshed to the post-audit UI.
+
+
 
 The multi-environment release: a new **Environments** tab makes Castellyn aware of every AI-coding harness on the machine (Claude Code, OpenCode, Codex) and pushes the canonical skills / MCP / providers / rules into OpenCode with one click. On top of that: two full improvement waves (35 product items + a 40-item UI/UX audit), an SSH security fix, and richer MCP / backup / analytics management.
 
