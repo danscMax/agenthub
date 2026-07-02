@@ -6,9 +6,9 @@
   "decisions": {
     "U1": "Хоткеи следуют видимому порядку сайдбара (общий store из cmh-sidebar-order) — подтверждено пользователем",
     "V6": "Полная унификация в SVG — подтверждено пользователем",
-    "V2": "ДЕФОЛТ (needs_confirmation): адаптивные колонки — пользователь отошёл, не подтвердил",
-    "R3": "ДЕФОЛТ (needs_confirmation): reveal(app) перед confirm — альтернатива: выполнять из трея без confirm + уведомление",
-    "U7": "ДЕФОЛТ (needs_confirmation): демотировать до ghost-danger в шапке — альтернатива: убрать в overflow-меню"
+    "V2": "ПОДТВЕРЖДЕНО пользователем 2026-07-02 (пост-фактум): адаптивные колонки",
+    "R3": "ПОДТВЕРЖДЕНО пользователем 2026-07-02 (пост-фактум): reveal(app) перед confirm",
+    "U7": "ПОДТВЕРЖДЕНО пользователем 2026-07-02 (пост-фактум): демотировать до ghost-danger в шапке"
   },
   "gates_after_each_wave": [
     "npm run check (0/0)",
@@ -42,8 +42,8 @@
           "line": 7599,
           "title": "Трей stack_stop зависает в скрытом окне",
           "fix_approach": "ДЕФОЛТ: добавить reveal(app) в армы stack_start/stack_stop/cancel_all (или минимум stack_stop); опционально тост «стек запускается…» при stack_start",
-          "decision_resolved": false,
-          "needs_confirmation": true,
+          "decision_resolved": true,
+          "needs_confirmation": false,
           "approved": true,
           "effort": "S",
           "risk": "low",
@@ -315,8 +315,8 @@
           "line": 0,
           "title": "Красный «Переустановить» в шапке",
           "fix_approach": "ДЕФОЛТ: демотировать до ghost-danger (рамка/текст красные, фон прозрачный) — остаётся на месте, но не громче «Проверить»",
-          "decision_resolved": false,
-          "needs_confirmation": true,
+          "decision_resolved": true,
+          "needs_confirmation": false,
           "approved": true,
           "effort": "S",
           "risk": "low",
@@ -452,8 +452,8 @@
           "line": 303,
           "title": "h-скролл таблиц на 1440",
           "fix_approach": "ДЕФОЛТ: адаптивные колонки — вторичные (Язык/★/Обновлён; Маркетплейс/Состав) скрывать/сжимать через container query или брейкпоинт; кнопки действий всегда видимы",
-          "decision_resolved": false,
-          "needs_confirmation": true,
+          "decision_resolved": true,
+          "needs_confirmation": false,
           "approved": true,
           "effort": "M",
           "risk": "med — трогает общий DataTable/columns конфиг",
@@ -572,5 +572,5 @@
       ]
     }
   ],
-  "implementation_status": "DONE 2026-07-02: all 40 items implemented on fix/improve-2026-07-02 (5 waves, commits 7f231a0, f60f44a, 5a941ad, 36b3073, 5e1e704), merged to main. Gates green per wave: svelte-check 0/0, vitest 37/37, cargo check + cargo test 37/37, i18n parity 1599, vite build. Live-verified via the playwright mock harness (plans/ui-review/2026-07-02/after/): R2 tab restore, R5 spawn-error toast + console reveal, V1/V2 tables fit, V5 plurals, U4 contextual stack button, U5 grouped cheatsheet, R4 onboarding save-on-next, V6 SVG icons, V7 grid alignment. The three needs_confirmation forks shipped on their defaults (V2 adaptive columns, R3 reveal+confirm, U7 ghost-danger demote) тАФ flag to revisit if the owner prefers the alternatives. U2 report claim corrected during implementation: backdrop click-through was a Playwright artifact; the real fixes were Escape + close-under-palette."
+  "implementation_status": "DONE 2026-07-02: all 40 items implemented on fix/improve-2026-07-02 (5 waves, commits 7f231a0, f60f44a, 5a941ad, 36b3073, 5e1e704), merged to main. Gates green per wave: svelte-check 0/0, vitest 37/37, cargo check + cargo test 37/37, i18n parity 1599, vite build. Live-verified via the playwright mock harness (plans/ui-review/2026-07-02/after/): R2 tab restore, R5 spawn-error toast + console reveal, V1/V2 tables fit, V5 plurals, U4 contextual stack button, U5 grouped cheatsheet, R4 onboarding save-on-next, V6 SVG icons, V7 grid alignment. The three forks (V2 adaptive columns, R3 reveal+confirm, U7 ghost-danger demote) shipped on their defaults and were CONFIRMED by the owner post-factum on 2026-07-02. U2 report claim corrected during implementation: backdrop click-through was a Playwright artifact; the real fixes were Escape + close-under-palette."
 }
