@@ -6528,6 +6528,62 @@ fn run_codex_mcp() -> Result<usize, String> {
     Ok(count)
 }
 
+/// Merge the freellmapi gateway into Codex's config.toml text: a `[model_providers.freellmapi]`
+/// table (Responses API — the gateway ships a /v1/responses shim) plus a `[profiles.freellmapi]`
+/// so `codex --profile freellmapi` just works. Format-preserving via toml_edit. Canonical fields
+/// (name/base_url/env_key, profile's model_provider) overwrite; the profile `model` is only
+/// seeded when absent so a user's model choice survives a re-deploy. The top-level
+/// `model`/`model_provider` are never touched — the user's ChatGPT default stays.
+/// Raw myproviders.json entries are deliberately NOT fanned out to Codex: it speaks only the
+/// Responses wire API (WireApi enum has no `chat` since 2026-02), so chat-completions/anthropic
+/// endpoints would register but silently fail.
+fn patch_codex_gateway(toml_text: &str, base_url: &str) -> Result<String, String> {
+    use toml_edit::{value, DocumentMut, Item, Table};
+    let mut doc: DocumentMut = toml_text
+        .parse()
+        .map_err(|e| format!("parse config.toml: {e}"))?;
+
+    fn subtable<'a>(parent: &'a mut Table, key: &str) -> &'a mut Table {
+        if !parent.contains_key(key) || parent.get(key).and_then(Item::as_table).is_none() {
+            let mut t = Table::new();
+            t.set_implicit(true);
+            parent.insert(key, Item::Table(t));
+        }
+        parent.get_mut(key).unwrap().as_table_mut().unwrap()
+    }
+
+    let providers = subtable(doc.as_table_mut(), "model_providers");
+    let p = subtable(providers, "freellmapi");
+    p.insert("name", value("FreeLLMAPI"));
+    p.insert("base_url", value(format!("{base_url}/v1")));
+    p.insert("env_key", value("FREELLMAPI_API_KEY"));
+
+    let profiles = subtable(doc.as_table_mut(), "profiles");
+    let prof = subtable(profiles, "freellmapi");
+    prof.insert("model_provider", value("freellmapi"));
+    if !prof.contains_key("model") {
+        prof.insert("model", value("kimi-k2-thinking"));
+    }
+
+    Ok(doc.to_string())
+}
+
+/// Connect the freellmapi gateway to Codex (the "providers" fan-out for Codex — see
+/// `patch_codex_gateway` for why the raw registry is not written). Returns 1 on success.
+/// The API key stays a reference: the user sets FREELLMAPI_API_KEY in the environment.
+#[tauri::command]
+fn run_codex_providers() -> Result<usize, String> {
+    let base = gateway_base_url().ok_or_else(|| tr("err.gateway_missing", cur_lang()).to_string())?;
+    let home = std::env::var("USERPROFILE")
+        .map_err(|_| tr("err.no_userprofile", cur_lang()).to_string())?;
+    let cfg_path = format!("{home}\\.codex\\config.toml");
+    let text = std::fs::read_to_string(&cfg_path)
+        .map_err(|_| tr("err.codex_missing", cur_lang()).to_string())?;
+    let patched = patch_codex_gateway(text.trim_start_matches('\u{feff}'), &base)?;
+    write_json_atomic(&cfg_path, &patched).map_err(|e| format!("write config.toml: {e}"))?;
+    Ok(1)
+}
+
 /// Canonical rule files fanned into OpenCode's `instructions` array (paths, not copies —
 /// OpenCode reads them in place, so edits propagate without a re-deploy).
 const CANON_RULES_REL: [&str; 2] = [
@@ -6609,6 +6665,27 @@ mod opencode_fanout_tests {
     fn provider_entry_rejects_unusable_names() {
         assert!(super::opencode_provider_entry(&json!({ "name": "имя с пробелом", "baseUrl": "https://x" })).is_none());
         assert!(super::opencode_provider_entry(&json!({ "name": "ok", "baseUrl": "" })).is_none());
+    }
+
+    #[test]
+    fn codex_gateway_patch_preserves_config_and_user_model() {
+        let existing = "# my codex\nmodel = \"gpt-5.5\"\n\n[profiles.freellmapi]\nmodel = \"auto\"\n";
+        let out = super::patch_codex_gateway(existing, "http://localhost:13001").unwrap();
+        // comment + top-level model untouched; provider table written; user's profile model kept
+        assert!(out.contains("# my codex"));
+        assert!(out.contains("model = \"gpt-5.5\""));
+        assert!(out.contains("[model_providers.freellmapi]"));
+        assert!(out.contains("base_url = \"http://localhost:13001/v1\""));
+        assert!(out.contains("env_key = \"FREELLMAPI_API_KEY\""));
+        assert!(out.contains("model = \"auto\""));
+        assert!(!out.contains("model = \"kimi-k2-thinking\""));
+        // fresh config: profile model seeded, top-level model_provider NOT set
+        let fresh = super::patch_codex_gateway("", "http://localhost:13001").unwrap();
+        assert!(fresh.contains("model = \"kimi-k2-thinking\""));
+        // the profile sets model_provider, but the TOP-LEVEL default must stay untouched
+        let doc: toml_edit::DocumentMut = fresh.parse().unwrap();
+        assert!(doc.get("model_provider").is_none());
+        assert!(doc.get("model").is_none());
     }
 
     #[test]
@@ -9224,6 +9301,7 @@ pub fn run() {
             run_opencode_providers,
             run_opencode_instructions,
             run_codex_mcp,
+            run_codex_providers,
             list_plugin_updates,
             list_plugin_contents,
             list_plugin_releases,

@@ -66,5 +66,10 @@ export default {
   deployMcpTitleCodex:
     '通过官方 `codex mcp add` 将规范 .mcp.json 中的 MCP 服务器写入 Codex（幂等，不改动用户自加的服务器）',
   deployMcpDoneCodex: '已部署 MCP 到 Codex：{n}',
-  deployMcpErrorCodex: '部署 MCP 到 Codex 失败'
+  deployMcpErrorCodex: '部署 MCP 到 Codex 失败',
+  connectGateway: '接入网关',
+  connectGatewayTitle:
+    '将 freellmapi 网关写入 Codex 的 config.toml（[model_providers] + 配置档）。密钥仅为 env 引用（FREELLMAPI_API_KEY）；不改变 Codex 默认模型',
+  connectGatewayDone: '网关已接入：codex --profile freellmapi（需要 env FREELLMAPI_API_KEY）',
+  connectGatewayError: '接入网关到 Codex 失败'
 };

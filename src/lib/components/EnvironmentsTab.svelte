@@ -221,6 +221,8 @@
               <div class="flex flex-wrap gap-sw-2">
                 <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
                   onclick={() => onDeployMcp(e.id)} title={t('environments.deployMcpTitleCodex')}>{t('environments.deployMcp')}</button>
+                <button class="sw-btn sw-btn-ghost text-sw-xs" disabled={busy}
+                  onclick={() => onDeployProviders(e.id)} title={t('environments.connectGatewayTitle')}>{t('environments.connectGateway')}</button>
               </div>
             {/if}
 

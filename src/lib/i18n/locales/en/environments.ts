@@ -66,5 +66,10 @@ export default {
   deployMcpTitleCodex:
     'Write MCP servers from the canonical .mcp.json into Codex via the official `codex mcp add` (idempotent, user-added servers untouched)',
   deployMcpDoneCodex: 'MCP deployed to Codex: {n}',
-  deployMcpErrorCodex: 'Failed to deploy MCP to Codex'
+  deployMcpErrorCodex: 'Failed to deploy MCP to Codex',
+  connectGateway: 'Connect gateway',
+  connectGatewayTitle:
+    "Write the freellmapi gateway into Codex's config.toml ([model_providers] + a profile). The key stays an env reference (FREELLMAPI_API_KEY); Codex's default model is not changed",
+  connectGatewayDone: 'Gateway connected: codex --profile freellmapi (needs env FREELLMAPI_API_KEY)',
+  connectGatewayError: 'Failed to connect the gateway to Codex'
 };

@@ -41,6 +41,7 @@ keyring = { version = "3", features = ["windows-native"] }
 # its TUI renders (xterm.js on the frontend). Output streams as raw bytes over a Tauri channel.
 portable-pty = "0.8"
 tauri-plugin-process = "2"
+toml_edit = "0.25.12"
 
 # Win32 Job Object so PTY child trees (pwsh → claude/node, ssh.exe) die with the app instead of
 # orphaning on a kill/crash. Windows-only; no-op stub elsewhere.

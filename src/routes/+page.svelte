@@ -142,7 +142,7 @@
   import { pushRun } from '$lib/runHistory.svelte';
   import { deriveOutcome } from '$lib/outcome';
   import { t, locale } from '$lib/i18n';
-  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, runOpencodeProviders, runOpencodeInstructions, runCodexMcp, type EnvInfo, type SkillRow } from '$lib/ipc';
+  import { setLanguage, readEnvironments, readSkillMatrix, shareSkills, runOpencodeRtk, runOpencodeMcp, runOpencodeProviders, runOpencodeInstructions, runCodexMcp, runCodexProviders, type EnvInfo, type SkillRow } from '$lib/ipc';
 
   let components = $state<Component[]>([]);
   let statuses = $state<Record<string, any>>({});
@@ -790,6 +790,8 @@
   const onDeployProviders = (id: string) => {
     if (id === 'opencode')
       void deployToHarness(runOpencodeProviders, 'environments.deployProvidersDone', 'environments.deployProvidersError');
+    else if (id === 'codex')
+      void deployToHarness(runCodexProviders, 'environments.connectGatewayDone', 'environments.connectGatewayError');
   };
   const onDeployInstructions = (id: string) => {
     if (id === 'opencode')

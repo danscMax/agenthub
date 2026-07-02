@@ -66,5 +66,10 @@ export default {
   deployMcpTitleCodex:
     'Записать MCP-серверы из канонического .mcp.json в Codex через официальный `codex mcp add` (идемпотентно, свои серверы не трогаются)',
   deployMcpDoneCodex: 'MCP развёрнуты в Codex: {n}',
-  deployMcpErrorCodex: 'Не удалось развернуть MCP в Codex'
+  deployMcpErrorCodex: 'Не удалось развернуть MCP в Codex',
+  connectGateway: 'Подключить гейтвей',
+  connectGatewayTitle:
+    'Записать freellmapi-гейтвей в config.toml Codex ([model_providers] + профиль). Ключ — только ссылка на env FREELLMAPI_API_KEY; дефолтная модель Codex не меняется',
+  connectGatewayDone: 'Гейтвей подключён: codex --profile freellmapi (нужна env FREELLMAPI_API_KEY)',
+  connectGatewayError: 'Не удалось подключить гейтвей к Codex'
 };
