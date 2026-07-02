@@ -3,7 +3,31 @@
 All notable changes to **Castellyn** are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.3] — 2026-06-26
+## [0.6.0] — 2026-07-02
+
+The multi-environment release: a new **Environments** tab makes Castellyn aware of every AI-coding harness on the machine (Claude Code, OpenCode, Codex) and pushes the canonical skills / MCP / providers / rules into OpenCode with one click. On top of that: two full improvement waves (35 product items + a 40-item UI/UX audit), an SSH security fix, and richer MCP / backup / analytics management.
+
+### Added
+- **Environments tab** — per-harness overview of skills, providers, MCP servers and RTK state; one-click **skill sharing** via directory junctions (with dangling-junction repair); a per-skill × harness coverage matrix; an RTK command-rewriting toggle for OpenCode (Windows-safe plugin pinned to the absolute `rtk` path).
+- **Fan-out to OpenCode** — three idempotent merge-patch deploys from the canonical store: MCP servers (`.mcp.json` → `mcp` block), the provider registry (`myproviders.json` → `provider` block; API keys are written only as `{env:…}` references and manually bound keys are never overwritten), and the canonical rule files attached to `instructions[]` by path, no copying. Codex fan-out is deliberately deferred (upstream `config.toml` MCP loading is unreliable).
+- **MCP management from the UI** — add/edit/remove canonical servers and clear extras, no more hand-editing `.mcp.json`.
+- **Backup** — delete a single snapshot from the UI; weekly maintenance operations.
+- **Analytics** — script-run duration histogram by day.
+- **Sessions** — Codex terminal tool and a fork-terminal picker; find/new-session moved to `Ctrl+Shift+F` / `Ctrl+Shift+T` so they no longer collide with terminal keys.
+- **Forks** — direct fast-forward from the card; **Schedule** — reschedule a task in place; **Providers** — reuse a saved preset when connecting.
+
+### Fixed
+- **Security: SSH argv flag-smuggling** — the `sshTarget` validator now rejects values that could smuggle extra `ssh` flags through the session launcher.
+- **Reliability** — config/provider data guarded against corruption and key loss; honest run feedback (a `held` component no longer reads as "up to date"; a finished operational run reads its real status envelope); spawn errors surface as a toast and auto-reveal the console.
+- **The last active tab is restored again** — the persist effect ran before the restore and overwrote the saved tab, so the app always opened on Updates.
+- **Tray actions confirm in a visible window** — Stop stack / Start stack from the tray reveal the window instead of waiting on a confirm dialog nobody can see.
+- **Onboarding no longer discards an unsaved scripts folder** — "Next" saves it implicitly.
+
+### Changed
+- **UI/UX audit wave (40 items)** — hotkeys and `Ctrl+1…9` follow the visible sidebar order; grouped hotkey cheatsheet; tables fit a 1440-wide window without horizontal scroll; one SVG icon language (no emoji/unicode mix); correct Russian plurals; window chrome dims when unfocused; dialogs submit on Enter; ~50 dead i18n keys removed.
+- **Performance** — the on-focus plugin check is throttled, skill scans are memoized, palette/set lookups use `Set` membership.
+
+
 
 A hardening pass: backend stability, tighter security defaults, accessibility, faster startup, and power-user keyboard control — no behaviour changes to the workflows themselves.
 
