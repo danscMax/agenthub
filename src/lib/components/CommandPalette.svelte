@@ -137,7 +137,7 @@
     border-bottom: 1px solid var(--sw-border);
     background: transparent;
     color: var(--sw-text-primary);
-    font-size: 0.95rem;
+    font-size: var(--sw-text-lg);
     outline: none;
   }
   .list {

@@ -329,7 +329,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--sw-space-2);
-    padding: 10px 12px;
+    padding: var(--sw-space-3);
     border-bottom: 1px solid var(--sw-border);
   }
   .dt-search {
@@ -342,7 +342,7 @@
     display: flex;
     align-items: center;
     gap: var(--sw-space-2);
-    padding: 8px 12px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     border-bottom: 1px solid var(--sw-border);
     background: var(--sw-accent-glow, rgba(59, 130, 246, 0.12));
     font-size: var(--sw-text-xs);
@@ -426,9 +426,9 @@
     background: var(--sw-bg-secondary);
     border-bottom: 1px solid var(--sw-border);
     box-shadow: 0 1px 0 var(--sw-border);
-    padding: 8px 14px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     text-align: left;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -447,7 +447,7 @@
     gap: 5px;
     width: 100%;
     height: 100%;
-    padding: 8px 14px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     border: none;
     background: transparent;
     color: inherit;
@@ -486,7 +486,7 @@
     opacity: 0.5;
   }
   .dt tbody td {
-    padding: 8px 14px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     border-bottom: 1px solid var(--sw-border);
     vertical-align: middle;
     height: 38px;
@@ -546,7 +546,7 @@
     border: none;
     color: var(--sw-text-muted);
     cursor: pointer;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     padding: 2px 4px;
     line-height: 1;
   }
@@ -558,7 +558,7 @@
     padding: 0 14px 0 42px;
   }
   .dt-detail-inner {
-    padding: 10px 0 14px;
+    padding: var(--sw-space-3) 0 var(--sw-space-4);
   }
   .dt-empty {
     text-align: center;

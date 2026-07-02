@@ -442,7 +442,7 @@
 
 <style>
   .dt-summary {
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     font-weight: 600;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -473,7 +473,7 @@
     border-radius: 9999px;
     background: var(--sw-bg-subtle);
     border: 1px solid var(--sw-border);
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
     white-space: nowrap;
   }
@@ -489,7 +489,7 @@
   }
   .ver {
     font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
     white-space: nowrap;
   }
@@ -526,7 +526,7 @@
     padding: 1px 8px;
     border-radius: 9999px;
     border: 1px solid var(--sw-border);
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     vertical-align: middle;
   }
   .srcbadge.own {
@@ -605,7 +605,7 @@
     background: var(--sw-bg-secondary);
     border: 1px solid var(--sw-border);
     font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     color: var(--sw-text-secondary);
   }
   /* Changelog modal */
@@ -658,7 +658,7 @@
   }
   .cl-errdetail {
     font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     opacity: 0.7;
   }
   .cl-release {
@@ -684,7 +684,7 @@
     color: var(--sw-accent-text);
   }
   .cl-date {
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     color: var(--sw-text-muted);
   }
   .cl-release-name {
@@ -694,7 +694,7 @@
   }
   .cl-notes {
     font-family: 'Cascadia Code', 'Consolas', monospace;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     line-height: 1.6;
     color: var(--sw-text-secondary);
     white-space: pre-wrap;

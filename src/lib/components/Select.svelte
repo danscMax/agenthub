@@ -136,7 +136,7 @@
     justify-content: space-between;
     gap: 8px;
     width: 100%;
-    padding: 7px 10px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-md);
     background: var(--sw-input-bg);
@@ -187,7 +187,7 @@
     position: fixed;
     z-index: 60;
     margin: 0;
-    padding: 4px;
+    padding: var(--sw-space-1);
     list-style: none;
     max-height: 280px;
     overflow-y: auto;

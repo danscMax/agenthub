@@ -85,7 +85,7 @@
 <style>
   h3 {
     margin: 0 0 var(--sw-space-2);
-    font-size: 1rem;
+    font-size: var(--sw-text-lg);
     font-weight: 600;
     color: var(--sw-text-primary);
   }

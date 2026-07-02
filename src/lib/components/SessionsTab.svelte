@@ -1432,7 +1432,7 @@
     background: transparent;
     color: var(--sw-text-primary);
     cursor: pointer;
-    padding: 3px 10px;
+    padding: var(--sw-space-1) var(--sw-space-2);
     font-size: var(--sw-text-xs);
     white-space: nowrap;
   }
@@ -1526,7 +1526,7 @@
     color: var(--sw-danger);
   }
   .argchip {
-    padding: 3px 8px;
+    padding: var(--sw-space-1) var(--sw-space-2);
     border: 1px solid var(--sw-border);
     border-radius: 9999px;
     background: transparent;
@@ -1556,7 +1556,7 @@
     background: transparent;
     color: var(--sw-text-secondary);
     cursor: pointer;
-    padding: 3px 8px;
+    padding: var(--sw-space-1) var(--sw-space-2);
     font-size: var(--sw-text-xs);
   }
   .ws-go:hover {
@@ -1590,7 +1590,7 @@
     align-items: center;
     gap: 6px;
     max-width: 220px;
-    padding: 3px 10px;
+    padding: var(--sw-space-1) var(--sw-space-2);
     border: 1px solid var(--sw-border);
     border-radius: 9999px;
     background: transparent;

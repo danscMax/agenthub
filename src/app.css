@@ -36,6 +36,8 @@
   --text-sw-xs: var(--sw-text-xs);
   --text-sw-sm: var(--sw-text-sm);
   --text-sw-base: var(--sw-text-base);
+  --text-sw-lg: var(--sw-text-lg);
+  --text-sw-xl: var(--sw-text-xl);
 
   /* Sizing → w-sw-sidebar / h-sw-titlebar */
   --width-sw-sidebar: var(--sw-sidebar-width);
@@ -108,6 +110,9 @@
   --sw-text-xs: 0.6875rem;
   --sw-text-sm: 0.75rem;
   --sw-text-base: 0.875rem;
+  /* Typography canon (redesign spec §1): lg = section/dialog headings, xl = page titles. */
+  --sw-text-lg: 0.95rem;
+  --sw-text-xl: 1.25rem;
   --sw-sidebar-width: 16rem;
   --sw-titlebar-height: 36px;
   --sw-radius-sm: 0.375rem;
@@ -157,6 +162,8 @@
     font-family: Inter, 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Metrics/counters keep a fixed digit width — numbers don't jiggle on refresh (spec §1). */
+    font-variant-numeric: tabular-nums;
   }
   /* a11y: keyboard focus is always visible on interactive controls. */
   button:focus-visible,

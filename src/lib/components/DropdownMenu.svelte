@@ -128,7 +128,7 @@
     z-index: 60;
     display: flex;
     flex-direction: column;
-    padding: 4px;
+    padding: var(--sw-space-1);
     background: var(--sw-bg-secondary);
     border: 1px solid var(--sw-border);
     border-radius: var(--sw-radius-md);
@@ -136,7 +136,7 @@
   }
   .item {
     text-align: left;
-    padding: 6px 10px;
+    padding: var(--sw-space-2) var(--sw-space-3);
     border: none;
     background: transparent;
     color: var(--sw-text-primary);

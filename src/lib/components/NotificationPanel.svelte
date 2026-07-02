@@ -159,7 +159,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     font-weight: 700;
   }
   .icon-success { background: color-mix(in srgb, var(--sw-success) 20%, transparent); color: var(--sw-success); }
@@ -180,7 +180,7 @@
     word-break: break-word;
   }
   .entry-time {
-    font-size: 11px;
+    font-size: var(--sw-text-xs);
     color: var(--sw-text-muted);
     margin-top: 4px;
   }

@@ -266,7 +266,7 @@
   }
   .collapsed .nav-item {
     justify-content: center;
-    padding: 11px 0;
+    padding: var(--sw-space-3) 0;
     gap: 0;
   }
   .collapsed .att {
@@ -330,7 +330,7 @@
     background: transparent;
     color: var(--sw-text-muted);
     font-family: inherit;
-    font-size: 0.68rem;
+    font-size: var(--sw-text-xs);
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -371,12 +371,12 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 11px 14px;
+    padding: var(--sw-space-3);
     border: none;
     border-radius: var(--sw-radius-md);
     background: transparent;
     color: var(--sw-text-secondary);
-    font-size: 0.92rem;
+    font-size: var(--sw-text-base);
     font-family: inherit;
     /* grab cursor hints the items are draggable/reorderable (see collapse-btn tooltip) */
     cursor: grab;
@@ -459,12 +459,12 @@
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 11px 14px;
+    padding: var(--sw-space-3);
     border: none;
     border-radius: var(--sw-radius-md);
     background: transparent;
     color: var(--sw-text-secondary);
-    font-size: 0.92rem;
+    font-size: var(--sw-text-base);
     font-family: inherit;
     cursor: pointer;
     text-align: left;
@@ -476,7 +476,7 @@
   }
   .collapsed .notif-btn {
     justify-content: center;
-    padding: 11px 0;
+    padding: var(--sw-space-3) 0;
   }
   .collapsed .notif-area {
     /* same padding as .collapsed .brand for alignment */
