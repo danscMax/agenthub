@@ -150,15 +150,15 @@
   let log = $state<string[]>([]);
   /** Cap the console buffer so a chatty/stuck script can't grow it without bound. */
   const MAX_LOG = 5000;
-  const NAV_IDS = ['home', 'updates', 'forks', 'backup', 'profiles', 'mcp', 'envs', 'sync', 'providers', 'sessions', 'analytics', 'extensions', 'schedule', 'settings'];
   // R2: restore the saved tab HERE, in the state initializer — the persist $effect below is created
   // before onMount runs, so restoring in onMount let the effect overwrite the key with the default
   // first (the app always opened on one tab). U12: default landing tab is the Home overview.
+  // Validated against navOrder.ids (module-initialized before this runs) — the one tab-id list.
   let active = $state(
     (() => {
       try {
         const saved = localStorage.getItem('cmh-active-tab');
-        return saved && NAV_IDS.includes(saved) ? saved : 'home';
+        return saved && navOrder.ids.includes(saved) ? saved : 'home';
       } catch {
         return 'home';
       }
@@ -1471,8 +1471,7 @@
     if (active === 'sessions') sessionsEverOpened = true;
   });
 
-  // Command palette (Ctrl+K): jump to any tab + a few quick actions. (NAV_IDS is declared with
-  // `active` above so the saved-tab restore can validate against it.)
+  // Command palette (Ctrl+K): jump to any tab + a few quick actions.
   let paletteOpen = $state(false);
   let hotkeyHelpOpen = $state(false);
   // Phase 4.2 — after a palette navigation, briefly scroll to + highlight a specific item in the target tab.
