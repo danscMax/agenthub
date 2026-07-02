@@ -40,7 +40,8 @@ output; the Svelte UI renders their `*.last.json` status envelopes.
   - Config: `HubConfig` in `%APPDATA%\castellyn\config.json` (`config_path()`), with a
     legacy-path read fallback (`legacy_config_path`) kept for the pre-rename location.
   - Autostart: HKCU\…\Run value `Castellyn` (`AUTOSTART_NAME`); migrated once from `AgentHub`.
-  - Tray menu strings are **hardcoded Russian** and NOT internationalized (separate surface).
+  - Tray menu labels are **localized** via `src-tauri/src/i18n.rs` (`tr("tray.*", lang)`,
+    ~`lib.rs:7548`); `set_language` relabels the tray live when the UI locale changes.
 - **Frontend** (`src/`):
   - `routes/+page.svelte` — the orchestrator: tab state, all `run_*`/`read_*` calls,
     the confirm dialog (`askConfirm`/`doConfirm`), run-log + toasts.
